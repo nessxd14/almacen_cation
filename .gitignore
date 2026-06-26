@@ -23,8 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
-Add-Content .gitignore @"
-
 # Secrets
 .env
 .env.*
@@ -32,4 +30,3 @@ Add-Content .gitignore @"
 
 # Supabase local
 supabase/.temp/
-"@
