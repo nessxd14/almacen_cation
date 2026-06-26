@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen,
-  Warehouse, History, LogOut, Loader2, ShieldCheck, User,
+  Warehouse, History, LogOut, Loader2, ShieldCheck, User, LineChart,
 } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
@@ -11,6 +11,7 @@ import OperacionesApp     from "./OperacionesApp";
 import CatalogoApp        from "./CatalogoApp";
 import InventarioApp      from "./InventarioApp";
 import HistorialApp       from "./HistorialApp";
+import AnaliticaApp       from "./AnaliticaApp";
 import AdminApp           from "./AdminApp";
 import Login              from "./auth/Login";
 import { useAuth }        from "./auth/AuthProvider";
@@ -19,6 +20,7 @@ const TABS = [
   { id: "catalogo",   label: "Catálogo",     icon: BookOpen,        Comp: CatalogoApp },
   { id: "inventario", label: "Inventario",   icon: Warehouse,       Comp: InventarioApp },
   { id: "historial",  label: "Historial",    icon: History,         Comp: HistorialApp },
+  { id: "analitica",  label: "Analítica",    icon: LineChart,       Comp: AnaliticaApp },
   { id: "conteo",     label: "Conteo",       icon: ClipboardList,   Comp: ConteoApp },
   { id: "concilia",   label: "Conciliación", icon: Scale,           Comp: ReconciliacionApp },
   { id: "huerfanos",  label: "Huérfanos",    icon: ArrowUpFromLine, Comp: PromocionHuerfanos },

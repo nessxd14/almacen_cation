@@ -55,10 +55,23 @@ Hecho:
 Nota: el smoke test HTTP desde el entorno de desarrollo está bloqueado por la
 política de egress (403 en CONNECT a supabase.co); probar desde Shopify o un POST firmado.
 
-## Fase 5 — Costos y analítica
+## Fase 5 — Costos y analítica (HECHO)
 
-- Valuación por **promedio ponderado móvil** desde el Kardex (vista derivada); FIFO queda descartado salvo que se agregue tracking de lotes.
-- `stock_min` / `punto_reorden` en `producto` + vista "necesita reposición" y velocidad de rotación desde las salidas.
+Backend desplegado (`supabase/migrations/20260626_05_fase5_costos_reorden.sql`):
+- `f_valuacion_inventario()`: **promedio ponderado móvil** por producto recorriendo
+  el Kardex en orden. El promedio solo cambia en entradas; las salidas reducen
+  cantidad sin alterar el costo. Verificado: +10@5, +10@7, −5, +5@9 → 20 u, costo 6.75, valor 135.
+- Vista `v_valuacion_inventario` (cantidad, costo promedio, valor, margen vs precio_base).
+- Columnas `stock_min` / `punto_reorden` en `producto`.
+- Vista `v_analitica_reorden`: stock, ventas 30/90 d, velocidad diaria, días de
+  cobertura y flag `necesita_reorden`.
+
+Frontend: tab **Analítica** (`AnaliticaApp.jsx`) con KPIs (valor a costo, unidades,
+productos a reordenar) y dos vistas (Valuación / Reorden). Los puntos de reorden
+se editan inline (solo admin).
+
+Nota: valuación por producto (location-agnostic), estándar para costo. FIFO sigue
+descartado salvo que se agregue tracking de lotes.
 
 ## Fase 6 — Administración avanzada / multi-tenant SaaS
 
