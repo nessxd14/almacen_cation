@@ -55,6 +55,30 @@ Hecho:
 Nota: el smoke test HTTP desde el entorno de desarrollo está bloqueado por la
 política de egress (403 en CONNECT a supabase.co); probar desde Shopify o un POST firmado.
 
+### #4b — Sincronización inversa (almacén → Shopify) (HECHO — pendiente config)
+
+Edge Function `shopify-stock-push` desplegada (ACTIVE, `verify_jwt=false`). Ver
+`supabase/functions/shopify-stock-push/README.md`. Migraciones `…_06` y `…_07`.
+
+Arquitectura outbox + cron (verificada):
+- Tabla `shopify_sync_outbox` + trigger sobre `stock_actual` que encola el producto
+  en cada cambio de stock (probado: insertar stock encola; dedup por PK).
+- `pg_cron` cada minuto invoca la función vía `pg_net` **solo si hay pendientes**;
+  el secreto compartido se lee de Vault (`shopify_sync_secret`).
+- La función publica `floor(stock_base_total)` en Shopify (Admin GraphQL
+  `inventorySetQuantities`), borra la fila al éxito, e incrementa `intentos`/guarda
+  `ultimo_error` al fallar (corte a 5 intentos).
+- Variant = unidad base (v2: dividir por factor si el variant es una presentación).
+
+**Checklist de GO-LIVE (sync inverso):**
+1. `supabase secrets set SYNC_SECRET=… SHOPIFY_ADMIN_TOKEN=… SHOPIFY_STORE=… SHOPIFY_LOCATION_ID=…`
+2. `select vault.create_secret('<mismo SYNC_SECRET>', 'shopify_sync_secret', '…');`
+3. Cargar `producto.shopify_inventory_item_id` en los productos sincronizables.
+4. Provocar un movimiento y verificar el inventario de la variante en Shopify.
+
+Todo queda **inerte** hasta el paso 1–2: sin secret la función responde 401 y no
+publica nada.
+
 ## Fase 5 — Costos y analítica (HECHO)
 
 Backend desplegado (`supabase/migrations/20260626_05_fase5_costos_reorden.sql`):
