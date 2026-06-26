@@ -20,6 +20,7 @@ shopify-stock-push (esta función)
    Shopify storefront refleja el stock real
 ```
 
+- **Auth:** OAuth **client_credentials** (igual que `bootstrap_catalogo.mjs`). La función obtiene el token `shpat_` por su cuenta con `SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET`, lo cachea y lo refresca al expirar o ante un 401. No se pega ningún token a mano.
 - **Unidad:** el variant de Shopify se asume en la **unidad base** del producto; se publica `floor(total_base)`.
 - **Reintentos:** si una publicación falla, `f_sync_outbox_fallo` incrementa `intentos` y guarda `ultimo_error`. Tras 5 intentos se deja de reintentar (la fila queda con el error para diagnóstico).
 - **Eficiencia:** el cron solo invoca la función si hay filas pendientes.
@@ -30,11 +31,13 @@ shopify-stock-push (esta función)
 1. **Secrets de la función** (`supabase secrets set` o dashboard → Edge Functions → Secrets):
    ```bash
    supabase secrets set SYNC_SECRET=<un-secreto-aleatorio-fuerte>
-   supabase secrets set SHOPIFY_ADMIN_TOKEN=<admin-api-token-con-write_inventory>
-   supabase secrets set SHOPIFY_STORE=mi-tienda.myshopify.com
+   supabase secrets set SHOPIFY_CLIENT_ID=<client-id-de-la-app>
+   supabase secrets set SHOPIFY_CLIENT_SECRET=<client-secret-de-la-app>
+   supabase secrets set SHOPIFY_STORE_DOMAIN=mi-tienda.myshopify.com
    supabase secrets set SHOPIFY_LOCATION_ID=<id-numérico-de-la-location>
    supabase secrets set SHOPIFY_API_VERSION=2026-01   # opcional
    ```
+   La custom app debe tener el scope **`write_inventory`**.
 
 2. **Secreto compartido en Vault** (para que el cron se autentique). Usa el MISMO
    valor que `SYNC_SECRET`:

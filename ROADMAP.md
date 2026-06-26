@@ -79,6 +79,22 @@ Arquitectura outbox + cron (verificada):
 Todo queda **inerte** hasta el paso 1–2: sin secret la función responde 401 y no
 publica nada.
 
+Auth alineada al modelo real: la función obtiene el token vía **OAuth
+client_credentials** (`SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET`/`SHOPIFY_STORE_DOMAIN`)
+y lo cachea/refresca, en vez de un `shpat_` estático que expira (igual que `bootstrap_catalogo.mjs`).
+
+**Alineaciones Shopify pendientes (anotadas, no aplicadas aún):**
+- **Reverse sync → API 2026-04 + clave de idempotencia** en `inventorySetQuantities`
+  (la versión 2026-04 la exige en el write). Hoy usa 2026-01 sin idempotencyKey.
+- **Webhook por `variant_id`**: resolver `shopify_variant_id → presentación base`
+  como vía principal (maneja variantes sin SKU), con SKU vía `identificador` de
+  respaldo. Hoy resuelve solo por SKU (funciona porque el bootstrap siembra todo
+  SKU en `identificador`, pero falla en variantes sin código).
+
+Prerrequisito si se siembra el catálogo en la nube: la migración de índices únicos
+de mapeo (`migracion_indices_shopify.sql`, usada por el `ON CONFLICT` del bootstrap)
+debe existir en la nube antes de correr `bootstrap_catalogo.mjs` contra ella.
+
 ## Fase 5 — Costos y analítica (HECHO)
 
 Backend desplegado (`supabase/migrations/20260626_05_fase5_costos_reorden.sql`):
