@@ -98,7 +98,7 @@ function FilaMovimiento({ mov, mostrarProducto }) {
 // Si recibe productoId -> historial de ese producto (modo panel).
 // Si no -> historial global con buscador (modo tab).
 
-export function HistorialMovimientos({ productoId = null, compacto = false }) {
+export function HistorialMovimientos({ productoId = null }) {
   const [movs, setMovs] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");

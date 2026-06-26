@@ -22,7 +22,7 @@ import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import {
   PackagePlus, PackageMinus, ArrowLeftRight, SlidersHorizontal,
-  AlertTriangle, CheckCircle, History, Code2, Loader, RefreshCw, ScanLine,
+  AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine,
 } from "lucide-react";
 
 const uuid = () => crypto.randomUUID
