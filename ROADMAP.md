@@ -32,13 +32,28 @@ Pendiente de refinamiento (no bloqueante):
 - Restringir escrituras de catálogo/ubicaciones a rol admin (hoy `auth_all` es permisivo por paridad con el comportamiento previo).
 - Pantalla Admin para crear/desactivar usuarios y cambiar roles (requiere Edge Function con service-role).
 
-## #4 — Webhook de Shopify (SIGUIENTE)
+## #4 — Webhook de Shopify (HECHO — pendiente config + prueba en prod)
 
-- **Supabase Edge Function** (Deno), no servicio Node aparte.
-- Verificación **HMAC sobre el body crudo** con `SHOPIFY_WEBHOOK_SECRET`; responder **200 rápido** y luego procesar.
-- Idempotencia anclada a orden/línea: clave `shopify:{order_id}:{line_id}` pasada como `p_idempotencia` a `registrar_salida` → el índice único deduplica reintentos. **No requiere tablas nuevas.**
-- Mapeo SKU/variant Shopify → `presentacion_id` vía `resolver_identificador`; definir ubicación default para ventas online.
-- `service_role_key` vive dentro de la función (server-side).
+Edge Function `shopify-webhook` desplegada (ACTIVE, `verify_jwt=false`). Ver
+`supabase/functions/shopify-webhook/README.md`.
+
+Hecho:
+- HMAC-SHA256 sobre el body crudo (constant-time); 200 rápido + proceso en
+  segundo plano (`EdgeRuntime.waitUntil`).
+- `orders/fulfilled` → `registrar_salida` (idempotencia `shopify:fulfill:{order}:{line}`, sobregiro permitido).
+- `refunds/create` → `registrar_entrada` para líneas con restock (`shopify:refund:{refund}:{line}`).
+  Cubre también cancelaciones de pedidos despachados (Shopify emite refund con restock);
+  no se cablea `orders/cancelled` para evitar doble reingreso.
+- Mapeo SKU → presentación vía `resolver_identificador`. `service_role_key` server-side.
+
+**Checklist de GO-LIVE de Shopify:**
+1. `supabase secrets set SHOPIFY_WEBHOOK_SECRET=… SHOPIFY_UBICACION_ID=…`
+2. Registrar webhooks `orders/fulfilled` y `refunds/create` → `…/functions/v1/shopify-webhook`.
+3. Cargar los SKU de las variantes en `identificador` (`activo=true`).
+4. Prueba end-to-end desde Shopify y verificar en el tab Historial.
+
+Nota: el smoke test HTTP desde el entorno de desarrollo está bloqueado por la
+política de egress (403 en CONNECT a supabase.co); probar desde Shopify o un POST firmado.
 
 ## Fase 5 — Costos y analítica
 
