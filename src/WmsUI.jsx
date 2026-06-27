@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Package, ClipboardList, ScrollText, ShoppingCart,
-  Settings, Search, Bell, ChevronDown, Plus,
+  Settings, Search, Bell, ChevronDown, Plus, Check, X,
   ArrowDownLeft, ArrowUpRight, SlidersHorizontal,
   TrendingDown, TrendingUp, Boxes, AlertTriangle, Activity, Store,
   ChevronRight, BookOpen, Warehouse, History, Scale, ArrowUpFromLine,
+  LogOut, User, HelpCircle, Shield,
 } from "lucide-react";
 
 import CatalogoApp         from "./CatalogoApp";
@@ -57,12 +58,13 @@ const C = {
 };
 
 const sh = {
-  xs:  "0 1px 2px rgba(0,0,0,0.05)",
-  sm:  "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)",
+  xs:      "0 1px 2px rgba(0,0,0,0.05)",
+  sm:      "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)",
+  dropdown:"0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05)",
 };
 
 /* ══════════════════════════════════════════════════════════════════
-   Navigation — todos los módulos originales + Dashboard nuevo
+   Navigation
 ══════════════════════════════════════════════════════════════════ */
 const NAV = [
   { id: "dashboard",  label: "Dashboard",     icon: LayoutDashboard },
@@ -77,7 +79,7 @@ const NAV = [
 ];
 
 /* ══════════════════════════════════════════════════════════════════
-   Mock data — solo para el Dashboard KPI
+   Mock data — Dashboard & Notificaciones
 ══════════════════════════════════════════════════════════════════ */
 const KARDEX_MOCK = [
   { id: "K-0421", prod: "Caja plástica grande",  tipo: "SALIDA",  cant: -3,  origen: "Shopify #ORD-5842", usuario: "Sistema", hora: "11:45" },
@@ -100,8 +102,214 @@ const FAMILIAS = [
   { f: "Logística",  v: 68, color: C.coral  },
 ];
 
+const NOTIFS_MOCK = [
+  {
+    id: 1, leida: false, tipo: "warn",
+    titulo: "Stock bajo mínimo",
+    texto: "Caja plástica grande — 15 u. (mín. 20)",
+    hora: "hace 2 min",
+  },
+  {
+    id: 2, leida: false, tipo: "warn",
+    titulo: "Stock crítico",
+    texto: "Cinta embalaje 48mm — 6 u. (mín. 24)",
+    hora: "hace 5 min",
+  },
+  {
+    id: 3, leida: false, tipo: "warn",
+    titulo: "Stock bajo mínimo",
+    texto: "Etiqueta térmica 4x6 — 12 u. (mín. 15)",
+    hora: "hace 12 min",
+  },
+  {
+    id: 4, leida: true, tipo: "ok",
+    titulo: "Movimiento registrado",
+    texto: "Film stretch 50cm +24 u. — Recepción",
+    hora: "hace 32 min",
+  },
+  {
+    id: 5, leida: true, tipo: "info",
+    titulo: "Conciliación cerrada",
+    texto: "Sesión #CS-042 completada por Lucía",
+    hora: "hace 1 h",
+  },
+];
+
 /* ══════════════════════════════════════════════════════════════════
-   Atoms (usados solo en el Dashboard)
+   Hook: cierra panel al hacer click fuera
+══════════════════════════════════════════════════════════════════ */
+function useClickOutside(ref, onClose) {
+  useEffect(() => {
+    function handle(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [ref, onClose]);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Panel: Notificaciones
+══════════════════════════════════════════════════════════════════ */
+function NotifsPanel({ notifs, onMarkAll, onClose }) {
+  const noLeidas = notifs.filter((n) => !n.leida).length;
+
+  const typeStyle = {
+    warn: { dot: C.amber,  bg: C.amberSoft },
+    ok:   { dot: C.green,  bg: C.greenSoft },
+    info: { dot: C.indigo, bg: C.indigoSoft },
+  };
+
+  return (
+    <div
+      className="absolute right-0 top-full mt-2 w-80 rounded-xl overflow-hidden z-50"
+      style={{ background: C.card, boxShadow: sh.dropdown }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-4 py-3.5 border-b"
+        style={{ borderColor: C.lineInner }}
+      >
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-bold" style={{ color: C.ink }}>Notificaciones</p>
+          {noLeidas > 0 && (
+            <span
+              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs font-bold text-white"
+              style={{ background: C.coral }}
+            >
+              {noLeidas}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={onMarkAll}
+          className="text-xs font-semibold transition-opacity hover:opacity-70"
+          style={{ color: C.coral }}
+        >
+          Marcar todo leído
+        </button>
+      </div>
+
+      {/* Items */}
+      <div className="divide-y" style={{ borderColor: C.lineInner }}>
+        {notifs.map((n) => {
+          const s = typeStyle[n.tipo] || typeStyle.info;
+          return (
+            <div
+              key={n.id}
+              className="flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50"
+              style={{ background: n.leida ? "transparent" : `${s.bg}50` }}
+            >
+              <div className="mt-0.5 shrink-0">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: n.leida ? C.ghost : s.dot }}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold" style={{ color: n.leida ? C.sub : C.ink }}>
+                  {n.titulo}
+                </p>
+                <p className="mt-0.5 text-xs" style={{ color: C.faint }}>{n.texto}</p>
+                <p className="mt-1 text-xs" style={{ color: C.ghost }}>{n.hora}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <div
+        className="flex items-center justify-center border-t px-4 py-3"
+        style={{ borderColor: C.lineInner }}
+      >
+        <button
+          className="text-xs font-semibold transition-opacity hover:opacity-70"
+          style={{ color: C.coral }}
+        >
+          Ver todas las notificaciones
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Dropdown: Usuario
+══════════════════════════════════════════════════════════════════ */
+function UserDropdown({ onClose }) {
+  const items = [
+    { icon: User,       label: "Mi perfil",     sub: "Ver y editar datos" },
+    { icon: Shield,     label: "Seguridad",      sub: "Contraseña y acceso" },
+    { icon: HelpCircle, label: "Soporte",        sub: "Centro de ayuda" },
+  ];
+
+  return (
+    <div
+      className="absolute right-0 top-full mt-2 w-60 rounded-xl overflow-hidden z-50"
+      style={{ background: C.card, boxShadow: sh.dropdown }}
+    >
+      {/* Perfil */}
+      <div className="px-4 py-4 border-b" style={{ borderColor: C.lineInner }}>
+        <div className="flex items-center gap-3">
+          <div
+            className="grid h-10 w-10 place-items-center rounded-full text-sm font-bold text-white shrink-0"
+            style={{ background: C.indigo }}
+          >
+            M
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold truncate" style={{ color: C.ink }}>Marcos López</p>
+            <p className="text-xs truncate" style={{ color: C.sub }}>marcos@almacen.com</p>
+            <span
+              className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold"
+              style={{ background: C.indigoSoft, color: C.indigoText }}
+            >
+              Operario
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Items */}
+      <div className="py-1.5">
+        {items.map(({ icon: Icon, label, sub }) => (
+          <button
+            key={label}
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gray-50"
+          >
+            <div
+              className="grid h-7 w-7 place-items-center rounded-lg shrink-0"
+              style={{ background: C.bg, color: C.sub }}
+            >
+              <Icon size={14} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium" style={{ color: C.ink }}>{label}</p>
+              <p className="text-xs" style={{ color: C.faint }}>{sub}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Cerrar sesión */}
+      <div className="border-t py-1.5" style={{ borderColor: C.lineInner }}>
+        <button className="flex w-full items-center gap-3 px-4 py-2.5 transition-colors hover:bg-red-50">
+          <div
+            className="grid h-7 w-7 place-items-center rounded-lg shrink-0"
+            style={{ background: C.redSoft, color: C.red }}
+          >
+            <LogOut size={14} />
+          </div>
+          <p className="text-sm font-medium" style={{ color: C.red }}>Cerrar sesión</p>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Atom: KPI Tile (solo Dashboard)
 ══════════════════════════════════════════════════════════════════ */
 function KpiTile({ icon: Icon, label, value, sub, trend, accent }) {
   return (
@@ -137,7 +345,7 @@ function KpiTile({ icon: Icon, label, value, sub, trend, accent }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   Dashboard — vista KPI con datos mock de resumen
+   Vista: Dashboard
 ══════════════════════════════════════════════════════════════════ */
 function Dashboard({ onNavigate }) {
   return (
@@ -200,24 +408,20 @@ function Dashboard({ onNavigate }) {
         </p>
         <div className="grid grid-cols-4 gap-3">
           {[
-            { id: "catalogo",  label: "Catálogo",     icon: BookOpen,        sub: "Productos y precios" },
-            { id: "inventario",label: "Inventario",   icon: Warehouse,       sub: "Stock en tiempo real" },
-            { id: "conteo",    label: "Conteo",       icon: ClipboardList,   sub: "Conteo físico" },
-            { id: "concilia",  label: "Conciliación", icon: Scale,           sub: "Diferencias de stock" },
-            { id: "historial", label: "Historial",    icon: History,         sub: "Movimientos pasados" },
-            { id: "huerfanos", label: "Huérfanos",    icon: ArrowUpFromLine, sub: "Sin referencia Shopify" },
-            { id: "oper",      label: "Operaciones",  icon: Boxes,           sub: "Entradas y salidas" },
-            { id: "admin",     label: "Admin",        icon: Settings,        sub: "Configuración" },
+            { id: "catalogo",   label: "Catálogo",     icon: BookOpen,        sub: "Productos y precios" },
+            { id: "inventario", label: "Inventario",   icon: Warehouse,       sub: "Stock en tiempo real" },
+            { id: "conteo",     label: "Conteo",       icon: ClipboardList,   sub: "Conteo físico" },
+            { id: "concilia",   label: "Conciliación", icon: Scale,           sub: "Diferencias de stock" },
+            { id: "historial",  label: "Historial",    icon: History,         sub: "Movimientos pasados" },
+            { id: "huerfanos",  label: "Huérfanos",    icon: ArrowUpFromLine, sub: "Sin referencia Shopify" },
+            { id: "oper",       label: "Operaciones",  icon: Boxes,           sub: "Entradas y salidas" },
+            { id: "admin",      label: "Admin",        icon: Settings,        sub: "Configuración" },
           ].map(({ id, label, icon: Icon, sub }) => (
             <button
               key={id}
               onClick={() => onNavigate(id)}
-              className="flex items-center gap-3 rounded-xl p-4 text-left transition-shadow hover:shadow-md"
-              style={{
-                background: C.card,
-                border: `1px solid ${C.line}`,
-                boxShadow: sh.xs,
-              }}
+              className="flex items-center gap-3 rounded-xl p-4 text-left transition-all hover:shadow-md"
+              style={{ background: C.card, border: `1px solid ${C.line}`, boxShadow: sh.xs }}
             >
               <div
                 className="grid h-9 w-9 place-items-center rounded-lg shrink-0"
@@ -234,17 +438,13 @@ function Dashboard({ onNavigate }) {
         </div>
       </div>
 
-      {/* Row: actividad + salud */}
+      {/* Actividad + Salud */}
       <div className="grid grid-cols-3 gap-5">
-        {/* Actividad reciente */}
         <div
           className="col-span-2 rounded-xl overflow-hidden"
           style={{ background: C.card, boxShadow: sh.sm, border: `1px solid ${C.line}` }}
         >
-          <div
-            className="flex items-center justify-between px-5 py-4 border-b"
-            style={{ borderColor: C.lineInner }}
-          >
+          <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: C.lineInner }}>
             <h3 className="text-sm font-bold" style={{ color: C.ink }}>Actividad reciente</h3>
             <button
               onClick={() => onNavigate("historial")}
@@ -273,10 +473,7 @@ function Dashboard({ onNavigate }) {
                     <p className="text-sm font-semibold truncate" style={{ color: C.ink }}>{m.prod}</p>
                     <p className="text-xs" style={{ color: C.faint }}>{m.origen} · {m.usuario}</p>
                   </div>
-                  <span
-                    className="text-sm font-bold tabular-nums"
-                    style={{ color: m.cant < 0 ? C.red : C.green }}
-                  >
+                  <span className="text-sm font-bold tabular-nums" style={{ color: m.cant < 0 ? C.red : C.green }}>
                     {m.cant > 0 ? `+${m.cant}` : m.cant}
                   </span>
                   <span className="tabular-nums text-xs w-10 text-right" style={{ color: C.faint }}>
@@ -288,7 +485,6 @@ function Dashboard({ onNavigate }) {
           </div>
         </div>
 
-        {/* Salud del inventario */}
         <div
           className="rounded-xl p-5"
           style={{ background: C.card, boxShadow: sh.sm, border: `1px solid ${C.line}` }}
@@ -305,10 +501,7 @@ function Dashboard({ onNavigate }) {
                   </span>
                 </div>
                 <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.lineInner }}>
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${v}%`, background: v < 50 ? C.amber : color }}
-                  />
+                  <div className="h-full rounded-full" style={{ width: `${v}%`, background: v < 50 ? C.amber : color }} />
                 </div>
               </div>
             ))}
@@ -330,7 +523,32 @@ function Dashboard({ onNavigate }) {
    Root shell
 ══════════════════════════════════════════════════════════════════ */
 export default function WmsUI() {
-  const [vista, setVista] = useState("dashboard");
+  const [vista, setVista]         = useState("dashboard");
+  const [notifsOpen, setNotifsOpen] = useState(false);
+  const [userOpen, setUserOpen]   = useState(false);
+  const [notifs, setNotifs]       = useState(NOTIFS_MOCK);
+
+  const notifsRef = useRef(null);
+  const userRef   = useRef(null);
+
+  useClickOutside(notifsRef, () => setNotifsOpen(false));
+  useClickOutside(userRef,   () => setUserOpen(false));
+
+  const unread = notifs.filter((n) => !n.leida).length;
+
+  function markAllRead() {
+    setNotifs((prev) => prev.map((n) => ({ ...n, leida: true })));
+  }
+
+  function toggleNotifs() {
+    setNotifsOpen((v) => !v);
+    setUserOpen(false);
+  }
+
+  function toggleUser() {
+    setUserOpen((v) => !v);
+    setNotifsOpen(false);
+  }
 
   return (
     <div
@@ -398,19 +616,22 @@ export default function WmsUI() {
 
         {/* User card */}
         <div className="mx-3 mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
-          <div className="flex items-center gap-2.5 rounded-lg p-2 cursor-pointer transition-colors hover:bg-gray-100">
+          <button
+            onClick={toggleUser}
+            className="flex w-full items-center gap-2.5 rounded-lg p-2 transition-colors hover:bg-gray-100"
+          >
             <div
               className="grid h-8 w-8 place-items-center rounded-full text-xs font-bold text-white shrink-0"
               style={{ background: C.indigo }}
             >
               M
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 text-left">
               <p className="text-sm font-semibold truncate" style={{ color: C.ink }}>Marcos</p>
               <p className="text-xs truncate" style={{ color: C.faint }}>Operario</p>
             </div>
             <ChevronDown size={13} style={{ color: C.ghost }} />
-          </div>
+          </button>
         </div>
       </aside>
 
@@ -421,6 +642,7 @@ export default function WmsUI() {
           className="sticky top-0 z-10 flex items-center justify-between px-7 py-3.5 border-b"
           style={{ background: C.card, borderColor: C.line, boxShadow: sh.xs }}
         >
+          {/* Search */}
           <div
             className="flex items-center gap-2 rounded-lg border px-3.5 py-2"
             style={{ borderColor: C.line, background: C.bg, width: 340 }}
@@ -433,38 +655,80 @@ export default function WmsUI() {
             />
           </div>
 
+          {/* Right side */}
           <div className="flex items-center gap-2.5">
-            <div
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
-              style={{ background: C.redSoft, color: C.redText }}
-            >
-              <AlertTriangle size={12} strokeWidth={2.5} />
-              3 bajo mínimo
-            </div>
-            <button
-              className="relative grid h-9 w-9 place-items-center rounded-lg border transition-colors hover:bg-gray-50"
-              style={{ borderColor: C.line, color: C.sub }}
-            >
-              <Bell size={16} />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full" style={{ background: C.coral }} />
-            </button>
-            <button
-              className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors hover:bg-gray-50"
-              style={{ borderColor: C.line }}
-            >
+            {/* Stock alert badge */}
+            {unread > 0 && (
               <div
-                className="grid h-6 w-6 place-items-center rounded-full text-xs font-bold text-white"
-                style={{ background: C.indigo }}
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                style={{ background: C.redSoft, color: C.redText }}
               >
-                M
+                <AlertTriangle size={12} strokeWidth={2.5} />
+                {unread} alertas
               </div>
-              <span className="text-sm font-semibold" style={{ color: C.ink }}>Marcos</span>
-              <ChevronDown size={13} style={{ color: C.faint }} />
-            </button>
+            )}
+
+            {/* Notifications bell */}
+            <div className="relative" ref={notifsRef}>
+              <button
+                onClick={toggleNotifs}
+                className="relative grid h-9 w-9 place-items-center rounded-lg border transition-colors hover:bg-gray-50"
+                style={{
+                  borderColor: notifsOpen ? C.coral : C.line,
+                  color: notifsOpen ? C.coral : C.sub,
+                  background: notifsOpen ? C.coralSoft : "transparent",
+                }}
+              >
+                <Bell size={16} />
+                {unread > 0 && (
+                  <span
+                    className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full ring-2 ring-white"
+                    style={{ background: C.coral }}
+                  />
+                )}
+              </button>
+
+              {notifsOpen && (
+                <NotifsPanel
+                  notifs={notifs}
+                  onMarkAll={markAllRead}
+                  onClose={() => setNotifsOpen(false)}
+                />
+              )}
+            </div>
+
+            {/* User menu */}
+            <div className="relative" ref={userRef}>
+              <button
+                onClick={toggleUser}
+                className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors hover:bg-gray-50"
+                style={{
+                  borderColor: userOpen ? C.coral : C.line,
+                  background: userOpen ? C.coralSoft : "transparent",
+                }}
+              >
+                <div
+                  className="grid h-6 w-6 place-items-center rounded-full text-xs font-bold text-white"
+                  style={{ background: C.indigo }}
+                >
+                  M
+                </div>
+                <span className="text-sm font-semibold" style={{ color: C.ink }}>Marcos</span>
+                <ChevronDown
+                  size={13}
+                  className="transition-transform"
+                  style={{ color: C.faint, transform: userOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                />
+              </button>
+
+              {userOpen && (
+                <UserDropdown onClose={() => setUserOpen(false)} />
+              )}
+            </div>
           </div>
         </header>
 
-        {/* Content — Dashboard con padding generoso, módulos reales con p-4 como el original */}
+        {/* Content */}
         <main className={`flex-1 overflow-auto ${vista === "dashboard" ? "px-7 py-7" : "p-4"}`}>
           {vista === "dashboard"  && <Dashboard onNavigate={setVista} />}
           {vista === "catalogo"   && <CatalogoApp />}
