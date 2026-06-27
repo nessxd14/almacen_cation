@@ -32,7 +32,7 @@ export default function App() {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors
+            className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors active:scale-[0.97] transition-transform
               ${tab === id
                 ? "bg-slate-900 text-white"
                 : "text-slate-600 hover:bg-slate-100"}`}

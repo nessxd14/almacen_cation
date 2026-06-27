@@ -123,7 +123,7 @@ export default function InventarioApp() {
   const ThOrden = ({ campo, children, className = "" }) => (
     <th className={`px-3 py-2 text-left ${className}`}>
       <button onClick={() => alternarOrden(campo)}
-        className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-800">
+        className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-800 transition-transform active:scale-[0.95]">
         {children}
         <ArrowUpDown size={11} className={orden.campo === campo ? "text-slate-800" : "text-slate-300"} />
       </button>
@@ -184,7 +184,7 @@ export default function InventarioApp() {
             { id: "cero",  label: "En cero" },
           ].map(f => (
             <button key={f.id} onClick={() => setFiltroAlerta(f.id)}
-              className={`rounded px-3 py-1.5 font-medium
+              className={`rounded px-3 py-1.5 font-medium transition-transform active:scale-[0.97]
                 ${filtroAlerta === f.id ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
               {f.label}
             </button>
