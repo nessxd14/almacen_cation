@@ -10,7 +10,7 @@ export default function EscanerCodigo({ onDetect, onClose }) {
   useEffect(() => {
     let stopped = false;
     let stream = null;
-    let zxingReader = null;
+    let zxingControls = null;   // IScannerControls de @zxing/browser (tiene .stop())
 
     async function start() {
       try {
@@ -31,10 +31,13 @@ export default function EscanerCodigo({ onDetect, onClose }) {
           requestAnimationFrame(tick);
         } else {
           const { BrowserMultiFormatReader } = await import("@zxing/browser");
-          zxingReader = new BrowserMultiFormatReader();
-          zxingReader.decodeFromVideoElement(videoRef.current, (result) => {
+          const reader = new BrowserMultiFormatReader();
+          // decodeFromVideoElement devuelve los controles del loop de decodificación.
+          zxingControls = await reader.decodeFromVideoElement(videoRef.current, (result) => {
             if (result && !stopped) onDetect(result.getText());
           });
+          // Si se desmontó mientras se inicializaba, detener de inmediato.
+          if (stopped) zxingControls.stop();
         }
       } catch {
         setError("No se pudo acceder a la cámara. Verifica el permiso.");
@@ -44,7 +47,7 @@ export default function EscanerCodigo({ onDetect, onClose }) {
     return () => {
       stopped = true;
       stream?.getTracks().forEach((t) => t.stop());
-      zxingReader?.reset?.();
+      zxingControls?.stop();   // detiene el loop de zxing (fallback iOS)
     };
   }, [onDetect]);
 
