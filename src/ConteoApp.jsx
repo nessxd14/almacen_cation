@@ -120,11 +120,11 @@ function Scanner({ onDetect, onClose }) {
   }, [onDetect]);
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center gap-4">
+    <div className="overlay-fade fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center gap-4">
       {error
         ? <p className="text-white text-sm px-6 text-center">{error}</p>
         : <video ref={videoRef} autoPlay playsInline className="w-full max-w-sm rounded-lg" />}
-      <button onClick={onClose} className="px-6 py-2 bg-white rounded-full text-sm font-medium">
+      <button onClick={onClose} className="px-6 py-2 bg-white rounded-full text-sm font-medium transition-transform active:scale-[0.97]">
         Cerrar
       </button>
     </div>
@@ -396,13 +396,13 @@ export default function ConteoApp() {
       <button
         onClick={() => crearSesion("SIMPLE")}
         disabled={creandoSesion || loadingCatalogo}
-        className="w-full py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 disabled:opacity-50">
+        className="w-full py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 disabled:opacity-50 transition-transform active:scale-[0.97]">
         {creandoSesion ? "Creando…" : "Conteo simple"}
       </button>
       <button
         onClick={() => crearSesion("DOBLE_CIEGO")}
         disabled={creandoSesion || loadingCatalogo}
-        className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-500 disabled:opacity-50">
+        className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-500 disabled:opacity-50 transition-transform active:scale-[0.97]">
         Conteo doble ciego
       </button>
 
@@ -427,7 +427,7 @@ export default function ConteoApp() {
       </div>
       {ubicaciones.map((u) => (
         <button key={u.id} onClick={() => { setUbicacion(u); setScreen("capture"); }}
-          className="w-full text-left px-4 py-3 bg-white border rounded-xl hover:bg-slate-50 font-mono text-sm">
+          className="w-full text-left px-4 py-3 bg-white border rounded-xl hover:bg-slate-50 font-mono text-sm transition-transform active:scale-[0.97]">
           {labelUbicacion(u)}
         </button>
       ))}
@@ -452,7 +452,7 @@ export default function ConteoApp() {
       </div>
 
       {flash && (
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm
+        <div className={`flash-entrada flex items-center gap-2 px-3 py-2 rounded-lg text-sm
           ${flash.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
           {flash.type === "ok" ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
           {flash.msg}
@@ -468,7 +468,7 @@ export default function ConteoApp() {
                 placeholder="Código de barras o nombre…"
                 className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
             </div>
-            <button onClick={() => setScanning(true)} className="px-3 py-2 bg-slate-800 text-white rounded-lg">
+            <button onClick={() => setScanning(true)} className="px-3 py-2 bg-slate-800 text-white rounded-lg transition-transform active:scale-[0.97]">
               <Camera size={16} />
             </button>
           </div>
@@ -544,7 +544,7 @@ export default function ConteoApp() {
 
       {(selected || esHuerfano) && (
         <button onClick={guardarLinea} disabled={guardando}
-          className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-500 disabled:opacity-50 flex items-center justify-center gap-2">
+          className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-500 disabled:opacity-50 flex items-center justify-center gap-2 transition-transform active:scale-[0.97]">
           {guardando && <Loader size={14} className="animate-spin" />}
           {guardando ? "Guardando…" : "Guardar línea"}
         </button>

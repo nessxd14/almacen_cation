@@ -111,8 +111,8 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
   const mapeado = !!producto.shopify_variant_id;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto bg-white shadow-2xl"
+    <div className="overlay-fade fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
+      <div className="panel-lateral h-full w-full max-w-md overflow-y-auto bg-white shadow-2xl"
         onClick={e => e.stopPropagation()}>
         {/* Header con imagen */}
         <div className="relative">
@@ -296,10 +296,10 @@ function TarjetaGaleria({ p, onClick }) {
   const mapeado = !!p.shopify_variant_id;
   return (
     <button onClick={onClick}
-      className="group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition-shadow hover:shadow-md">
+      className="card-galeria group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left hover:shadow-md">
       <div className="relative aspect-square w-full overflow-hidden">
         <ImagenProducto url={p.imagen_url} nombre={p.nombre}
-          className="h-full w-full transition-transform group-hover:scale-105" />
+          className="h-full w-full img-hover-scale" />
         {!mapeado && (
           <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-medium text-white">
             <Link2Off size={10} /> Sin mapear
@@ -324,7 +324,7 @@ function FilaLista({ p, onClick }) {
   const mapeado = !!p.shopify_variant_id;
   return (
     <button onClick={onClick}
-      className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-0 hover:bg-slate-50">
+      className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-0 hover:bg-slate-50 transition-transform active:scale-[0.97]">
       <ImagenProducto url={p.imagen_url} nombre={p.nombre}
         className="h-11 w-11 shrink-0 rounded-md" />
       <div className="min-w-0 flex-1">
@@ -468,12 +468,12 @@ export default function CatalogoApp() {
         {/* Toggle vista */}
         <div className="flex rounded-lg border border-slate-300 p-0.5">
           <button onClick={() => setVista("galeria")}
-            className={`flex items-center gap-1 rounded px-2.5 py-1.5 text-sm font-medium
+            className={`flex items-center gap-1 rounded px-2.5 py-1.5 text-sm font-medium transition-transform active:scale-[0.97]
               ${vista === "galeria" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
             <LayoutGrid size={15} />
           </button>
           <button onClick={() => setVista("lista")}
-            className={`flex items-center gap-1 rounded px-2.5 py-1.5 text-sm font-medium
+            className={`flex items-center gap-1 rounded px-2.5 py-1.5 text-sm font-medium transition-transform active:scale-[0.97]
               ${vista === "lista" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
             <List size={15} />
           </button>
@@ -508,7 +508,7 @@ export default function CatalogoApp() {
           <button
             onClick={() => setPagina(p => Math.max(0, p - 1))}
             disabled={pagina === 0}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition-transform active:scale-[0.97]">
             Anterior
           </button>
           <span className="text-sm text-slate-500">
@@ -517,7 +517,7 @@ export default function CatalogoApp() {
           <button
             onClick={() => setPagina(p => Math.min(totalPaginas - 1, p + 1))}
             disabled={pagina >= totalPaginas - 1}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition-transform active:scale-[0.97]">
             Siguiente
           </button>
         </div>

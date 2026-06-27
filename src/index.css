@@ -1,1 +1,55 @@
 ﻿@import "tailwindcss";
+
+:root {
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Panel lateral: slide-in desde la derecha */
+.panel-lateral {
+  transform: translateX(0);
+  transition: transform 280ms var(--ease-drawer);
+
+  @starting-style {
+    transform: translateX(100%);
+  }
+}
+
+/* Overlay backdrop: fade-in */
+.overlay-fade {
+  opacity: 1;
+  transition: opacity 150ms ease-out;
+
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+/* Flash / toast: entrada sutil */
+.flash-entrada {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* Imagen con hover solo en dispositivos que lo soportan */
+.img-hover-scale {
+  transition: transform 250ms ease-out;
+}
+@media (hover: hover) and (pointer: fine) {
+  .img-hover-scale:hover {
+    transform: scale(1.05);
+  }
+}
+
+/* Card galería: press feedback + shadow */
+.card-galeria {
+  transition: transform 160ms ease-out, box-shadow 200ms ease;
+}
+.card-galeria:active {
+  transform: scale(0.97);
+}
