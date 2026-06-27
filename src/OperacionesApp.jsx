@@ -20,9 +20,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
+import { useAuth } from "./auth/AuthProvider";
 import {
   PackagePlus, PackageMinus, ArrowLeftRight, SlidersHorizontal,
-  AlertTriangle, CheckCircle, History, Code2, Loader, RefreshCw, ScanLine,
+  AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine,
 } from "lucide-react";
 
 const uuid = () => crypto.randomUUID
@@ -40,6 +41,7 @@ const MODOS = [
 ];
 
 export default function OperacionesApp() {
+  const { usuario } = useAuth();
   const [modo, setModo] = useState("ENTRADA");
 
   // catálogo
@@ -185,8 +187,7 @@ export default function OperacionesApp() {
       `  p_presentacion_id => ${presentacionId},\n` +
       `  p_ubicacion_id    => ${ubicacionId || "?"},\n` +
       `  p_cantidad_pres   => ${cantidad || "?"},\n` +
-      `  p_referencia      => '${referencia}',\n` +
-      `  p_usuario         => 'operario'\n);`
+      `  p_referencia      => '${referencia}'\n);  -- creado_por: ${usuario} (vía sesión)`
     );
     if (modo === "SALIDA") return (
       `SELECT registrar_salida(\n` +
@@ -194,8 +195,7 @@ export default function OperacionesApp() {
       `  p_ubicacion_id       => ${ubicacionId || "?"},\n` +
       `  p_cantidad_pres      => ${cantidad || "?"},\n` +
       `  p_referencia         => '${referencia}',\n` +
-      `  p_usuario            => 'operario',\n` +
-      `  p_permitir_sobregiro => ${permitirSobregiro}\n);`
+      `  p_permitir_sobregiro => ${permitirSobregiro}\n);  -- creado_por: ${usuario} (vía sesión)`
     );
     if (modo === "TRASLADO") return (
       `SELECT registrar_traslado(\n` +
@@ -203,8 +203,7 @@ export default function OperacionesApp() {
       `  p_ubicacion_origen  => ${ubicacionId || "?"},\n` +
       `  p_ubicacion_destino => ${ubicacionDestinoId || "?"},\n` +
       `  p_cantidad_pres     => ${cantidad || "?"},\n` +
-      `  p_referencia        => '${referencia}',\n` +
-      `  p_usuario           => 'operario'\n);`
+      `  p_referencia        => '${referencia}'\n);  -- creado_por: ${usuario} (vía sesión)`
     );
     if (modo === "AJUSTE") return (
       `SELECT registrar_ajuste(\n` +
@@ -212,11 +211,10 @@ export default function OperacionesApp() {
       `  p_ubicacion_id            => ${ubicacionId || "?"},\n` +
       `  p_cantidad_base_objetivo  => ${cantidadObjetivo || "?"},\n` +
       `  p_motivo                  => '${motivo}',\n` +
-      `  p_referencia              => '${referencia}',\n` +
-      `  p_usuario                 => 'operario'\n);`
+      `  p_referencia              => '${referencia}'\n);  -- creado_por: ${usuario} (vía sesión)`
     );
   }, [modo, productoId, presentacionId, ubicacionId, ubicacionDestinoId,
-      cantidad, cantidadObjetivo, referencia, motivo, permitirSobregiro]);
+      cantidad, cantidadObjetivo, referencia, motivo, permitirSobregiro, usuario]);
 
   /* ── ejecutar operación ──────────────────────────────────────────── */
   const ejecutar = async () => {
@@ -233,7 +231,6 @@ export default function OperacionesApp() {
         p_ubicacion_id: Number(ubicacionId),
         p_cantidad_pres: Number(cantidad),
         p_referencia: referencia || "Sin referencia",
-        p_usuario: "operario",
         p_fecha: hoy(),
         p_idempotencia: uuid(),
       }));
@@ -246,7 +243,6 @@ export default function OperacionesApp() {
         p_ubicacion_id: Number(ubicacionId),
         p_cantidad_pres: Number(cantidad),
         p_referencia: referencia || "Sin referencia",
-        p_usuario: "operario",
         p_fecha: hoy(),
         p_idempotencia: uuid(),
         p_permitir_sobregiro: permitirSobregiro,
@@ -264,7 +260,6 @@ export default function OperacionesApp() {
         p_ubicacion_destino: Number(ubicacionDestinoId),
         p_cantidad_pres: Number(cantidad),
         p_referencia: referencia || "Sin referencia",
-        p_usuario: "operario",
         p_fecha: hoy(),
       }));
     }
@@ -280,7 +275,6 @@ export default function OperacionesApp() {
         p_cantidad_base_objetivo: Number(cantidadObjetivo),
         p_motivo: motivo || "Ajuste manual",
         p_referencia: referencia || null,
-        p_usuario: "operario",
         p_fecha: hoy(),
       }));
     }

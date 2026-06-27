@@ -23,7 +23,7 @@ function Toast({ msg, tipo = "ok", onClose }) {
 
 function useToast() {
   const [toast, setToast] = useState(null);
-  const show = (msg, tipo = "ok") => setToast({ msg, tipo });
+  const show = useCallback((msg, tipo = "ok") => setToast({ msg, tipo }), []);
   const node = toast ? <Toast msg={toast.msg} tipo={toast.tipo} onClose={() => setToast(null)} /> : null;
   return { show, node };
 }
@@ -41,6 +41,53 @@ function etiquetaUbicacion(u) {
 // ─── TAB 1: Gestión de Ubicaciones ──────────────────────────────────────────
 
 const TIPOS_SOPORTE = ["Pallet", "Estante"];
+
+// FilaForm definido fuera de TabUbicaciones para evitar recreación en cada render
+function FilaForm({ form, setForm, cancelar, onGuardar }) {
+  return (
+    <tr className="bg-slate-50">
+      <td className="px-4 py-2">
+        <input
+          autoFocus
+          value={form.codigo_zona}
+          onChange={e => setForm(f => ({ ...f, codigo_zona: e.target.value }))}
+          placeholder="Bodega Principal"
+          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-4 py-2">
+        <select
+          value={form.estante}
+          onChange={e => setForm(f => ({ ...f, estante: e.target.value }))}
+          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none">
+          {TIPOS_SOPORTE.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </td>
+      <td className="px-4 py-2">
+        <input
+          value={form.nivel}
+          onChange={e => setForm(f => ({ ...f, nivel: e.target.value }))}
+          placeholder={form.estante === "Pallet" ? "1, 2, 3…" : "A, B, C…"}
+          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+        />
+      </td>
+      <td className="px-4 py-2">
+        <div className="flex gap-2">
+          <button
+            onClick={onGuardar}
+            className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
+            <Check size={13} /> Guardar
+          </button>
+          <button
+            onClick={cancelar}
+            className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
+            <X size={13} /> Cancelar
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 function TabUbicaciones() {
   const { show, node: toastNode } = useToast();
@@ -62,7 +109,7 @@ function TabUbicaciones() {
     if (error) show("Error al cargar ubicaciones", "err");
     else setUbicaciones(data || []);
     setCargando(false);
-  }, []);
+  }, [show]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -119,49 +166,6 @@ function TabUbicaciones() {
     setForm({ codigo_zona: "", estante: "Pallet", nivel: "" });
   }
 
-  const FilaForm = ({ onGuardar }) => (
-    <tr className="bg-slate-50">
-      <td className="px-4 py-2">
-        <input
-          autoFocus
-          value={form.codigo_zona}
-          onChange={e => setForm(f => ({ ...f, codigo_zona: e.target.value }))}
-          placeholder="Bodega Principal"
-          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
-        />
-      </td>
-      <td className="px-4 py-2">
-        <select
-          value={form.estante}
-          onChange={e => setForm(f => ({ ...f, estante: e.target.value }))}
-          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none">
-          {TIPOS_SOPORTE.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-      </td>
-      <td className="px-4 py-2">
-        <input
-          value={form.nivel}
-          onChange={e => setForm(f => ({ ...f, nivel: e.target.value }))}
-          placeholder={form.estante === "Pallet" ? "1, 2, 3…" : "A, B, C…"}
-          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
-        />
-      </td>
-      <td className="px-4 py-2">
-        <div className="flex gap-2">
-          <button
-            onClick={onGuardar}
-            className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
-            <Check size={13} /> Guardar
-          </button>
-          <button
-            onClick={cancelar}
-            className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
-            <X size={13} /> Cancelar
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
 
   // Agrupar por zona para lectura más clara
   const porZona = ubicaciones.reduce((acc, u) => {
@@ -195,7 +199,7 @@ function TabUbicaciones() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {nuevo && <FilaForm onGuardar={guardarNueva} />}
+            {nuevo && <FilaForm form={form} setForm={setForm} cancelar={cancelar} onGuardar={guardarNueva} />}
             {cargando ? (
               <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">Cargando…</td></tr>
             ) : ubicaciones.length === 0 && !nuevo ? (
@@ -205,7 +209,7 @@ function TabUbicaciones() {
             ) : (
               Object.entries(porZona).map(([zona, items]) => (
                 items.map((u, idx) => editando === u.id ? (
-                  <FilaForm key={u.id} onGuardar={() => guardarEdicion(u.id)} />
+                  <FilaForm key={u.id} form={form} setForm={setForm} cancelar={cancelar} onGuardar={() => guardarEdicion(u.id)} />
                 ) : (
                   <tr key={u.id} className="hover:bg-slate-50">
                     {/* Zona solo en primera fila del grupo */}

@@ -1,9 +1,10 @@
 ﻿import { createClient } from '@supabase/supabase-js';
 
-console.log('URL:', import.meta.env.VITE_SUPABASE_URL);
-console.log('KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY);
+const url = import.meta.env.VITE_SUPABASE_URL;
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL ?? 'http://127.0.0.1:54321',
-  import.meta.env.VITE_SUPABASE_ANON_KEY ?? 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH'
-);
+if (!url || !key) {
+  throw new Error('Faltan VITE_SUPABASE_URL o VITE_SUPABASE_ANON_KEY en el .env');
+}
+
+export const supabase = createClient(url, key);

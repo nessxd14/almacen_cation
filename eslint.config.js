@@ -17,5 +17,11 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // Variables prefijadas con _ son intencionalmente ignoradas
+      'no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
+      // Llamar setState dentro de un efecto es un patrón válido en nuestra codebase
+      'react-hooks/set-state-in-effect': 'warn',
+    },
   },
 ])

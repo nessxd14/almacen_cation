@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import {
-  X, Save, Camera, Plus, Trash2, Barcode, Tag, Check, AlertCircle,
-  Lock, Store, Users, Building2, ChevronLeft, ChevronRight
+  X, Save, Camera, Plus, Trash2, Barcode, Check, AlertCircle,
+  Store, Users, Building2, ChevronLeft, ChevronRight
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
 

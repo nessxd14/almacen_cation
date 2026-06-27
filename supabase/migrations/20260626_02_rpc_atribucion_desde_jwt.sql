@@ -1,0 +1,19 @@
+-- ─────────────────────────────────────────────────────────────────────────
+-- Atribución del Kardex server-side. Única diferencia vs. las versiones previas
+-- de los 5 RPCs: creado_por sale de public.app_usuario(p_usuario), que ignora el
+-- param para usuarios autenticados (anti-spoofing) y solo lo usa como etiqueta
+-- de sistema para contextos de service-role (Shopify).
+-- Aplicado en Supabase Cloud el 2026-06-26.
+--
+-- Los cuerpos completos de registrar_entrada/salida/ajuste/traslado e
+-- inyectar_inventario_inicial son idénticos a la versión Fase 4 salvo ese cambio.
+-- Ver el commit que acompaña esta migración para el texto exacto desplegado.
+-- ─────────────────────────────────────────────────────────────────────────
+
+-- Resumen del cambio aplicado a cada función (CREATE OR REPLACE):
+--   creado_por:  p_usuario            -> public.app_usuario(p_usuario)
+-- En registrar_traslado e inyectar_inventario_inicial se precalcula una vez:
+--   v_actor := public.app_usuario(p_usuario);  -- usado en ambas filas del asiento
+--
+-- NOTA: este archivo es un registro de la migración. El SQL ejecutado contra
+-- la nube se generó vía CREATE OR REPLACE FUNCTION sobre las 5 funciones.
