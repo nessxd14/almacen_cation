@@ -35,7 +35,13 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BATCH = 50;          // productos por corrida
 const MAX_INTENTOS = 5;    // tras esto se deja de reintentar (queda el error)
 
-const gid = (tipo: string, id: string | number) => `gid://shopify/${tipo}/${id}`;
+// Extrae el id numérico final (tolera que se pegue la URL completa de la location,
+// p.ej. ".../settings/locations/66151317571"), igual que idNumerico() del bootstrap.
+function soloId(v: string | number): string {
+  const m = String(v).match(/(\d+)\s*$/);
+  return m ? m[1] : String(v);
+}
+const gid = (tipo: string, id: string | number) => `gid://shopify/${tipo}/${soloId(id)}`;
 
 // ── Token vía OAuth client_credentials, cacheado entre invocaciones calientes ──
 let tokenCache: { token: string; exp: number } | null = null;
