@@ -39,6 +39,7 @@ function etiquetaUbicacion(u) {
   const partes = [u.codigo_zona];
   if (u.estante && u.nivel) partes.push(`${u.estante} ${u.nivel}`);
   else if (u.estante) partes.push(u.estante);
+  if (u.compartimiento) partes.push(u.compartimiento);
   return partes.join(" › ");
 }
 
@@ -112,7 +113,7 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
         id, producto_id, cantidad, tipo_movimiento, referencia, motivo,
         fecha_efectiva, creado_por, creado_en, traslado_grupo_id,
         producto:producto_id(nombre, sku_interno),
-        ubicacion:ubicacion_id(codigo_zona, estante, nivel)
+        ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento)
       `)
       .order("creado_en", { ascending: false })
       .limit(500);

@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import {
   MapPin, Package, Plus, Pencil, Trash2, Check, X,
-  ChevronRight, Search, Star, AlertCircle
+  ChevronRight, ChevronDown, Search, Star, AlertCircle,
+  Warehouse, LayoutGrid, Box, Layers
 } from "lucide-react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -29,27 +30,190 @@ function useToast() {
 }
 
 // Construye la etiqueta legible de una ubicación
-// codigo_zona = zona, estante = tipo ("Pallet"/"Estante"), nivel = código ("3"/"B")
+// codigo_zona = zona, estante = tipo ("Pallet"/"Estante"), nivel = número, compartimiento = letra
 function etiquetaUbicacion(u) {
   if (!u) return "—";
   const partes = [u.codigo_zona];
   if (u.estante && u.nivel) partes.push(`${u.estante} ${u.nivel}`);
   else if (u.estante) partes.push(u.estante);
+  if (u.compartimiento) partes.push(u.compartimiento);
   return partes.join(" › ");
 }
 
-// ─── TAB 1: Gestión de Ubicaciones ──────────────────────────────────────────
+// ─── TAB 1: Gestión de Ubicaciones (árbol tipo carpetas) ────────────────────
 
-const TIPOS_SOPORTE = ["Pallet", "Estante"];
+// Genera el rango de letras inclusivo: rangoLetras("A","F") => ["A","B","C","D","E","F"]
+function rangoLetras(desde, hasta) {
+  const a = (desde || "").toUpperCase().charCodeAt(0);
+  const b = (hasta || "").toUpperCase().charCodeAt(0);
+  if (Number.isNaN(a) || Number.isNaN(b) || a > b) return [];
+  const out = [];
+  for (let c = a; c <= b; c++) out.push(String.fromCharCode(c));
+  return out;
+}
+
+// Compara identificadores numéricos como números ("10" después de "2"),
+// con fallback a comparación natural por string.
+function cmpNum(a, b) {
+  const na = parseFloat(a), nb = parseFloat(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+  return String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true });
+}
+
+// Deriva el árbol zona → estantes (subdivididos o no) + pallets, desde las
+// filas planas de `ubicacion`. El nodo "Estante N" es sintético.
+function construirArbol(ubicaciones) {
+  const zonasMap = new Map();
+  for (const u of ubicaciones) {
+    if (!zonasMap.has(u.codigo_zona)) {
+      zonasMap.set(u.codigo_zona, { zona: u.codigo_zona, estantesMap: new Map(), pallets: [] });
+    }
+    const z = zonasMap.get(u.codigo_zona);
+    if (u.estante === "Pallet") {
+      z.pallets.push(u);
+    } else if (u.estante === "Estante") {
+      const key = String(u.nivel ?? "");
+      if (!z.estantesMap.has(key)) z.estantesMap.set(key, []);
+      z.estantesMap.get(key).push(u);
+    } else {
+      // tipo desconocido / sin tipo: lo mostramos como hoja directa de la zona
+      z.pallets.push(u);
+    }
+  }
+  return [...zonasMap.values()]
+    .map(z => {
+      const estantes = [...z.estantesMap.entries()].map(([numero, filas]) => {
+        const conLetra = filas.filter(f => f.compartimiento);
+        if (conLetra.length > 0) {
+          return {
+            numero,
+            subdividido: true,
+            hojas: conLetra.sort((a, b) =>
+              String(a.compartimiento).localeCompare(String(b.compartimiento))),
+          };
+        }
+        return { numero, subdividido: false, hoja: filas[0] };
+      }).sort((a, b) => cmpNum(a.numero, b.numero));
+      const pallets = z.pallets.slice().sort((a, b) => cmpNum(a.nivel, b.nivel));
+      return { zona: z.zona, estantes, pallets };
+    })
+    .sort((a, b) => a.zona.localeCompare(b.zona));
+}
+
+// ── piezas de UI reutilizables (a nivel de módulo: identidad estable) ──────
+function Indent({ depth, children }) {
+  return (
+    <div className="flex items-center gap-1.5" style={{ paddingLeft: depth * 20 }}>{children}</div>
+  );
+}
+
+function BtnMini({ onClick, icon: Icon, children, tono = "slate" }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium
+        ${tono === "red"
+          ? "border-red-200 text-red-600 hover:bg-red-50"
+          : "border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+      {Icon && <Icon size={12} />} {children}
+    </button>
+  );
+}
+
+// Inputs "desde A / hasta F" + preview de las letras a generar.
+function BulkLetras({ form, setForm }) {
+  const letras = rangoLetras(form.desde, form.hasta);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-slate-500">Compartimientos de</span>
+      <input value={form.desde}
+        onChange={e => setForm(f => ({ ...f, desde: e.target.value.toUpperCase().slice(0, 1) }))}
+        maxLength={1}
+        className="w-12 rounded border border-slate-300 px-2 py-1 text-center text-sm uppercase focus:border-slate-500 focus:outline-none" />
+      <span className="text-xs text-slate-500">a</span>
+      <input value={form.hasta}
+        onChange={e => setForm(f => ({ ...f, hasta: e.target.value.toUpperCase().slice(0, 1) }))}
+        maxLength={1}
+        className="w-12 rounded border border-slate-300 px-2 py-1 text-center text-sm uppercase focus:border-slate-500 focus:outline-none" />
+      <span className="text-xs text-slate-400">
+        {letras.length ? `→ ${letras.join(", ")}` : "rango inválido"}
+      </span>
+    </div>
+  );
+}
+
+// Formulario de edición de una hoja (pallet / estante-sin-letra / compartimiento).
+function FormEditarHoja({ fila, depth, form, setForm, onGuardar, onCancelar }) {
+  return (
+    <div className="border-l-2 border-slate-300 bg-slate-50 px-3 py-2" style={{ marginLeft: depth * 20 }}>
+      <div className="flex flex-wrap items-center gap-2">
+        {fila.estante === "Pallet" ? (
+          <input autoFocus value={form.nivel}
+            onChange={e => setForm(f => ({ ...f, nivel: e.target.value }))}
+            placeholder="Nº pallet"
+            className="w-24 rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none" />
+        ) : (
+          <>
+            <input autoFocus value={form.nivel}
+              onChange={e => setForm(f => ({ ...f, nivel: e.target.value }))}
+              placeholder="Nº estante"
+              className="w-24 rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none" />
+            {fila.compartimiento && (
+              <input value={form.compartimiento}
+                onChange={e => setForm(f => ({ ...f, compartimiento: e.target.value }))}
+                placeholder="Letra"
+                maxLength={1}
+                className="w-16 rounded border border-slate-300 px-2 py-1 text-sm uppercase focus:border-slate-500 focus:outline-none" />
+            )}
+          </>
+        )}
+        <button onClick={onGuardar}
+          className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
+          <Check size={13} /> Guardar
+        </button>
+        <button onClick={onCancelar}
+          className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
+          <X size={13} /> Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Hoja almacenable: muestra etiqueta + nº de productos + acciones, o el form de edición.
+function Hoja({ fila, depth, icon: Icon, etiqueta, conteos, editando, form, setForm, onEditar, onEliminar, onGuardar, onCancelar }) {
+  if (editando) {
+    return <FormEditarHoja fila={fila} depth={depth} form={form} setForm={setForm}
+      onGuardar={onGuardar} onCancelar={onCancelar} />;
+  }
+  return (
+    <div className="flex items-center px-3 py-2 hover:bg-slate-50">
+      <Indent depth={depth}>
+        <Icon size={14} className="text-slate-400" />
+        <span className="font-mono text-sm text-slate-700">{etiqueta}</span>
+        {conteos[fila.id] > 0 && (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+            {conteos[fila.id]} prod
+          </span>
+        )}
+      </Indent>
+      <div className="ml-auto flex gap-1">
+        <BtnMini onClick={onEditar} icon={Pencil}>Editar</BtnMini>
+        <BtnMini onClick={onEliminar} icon={Trash2} tono="red">Eliminar</BtnMini>
+      </div>
+    </div>
+  );
+}
 
 function TabUbicaciones() {
   const { show, node: toastNode } = useToast();
   const [ubicaciones, setUbicaciones] = useState([]);
+  const [conteos, setConteos] = useState({}); // ubicacion_id -> nº de productos asignados
   const [cargando, setCargando] = useState(true);
-  const [editando, setEditando] = useState(null);
-  const [nuevo, setNuevo] = useState(false);
-  // estante = tipo soporte ("Pallet"/"Estante"), nivel = identificador ("3"/"B")
-  const [form, setForm] = useState({ codigo_zona: "", estante: "Pallet", nivel: "" });
+  const [abiertos, setAbiertos] = useState(() => new Set());
+  // panel = formulario contextual abierto. { kind, zona?, numero?, fila? }
+  const [panel, setPanel] = useState(null);
+  const [form, setForm] = useState({});
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -58,191 +222,377 @@ function TabUbicaciones() {
       .select("*")
       .order("codigo_zona")
       .order("estante")
-      .order("nivel");
+      .order("nivel")
+      .order("compartimiento");
     if (error) show("Error al cargar ubicaciones", "err");
     else setUbicaciones(data || []);
+    // conteo de productos por ubicación (best-effort, no bloquea la carga)
+    const { data: pus } = await supabase.from("producto_ubicacion").select("ubicacion_id");
+    const c = {};
+    (pus || []).forEach(r => { c[r.ubicacion_id] = (c[r.ubicacion_id] || 0) + 1; });
+    setConteos(c);
     setCargando(false);
   }, []);
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  async function guardarNueva() {
-    if (!form.codigo_zona.trim()) { show("La zona es obligatoria", "err"); return; }
-    if (!form.nivel.trim()) { show("El número/letra es obligatorio", "err"); return; }
-    const { error } = await supabase.from("ubicacion").insert({
-      codigo_zona: form.codigo_zona.trim(),
-      estante: form.estante,                  // tipo: "Pallet" o "Estante"
-      nivel: form.nivel.trim().toUpperCase(), // código: "3" o "B"
+  const arbol = construirArbol(ubicaciones);
+
+  // ── nodos expandibles ──────────────────────────────────────────────────
+  const idZona = (zona) => `zona:${zona}`;
+  const idEstante = (zona, numero) => `estante:${zona}:${numero}`;
+  const toggle = (id) => setAbiertos(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const expandirTodo = () => {
+    const ids = new Set();
+    arbol.forEach(z => {
+      ids.add(idZona(z.zona));
+      z.estantes.forEach(e => { if (e.subdividido) ids.add(idEstante(z.zona, e.numero)); });
     });
-    if (error) { show("Error al crear ubicación", "err"); return; }
-    show("Ubicación creada");
-    setNuevo(false);
-    setForm({ codigo_zona: "", estante: "Pallet", nivel: "" });
-    cargar();
+    setAbiertos(ids);
+  };
+  const colapsarTodo = () => setAbiertos(new Set());
+
+  // ── apertura de formularios contextuales ────────────────────────────────
+  function abrir(kind, ctx = {}) {
+    setPanel({ kind, ...ctx });
+    setForm({
+      zona: ctx.zona || "",
+      tipo: "Estante",
+      numero: "",
+      modo: "con",            // estante: "con" | "sin" compartimientos
+      desde: "A",
+      hasta: "F",
+      nivel: ctx.fila?.nivel ?? "",
+      compartimiento: ctx.fila?.compartimiento ?? "",
+    });
+  }
+  const cerrar = () => setPanel(null);
+  const esPanel = (kind, ctx = {}) =>
+    panel?.kind === kind &&
+    (ctx.zona === undefined || panel.zona === ctx.zona) &&
+    (ctx.numero === undefined || String(panel.numero) === String(ctx.numero)) &&
+    (ctx.id === undefined || panel.fila?.id === ctx.id);
+
+  // ── operaciones de escritura ────────────────────────────────────────────
+  async function insertarFilas(filas) {
+    const { error } = await supabase.from("ubicacion").insert(filas);
+    return error;
   }
 
-  async function guardarEdicion(id) {
-    if (!form.codigo_zona.trim()) { show("La zona es obligatoria", "err"); return; }
-    if (!form.nivel.trim()) { show("El número/letra es obligatorio", "err"); return; }
-    const { error } = await supabase.from("ubicacion").update({
-      codigo_zona: form.codigo_zona.trim(),
-      estante: form.estante,
-      nivel: form.nivel.trim().toUpperCase(),
-    }).eq("id", id);
-    if (error) { show("Error al guardar", "err"); return; }
+  async function crearPallet() {
+    const zona = (form.zona || "").trim();
+    const numero = (form.numero || "").trim();
+    if (!zona) { show("La zona es obligatoria", "err"); return; }
+    if (!numero) { show("El número de pallet es obligatorio", "err"); return; }
+    const err = await insertarFilas([{ codigo_zona: zona, estante: "Pallet", nivel: numero, compartimiento: null }]);
+    if (err) { show(err.code === "23505" ? "Ya existe ese pallet" : "Error al crear pallet", "err"); return; }
+    show("Pallet creado");
+    cerrar(); cargar();
+  }
+
+  async function crearEstante() {
+    const zona = (form.zona || "").trim();
+    const numero = (form.numero || "").trim();
+    if (!zona) { show("La zona es obligatoria", "err"); return; }
+    if (!numero) { show("El número de estante es obligatorio", "err"); return; }
+    const existentes = ubicaciones.filter(u =>
+      u.codigo_zona === zona && u.estante === "Estante" && String(u.nivel) === String(numero));
+
+    if (form.modo === "sin") {
+      if (existentes.length) { show("Ese estante ya existe", "err"); return; }
+      const err = await insertarFilas([{ codigo_zona: zona, estante: "Estante", nivel: numero, compartimiento: null }]);
+      if (err) { show(err.code === "23505" ? "Ya existe ese estante" : "Error al crear estante", "err"); return; }
+      show("Estante creado");
+    } else {
+      if (existentes.some(u => !u.compartimiento)) { show("Ese estante ya existe sin compartimientos", "err"); return; }
+      const letras = rangoLetras(form.desde, form.hasta);
+      if (!letras.length) { show("Rango de letras inválido", "err"); return; }
+      const ya = new Set(existentes.filter(u => u.compartimiento).map(u => u.compartimiento.toUpperCase()));
+      const nuevas = letras.filter(l => !ya.has(l));
+      if (!nuevas.length) { show("Esos compartimientos ya existen", "err"); return; }
+      const err = await insertarFilas(nuevas.map(l => ({ codigo_zona: zona, estante: "Estante", nivel: numero, compartimiento: l })));
+      if (err) { show("Error al crear compartimientos", "err"); return; }
+      show(`Estante ${numero} creado con ${nuevas.length} compartimiento(s)`);
+    }
+    setAbiertos(prev => new Set(prev).add(idZona(zona)));
+    cerrar(); cargar();
+  }
+
+  async function crearCompartimientos(zona, numero) {
+    const letras = rangoLetras(form.desde, form.hasta);
+    if (!letras.length) { show("Rango de letras inválido", "err"); return; }
+    const existentes = ubicaciones.filter(u =>
+      u.codigo_zona === zona && u.estante === "Estante" && String(u.nivel) === String(numero));
+    if (existentes.some(u => !u.compartimiento)) { show("Ese estante no admite compartimientos", "err"); return; }
+    const ya = new Set(existentes.filter(u => u.compartimiento).map(u => u.compartimiento.toUpperCase()));
+    const nuevas = letras.filter(l => !ya.has(l));
+    if (!nuevas.length) { show("Esos compartimientos ya existen", "err"); return; }
+    const err = await insertarFilas(nuevas.map(l => ({ codigo_zona: zona, estante: "Estante", nivel: String(numero), compartimiento: l })));
+    if (err) { show("Error al crear compartimientos", "err"); return; }
+    show(`${nuevas.length} compartimiento(s) creado(s)`);
+    cerrar(); cargar();
+  }
+
+  async function guardarEdicion(fila) {
+    const upd = {};
+    if (fila.estante === "Pallet") {
+      const n = (form.nivel || "").trim();
+      if (!n) { show("El número es obligatorio", "err"); return; }
+      upd.nivel = n;
+    } else if (fila.compartimiento) {
+      const n = (form.nivel || "").trim();
+      const l = (form.compartimiento || "").trim().toUpperCase();
+      if (!n) { show("El número de estante es obligatorio", "err"); return; }
+      if (!/^[A-Z]$/.test(l)) { show("La letra debe ser A–Z", "err"); return; }
+      upd.nivel = n; upd.compartimiento = l;
+    } else {
+      const n = (form.nivel || "").trim();
+      if (!n) { show("El número de estante es obligatorio", "err"); return; }
+      upd.nivel = n;
+    }
+    const { error } = await supabase.from("ubicacion").update(upd).eq("id", fila.id);
+    if (error) { show(error.code === "23505" ? "Ya existe esa ubicación" : "Error al guardar", "err"); return; }
     show("Ubicación actualizada");
-    setEditando(null);
-    cargar();
+    cerrar(); cargar();
   }
 
   async function eliminar(id) {
-    if (!confirm("¿Eliminar esta ubicación? Si tiene productos o transacciones asignadas, fallará.")) return;
+    if (!confirm("¿Eliminar esta ubicación? Si tiene productos o movimientos asignados, fallará.")) return;
     const { error } = await supabase.from("ubicacion").delete().eq("id", id);
-    if (error) { show("No se puede eliminar — tiene referencias activas", "err"); return; }
+    if (error) { show("No se puede eliminar — tiene productos o movimientos asignados", "err"); return; }
     show("Ubicación eliminada");
     cargar();
   }
 
-  function iniciarEdicion(u) {
-    setEditando(u.id);
-    setNuevo(false);
-    setForm({
-      codigo_zona: u.codigo_zona,
-      estante: u.estante || "Pallet",
-      nivel: u.nivel || "",
-    });
-  }
-
-  function cancelar() {
-    setEditando(null);
-    setNuevo(false);
-    setForm({ codigo_zona: "", estante: "Pallet", nivel: "" });
-  }
-
-  const FilaForm = ({ onGuardar }) => (
-    <tr className="bg-slate-50">
-      <td className="px-4 py-2">
-        <input
-          autoFocus
-          value={form.codigo_zona}
-          onChange={e => setForm(f => ({ ...f, codigo_zona: e.target.value }))}
-          placeholder="Bodega Principal"
-          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
-        />
-      </td>
-      <td className="px-4 py-2">
-        <select
-          value={form.estante}
-          onChange={e => setForm(f => ({ ...f, estante: e.target.value }))}
-          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none">
-          {TIPOS_SOPORTE.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-      </td>
-      <td className="px-4 py-2">
-        <input
-          value={form.nivel}
-          onChange={e => setForm(f => ({ ...f, nivel: e.target.value }))}
-          placeholder={form.estante === "Pallet" ? "1, 2, 3…" : "A, B, C…"}
-          className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
-        />
-      </td>
-      <td className="px-4 py-2">
-        <div className="flex gap-2">
-          <button
-            onClick={onGuardar}
-            className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
-            <Check size={13} /> Guardar
-          </button>
-          <button
-            onClick={cancelar}
-            className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
-            <X size={13} /> Cancelar
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-
-  // Agrupar por zona para lectura más clara
-  const porZona = ubicaciones.reduce((acc, u) => {
-    if (!acc[u.codigo_zona]) acc[u.codigo_zona] = [];
-    acc[u.codigo_zona].push(u);
-    return acc;
-  }, {});
+  // helper: props comunes para una <Hoja> almacenable
+  const hojaProps = (fila) => ({
+    fila,
+    conteos,
+    editando: esPanel("edit", { id: fila.id }),
+    form, setForm,
+    onEditar: () => abrir("edit", { fila }),
+    onEliminar: () => eliminar(fila.id),
+    onGuardar: () => guardarEdicion(fila),
+    onCancelar: cerrar,
+  });
 
   return (
     <div>
       {toastNode}
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-slate-500">{ubicaciones.length} ubicaciones registradas</p>
-        {!nuevo && !editando && (
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">
+          {ubicaciones.length} ubicaciones · {arbol.length} zonas
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <BtnMini onClick={expandirTodo} icon={ChevronDown}>Expandir todo</BtnMini>
+          <BtnMini onClick={colapsarTodo} icon={ChevronRight}>Colapsar todo</BtnMini>
           <button
-            onClick={() => { setNuevo(true); setEditando(null); setForm({ codigo_zona: "", estante: "Pallet", nivel: "" }); }}
+            onClick={() => abrir("nuevaZona")}
             className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
-            <Plus size={15} /> Nueva ubicación
+            <Plus size={15} /> Nueva zona
           </button>
-        )}
+        </div>
       </div>
 
+      {/* alta de zona nueva (con su primer estante/pallet) */}
+      {esPanel("nuevaZona") && (
+        <div className="mb-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <input autoFocus value={form.zona}
+              onChange={e => setForm(f => ({ ...f, zona: e.target.value }))}
+              placeholder="Nombre de la zona (ej. ALMACEN 1)"
+              className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none" />
+            <select value={form.tipo}
+              onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}
+              className="rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none">
+              <option value="Estante">Estante</option>
+              <option value="Pallet">Pallet</option>
+            </select>
+            <input value={form.numero}
+              onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
+              placeholder={form.tipo === "Pallet" ? "Nº pallet" : "Nº estante"}
+              className="w-28 rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none" />
+          </div>
+          {form.tipo === "Estante" && (
+            <div className="space-y-2">
+              <div className="flex gap-4 text-sm text-slate-600">
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" checked={form.modo === "con"}
+                    onChange={() => setForm(f => ({ ...f, modo: "con" }))} />
+                  Con compartimientos
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" checked={form.modo === "sin"}
+                    onChange={() => setForm(f => ({ ...f, modo: "sin" }))} />
+                  Sin compartimientos
+                </label>
+              </div>
+              {form.modo === "con" && <BulkLetras form={form} setForm={setForm} />}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={form.tipo === "Pallet" ? crearPallet : crearEstante}
+              className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
+              <Check size={13} /> Crear
+            </button>
+            <button onClick={cerrar}
+              className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
+              <X size={13} /> Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="px-4 py-3 w-2/5">Zona</th>
-              <th className="px-4 py-3 w-1/5">Tipo</th>
-              <th className="px-4 py-3 w-1/5">Nro / Letra</th>
-              <th className="px-4 py-3 w-1/5">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {nuevo && <FilaForm onGuardar={guardarNueva} />}
-            {cargando ? (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">Cargando…</td></tr>
-            ) : ubicaciones.length === 0 && !nuevo ? (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">
-                No hay ubicaciones. Agregá la primera.
-              </td></tr>
-            ) : (
-              Object.entries(porZona).map(([zona, items]) => (
-                items.map((u, idx) => editando === u.id ? (
-                  <FilaForm key={u.id} onGuardar={() => guardarEdicion(u.id)} />
-                ) : (
-                  <tr key={u.id} className="hover:bg-slate-50">
-                    {/* Zona solo en primera fila del grupo */}
-                    <td className="px-4 py-3 font-medium text-slate-800">
-                      {idx === 0
-                        ? <span className="flex items-center gap-2"><MapPin size={13} className="text-slate-400" />{zona}</span>
-                        : <span className="pl-5 text-slate-300">↳</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium
-                        ${u.estante === "Pallet"
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-blue-100 text-blue-700"}`}>
-                        {u.estante || "—"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-slate-700">{u.nivel || "—"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => iniciarEdicion(u)}
-                          className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100">
-                          <Pencil size={12} /> Editar
+        {cargando ? (
+          <p className="px-4 py-8 text-center text-slate-400">Cargando…</p>
+        ) : arbol.length === 0 ? (
+          <p className="px-4 py-8 text-center text-slate-400">No hay ubicaciones. Agregá la primera zona.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {arbol.map(z => {
+              const zonaAbierta = abiertos.has(idZona(z.zona));
+              return (
+                <div key={z.zona}>
+                  {/* nodo ZONA */}
+                  <div className="flex items-center bg-slate-50 px-3 py-2.5">
+                    <button onClick={() => toggle(idZona(z.zona))}
+                      className="flex items-center gap-1.5 font-medium text-slate-800">
+                      {zonaAbierta ? <ChevronDown size={15} className="text-slate-400" /> : <ChevronRight size={15} className="text-slate-400" />}
+                      <Warehouse size={15} className="text-slate-500" />
+                      {z.zona}
+                    </button>
+                    <div className="ml-auto flex gap-1">
+                      <BtnMini onClick={() => abrir("addEstante", { zona: z.zona })} icon={Plus}>Estante</BtnMini>
+                      <BtnMini onClick={() => abrir("addPallet", { zona: z.zona })} icon={Plus}>Pallet</BtnMini>
+                    </div>
+                  </div>
+
+                  {/* formularios de alta a nivel de zona */}
+                  {esPanel("addPallet", { zona: z.zona }) && (
+                    <div className="border-l-2 border-amber-300 bg-amber-50/40 px-3 py-2" style={{ marginLeft: 20 }}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Layers size={14} className="text-amber-500" />
+                        <input autoFocus value={form.numero}
+                          onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
+                          placeholder="Nº pallet"
+                          className="w-28 rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none" />
+                        <button onClick={crearPallet}
+                          className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
+                          <Check size={13} /> Crear pallet
                         </button>
-                        <button
-                          onClick={() => eliminar(u.id)}
-                          className="flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50">
-                          <Trash2 size={12} /> Quitar
+                        <button onClick={cerrar}
+                          className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
+                          <X size={13} /> Cancelar
                         </button>
                       </div>
-                    </td>
-                  </tr>
-                ))
-              ))
-            )}
-          </tbody>
-        </table>
+                    </div>
+                  )}
+                  {esPanel("addEstante", { zona: z.zona }) && (
+                    <div className="space-y-2 border-l-2 border-blue-300 bg-blue-50/40 px-3 py-2" style={{ marginLeft: 20 }}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <LayoutGrid size={14} className="text-blue-500" />
+                        <input autoFocus value={form.numero}
+                          onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
+                          placeholder="Nº estante"
+                          className="w-28 rounded border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none" />
+                        <label className="flex items-center gap-1.5 text-sm text-slate-600">
+                          <input type="radio" checked={form.modo === "con"}
+                            onChange={() => setForm(f => ({ ...f, modo: "con" }))} />
+                          Con compartimientos
+                        </label>
+                        <label className="flex items-center gap-1.5 text-sm text-slate-600">
+                          <input type="radio" checked={form.modo === "sin"}
+                            onChange={() => setForm(f => ({ ...f, modo: "sin" }))} />
+                          Sin
+                        </label>
+                      </div>
+                      {form.modo === "con" && <BulkLetras form={form} setForm={setForm} />}
+                      <div className="flex gap-2">
+                        <button onClick={crearEstante}
+                          className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
+                          <Check size={13} /> Crear estante
+                        </button>
+                        <button onClick={cerrar}
+                          className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
+                          <X size={13} /> Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* hijos de la zona */}
+                  {zonaAbierta && (
+                    <div>
+                      {z.estantes.map(e => {
+                        if (!e.subdividido) {
+                          // estante sin compartimientos = hoja directa
+                          return (
+                            <Hoja key={`e-${e.numero}`} depth={1}
+                              icon={LayoutGrid} etiqueta={`Estante ${e.numero}`} {...hojaProps(e.hoja)} />
+                          );
+                        }
+                        const abierto = abiertos.has(idEstante(z.zona, e.numero));
+                        return (
+                          <div key={`e-${e.numero}`}>
+                            {/* nodo ESTANTE sintético */}
+                            <div className="flex items-center px-3 py-2 hover:bg-slate-50">
+                              <Indent depth={1}>
+                                <button onClick={() => toggle(idEstante(z.zona, e.numero))}
+                                  className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                                  {abierto ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                                  <LayoutGrid size={14} className="text-blue-500" />
+                                  Estante {e.numero}
+                                  <span className="text-xs font-normal text-slate-400">({e.hojas.length})</span>
+                                </button>
+                              </Indent>
+                              <div className="ml-auto flex gap-1">
+                                <BtnMini onClick={() => abrir("addComp", { zona: z.zona, numero: e.numero })} icon={Plus}>Compartimiento</BtnMini>
+                              </div>
+                            </div>
+                            {esPanel("addComp", { zona: z.zona, numero: e.numero }) && (
+                              <div className="space-y-2 border-l-2 border-blue-300 bg-blue-50/40 px-3 py-2" style={{ marginLeft: 40 }}>
+                                <BulkLetras form={form} setForm={setForm} />
+                                <div className="flex gap-2">
+                                  <button onClick={() => crearCompartimientos(z.zona, e.numero)}
+                                    className="flex items-center gap-1 rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700">
+                                    <Check size={13} /> Generar
+                                  </button>
+                                  <button onClick={cerrar}
+                                    className="flex items-center gap-1 rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">
+                                    <X size={13} /> Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            {abierto && e.hojas.map(h => (
+                              <Hoja key={h.id} depth={2}
+                                icon={Box} etiqueta={h.compartimiento} {...hojaProps(h)} />
+                            ))}
+                          </div>
+                        );
+                      })}
+                      {z.pallets.map(p => (
+                        <Hoja key={p.id} depth={1}
+                          icon={Layers} etiqueta={`Pallet ${p.nivel}`} {...hojaProps(p)} />
+                      ))}
+                      {z.estantes.length === 0 && z.pallets.length === 0 && (
+                        <p className="px-3 py-2 text-xs text-slate-400" style={{ paddingLeft: 40 }}>
+                          Zona vacía — agregá un estante o pallet.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -268,6 +618,7 @@ function TabAsignaciones() {
       .order("codigo_zona")
       .order("estante")
       .order("nivel")
+      .order("compartimiento")
       .then(({ data }) => setUbicaciones(data || []));
   }, []);
 
@@ -300,7 +651,7 @@ function TabAsignaciones() {
   async function cargarAsignaciones(productoId) {
     const { data } = await supabase
       .from("producto_ubicacion")
-      .select("id, es_principal, ubicacion:ubicacion_id(id, codigo_zona, estante, nivel)")
+      .select("id, es_principal, ubicacion:ubicacion_id(id, codigo_zona, estante, nivel, compartimiento)")
       .eq("producto_id", productoId)
       .order("es_principal", { ascending: false });
     setAsignaciones(data || []);
@@ -427,6 +778,7 @@ function TabAsignaciones() {
                           {a.ubicacion.estante}
                         </span>
                         {" "}{a.ubicacion.nivel}
+                        {a.ubicacion.compartimiento ? ` · ${a.ubicacion.compartimiento}` : ""}
                       </p>
                     </div>
                     {a.es_principal && (
