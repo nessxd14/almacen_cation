@@ -13,7 +13,7 @@
  *                      p_cantidad_pres, p_referencia?, p_usuario?, p_fecha?)
  *
  * Enum tipo_movimiento real: INV_INICIAL | ENTRADA | SALIDA | AJUSTE | TRASLADO
- * Columnas ubicacion: id, codigo_zona, estante, nivel
+ * Columnas ubicacion: id, codigo_zona, estante, nivel, compartimiento
  * Columna producto: sku_interno (no sku)
  */
 
@@ -29,7 +29,8 @@ const uuid = () => crypto.randomUUID
   ? crypto.randomUUID()
   : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 
-const labelUbicacion = (u) => u ? `${u.codigo_zona}-${u.estante}-${u.nivel}` : "—";
+const labelUbicacion = (u) =>
+  u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
 const hoy = () => new Date().toISOString().slice(0, 10);
 
 const MODOS = [
@@ -80,7 +81,7 @@ export default function OperacionesApp() {
       const [{ data: prods }, { data: pres }, { data: ubs }] = await Promise.all([
         supabase.from("producto").select("id, nombre, sku_interno, unidad_base").eq("activo", true).order("nombre"),
         supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base").order("nombre"),
-        supabase.from("ubicacion").select("id, codigo_zona, estante, nivel").order("codigo_zona"),
+        supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento"),
       ]);
       setProductos(prods || []);
       setPresentaciones(pres || []);

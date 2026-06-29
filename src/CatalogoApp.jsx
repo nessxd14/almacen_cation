@@ -19,6 +19,7 @@ function etiquetaUbicacion(u) {
   const partes = [u.codigo_zona];
   if (u.estante && u.nivel) partes.push(`${u.estante} ${u.nivel}`);
   else if (u.estante) partes.push(u.estante);
+  if (u.compartimiento) partes.push(u.compartimiento);
   return partes.join(" › ");
 }
 
@@ -80,7 +81,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
       // Ubicaciones
       const { data: ubics } = await supabase
         .from("producto_ubicacion")
-        .select("es_principal, ubicacion:ubicacion_id(codigo_zona, estante, nivel)")
+        .select("es_principal, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento)")
         .eq("producto_id", producto.id)
         .order("es_principal", { ascending: false });
       // Identificadores (vía presentaciones del producto)
@@ -91,7 +92,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
       // Stock por ubicación
       const { data: stock } = await supabase
         .from("stock_actual")
-        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel)")
+        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento)")
         .eq("producto_id", producto.id);
 
       if (activo) {

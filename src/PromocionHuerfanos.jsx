@@ -50,7 +50,7 @@ export default function PromocionHuerfanos() {
     const [{ data: huerfanosData }, { data: presData }] = await Promise.all([
       supabase
         .from("conteo_fisico_inicial")
-        .select("id, descripcion_libre, ubicacion_id, cantidad, capturado_en, ubicacion(codigo_zona, estante, nivel)")
+        .select("id, descripcion_libre, ubicacion_id, cantidad, capturado_en, ubicacion(codigo_zona, estante, nivel, compartimiento)")
         .eq("es_no_catalogado", true)
         .eq("estado", "CAPTURADO")
         .order("capturado_en", { ascending: false }),
@@ -80,7 +80,7 @@ export default function PromocionHuerfanos() {
 
   const labelUbicacion = (h) => {
     const u = h.ubicacion;
-    return u ? `${u.codigo_zona}-${u.estante}-${u.nivel}` : "—";
+    return u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
   };
 
   /* ── promover: vincular a presentación existente ─────────────────── */

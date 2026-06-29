@@ -15,10 +15,11 @@ function cantidadFmt(v) {
   const n = Number(v || 0);
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 }
-function etiquetaUbicacion(zona, estante, nivel) {
+function etiquetaUbicacion(zona, estante, nivel, compartimiento) {
   const partes = [zona];
   if (estante && nivel) partes.push(`${estante} ${nivel}`);
   else if (estante) partes.push(estante);
+  if (compartimiento) partes.push(compartimiento);
   return partes.join(" › ");
 }
 
@@ -232,7 +233,7 @@ export default function InventarioApp() {
                       <td className="px-3 py-2.5">
                         <span className="flex items-center gap-1 text-slate-600">
                           <MapPin size={12} className="text-slate-400" />
-                          {etiquetaUbicacion(f.codigo_zona, f.estante, f.nivel)}
+                          {etiquetaUbicacion(f.codigo_zona, f.estante, f.nivel, f.compartimiento)}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-right">

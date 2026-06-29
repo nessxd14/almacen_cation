@@ -9,7 +9,7 @@
  *                          factor_a_base_snap, identificador_raw, foto_ref,
  *                          contador, numero_conteo, cliente_uuid, dispositivo_id,
  *                          capturado_en, sincronizado_en, estado
- *   ubicacion:             id, codigo_zona, estante, nivel
+ *   ubicacion:             id, codigo_zona, estante, nivel, compartimiento
  *   producto:              id, nombre, sku_interno, unidad_base
  *   presentacion:          id, producto_id, nombre, factor_unidad_base, es_base
  *   identificador:         id, presentacion_id, valor, tipo, origen, activo, es_principal
@@ -30,7 +30,8 @@ const uuid = () =>
     ? crypto.randomUUID()
     : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 const nowISO = () => new Date().toISOString();
-const labelUbicacion = (u) => `${u.codigo_zona}-${u.estante}-${u.nivel}`;
+const labelUbicacion = (u) =>
+  [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-");
 
 /* ── IndexedDB para offline ───────────────────────────────────────────── */
 const DB_NAME = "conteo_wms";
@@ -191,7 +192,7 @@ export default function ConteoApp() {
       setLoadingCatalogo(true);
       try {
         const [{ data: ubs, error: e1 }, { data: pres, error: e2 }] = await Promise.all([
-          supabase.from("ubicacion").select("id, codigo_zona, estante, nivel").order("codigo_zona"),
+          supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento"),
           supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, unidad_base)").order("nombre"),
         ]);
         if (e1) throw e1;

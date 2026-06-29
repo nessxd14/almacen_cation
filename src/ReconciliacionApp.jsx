@@ -12,7 +12,7 @@
  *     estado (enum: PENDIENTE | CONCILIADA | INYECTADA | DESCARTADA),
  *     resuelto_por (VARCHAR), resuelto_en, creado_en
  *   sesion_conteo: id, nombre, metodo, estado, iniciada_en, cerrada_en
- *   ubicacion: id, codigo_zona, estante, nivel
+ *   ubicacion: id, codigo_zona, estante, nivel, compartimiento
  *   presentacion: id, producto_id, nombre, factor_unidad_base
  *   producto: id, nombre, sku_interno
  */
@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 
 const USUARIO_ACTUAL = "Supervisor";
-const labelUbicacion = (u) => u ? `${u.codigo_zona}-${u.estante}-${u.nivel}` : "—";
+const labelUbicacion = (u) =>
+  u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
 
 export default function ReconciliacionApp() {
   const [sesiones, setSesiones] = useState([]);
@@ -74,7 +75,7 @@ export default function ReconciliacionApp() {
       const prIds = [...new Set(lineasData.map(l => l.presentacion_id))];
 
       const [{ data: ubs }, { data: pres }] = await Promise.all([
-        supabase.from("ubicacion").select("id, codigo_zona, estante, nivel").in("id", ubIds),
+        supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").in("id", ubIds),
         supabase.from("presentacion").select("id, nombre, producto(id, nombre, sku_interno)").in("id", prIds),
       ]);
 
