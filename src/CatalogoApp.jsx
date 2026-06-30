@@ -389,7 +389,7 @@ export default function CatalogoApp() {
       .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url", { count: "exact" })
       .eq("activo", true);
 
-    if (q.trim()) query = query.ilike("nombre", `%${q.trim()}%`);
+    if (q.trim()) query = query.or(`nombre.ilike.%${q.trim()}%,sku_interno.ilike.%${q.trim()}%`);
     if (idsFiltro) query = query.in("id", idsFiltro);
 
     query = query.order("nombre").range(pag * PAGINA, pag * PAGINA + PAGINA - 1);
@@ -445,7 +445,7 @@ export default function CatalogoApp() {
           <input
             value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
-            placeholder="Buscar por nombre…"
+            placeholder="Buscar por nombre o SKU…"
             className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
           />
         </div>

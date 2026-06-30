@@ -140,6 +140,7 @@ export default function ConteoApp() {
   // catálogo desde Supabase
   const [ubicaciones, setUbicaciones] = useState([]);
   const [presentaciones, setPresentaciones] = useState([]);
+  const [identificadores, setIdentificadores] = useState([]);
   const [loadingCatalogo, setLoadingCatalogo] = useState(true);
   const [errorCatalogo, setErrorCatalogo] = useState(null);
 
@@ -191,14 +192,17 @@ export default function ConteoApp() {
     async function cargarCatalogo() {
       setLoadingCatalogo(true);
       try {
-        const [{ data: ubs, error: e1 }, { data: pres, error: e2 }] = await Promise.all([
+        const [{ data: ubs, error: e1 }, { data: pres, error: e2 }, { data: ids, error: e3 }] = await Promise.all([
           supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento"),
           supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, unidad_base)").order("nombre"),
+          supabase.from("identificador").select("presentacion_id, valor").eq("activo", true),
         ]);
         if (e1) throw e1;
         if (e2) throw e2;
+        if (e3) throw e3;
         setUbicaciones(ubs || []);
         setPresentaciones(pres || []);
+        setIdentificadores(ids || []);
       } catch (e) {
         setErrorCatalogo(e.message);
       } finally {
@@ -260,19 +264,25 @@ export default function ConteoApp() {
     }
   };
 
-  /* ── búsqueda de presentaciones (texto: nombre / sku) ────────────── */
+  /* ── búsqueda de presentaciones (texto: nombre / sku / código de barras) ── */
   const searchQuery = useCallback((q) => {
     setQuery(q);
     if (!q.trim()) { setResults([]); return; }
     const texto = q.toLowerCase();
+    const idsPorCodigo = new Set(
+      identificadores
+        .filter((i) => i.valor.toLowerCase().includes(texto))
+        .map((i) => i.presentacion_id)
+    );
     setResults(
       presentaciones.filter((p) =>
         p.nombre.toLowerCase().includes(texto) ||
-        p.producto?.nombre.toLowerCase().includes(texto) ||
-        p.producto?.sku_interno.toLowerCase().includes(texto)
+        p.producto?.nombre?.toLowerCase().includes(texto) ||
+        p.producto?.sku_interno?.toLowerCase().includes(texto) ||
+        idsPorCodigo.has(p.id)
       )
     );
-  }, [presentaciones]);
+  }, [presentaciones, identificadores]);
 
   /* ── escaneo: resuelve el código vía RPC resolver_identificador ───── */
   const handleScan = useCallback(async (codigo) => {

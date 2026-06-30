@@ -89,7 +89,7 @@ export default function InventarioApp() {
   const cargarFilas = useCallback(async () => {
     setCargando(true);
     let query = supabase.from("v_inventario_detalle").select("*");
-    if (busqueda.trim()) query = query.ilike("producto_nombre", `%${busqueda.trim()}%`);
+    if (busqueda.trim()) query = query.or(`producto_nombre.ilike.%${busqueda.trim()}%,sku_interno.ilike.%${busqueda.trim()}%`);
     query = query.order(orden.campo, { ascending: orden.asc });
     const { data } = await query.limit(1000);
     setFilas(data || []);
@@ -173,7 +173,7 @@ export default function InventarioApp() {
           <input
             value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
-            placeholder="Buscar producto…"
+            placeholder="Buscar por nombre o SKU…"
             className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
           />
         </div>

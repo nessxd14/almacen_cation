@@ -628,7 +628,7 @@ function TabAsignaciones() {
     const { data } = await supabase
       .from("producto")
       .select("id, nombre, sku_interno")
-      .ilike("nombre", `%${q}%`)
+      .or(`nombre.ilike.%${q}%,sku_interno.ilike.%${q}%`)
       .eq("activo", true)
       .order("nombre")
       .limit(20);
@@ -712,7 +712,7 @@ function TabAsignaciones() {
           <input
             value={busqueda}
             onChange={e => { setBusqueda(e.target.value); setSeleccionado(null); }}
-            placeholder="Nombre del producto…"
+            placeholder="Nombre o SKU del producto…"
             className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
           />
         </div>
