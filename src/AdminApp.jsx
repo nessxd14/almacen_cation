@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
+import EscanerCodigo from "./EscanerCodigo";
 import {
   MapPin, Package, Plus, Pencil, Trash2, Check, X,
   ChevronRight, ChevronDown, Search, Star, AlertCircle,
-  Warehouse, LayoutGrid, Box, Layers
+  Warehouse, LayoutGrid, Box, Layers, ScanLine
 } from "lucide-react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -610,6 +611,22 @@ function TabAsignaciones() {
   const [ubicaciones, setUbicaciones] = useState([]);
   const [nuevaUbicId, setNuevaUbicId] = useState("");
   const [agregando, setAgregando] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+
+  const handleScan = useCallback(async (codigo) => {
+    setShowScanner(false);
+    const code = (codigo || "").trim();
+    if (!code) return;
+    const { data } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    if (rows.length === 0) { show("Código no reconocido", "err"); return; }
+    const { data: pres } = await supabase
+      .from("presentacion")
+      .select("producto:producto_id(id, nombre, sku_interno)")
+      .eq("id", rows[0].presentacion_id)
+      .single();
+    if (pres?.producto) seleccionarProducto(pres.producto);
+  }, []);
 
   useEffect(() => {
     supabase
@@ -628,7 +645,7 @@ function TabAsignaciones() {
     const { data } = await supabase
       .from("producto")
       .select("id, nombre, sku_interno")
-      .ilike("nombre", `%${q}%`)
+      .or(`nombre.ilike.%${q}%,sku_interno.ilike.%${q}%`)
       .eq("activo", true)
       .order("nombre")
       .limit(20);
@@ -704,17 +721,25 @@ function TabAsignaciones() {
     <div>
       {toastNode}
 
+      {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
+
       {/* Buscador */}
       <div className="mb-6">
         <label className="mb-1 block text-sm font-medium text-slate-700">Buscar producto</label>
-        <div className="relative">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={busqueda}
-            onChange={e => { setBusqueda(e.target.value); setSeleccionado(null); }}
-            placeholder="Nombre del producto…"
-            className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
-          />
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={busqueda}
+              onChange={e => { setBusqueda(e.target.value); setSeleccionado(null); }}
+              placeholder="Nombre, SKU o código de barras…"
+              className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
+            />
+          </div>
+          <button onClick={() => setShowScanner(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <ScanLine size={15} /> Escanear
+          </button>
         </div>
 
         {(productos.length > 0 || buscando) && (

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
+import EscanerCodigo from "./EscanerCodigo";
 import {
   Boxes, Package, DollarSign, AlertTriangle, PackageX, Search,
-  ArrowUpDown, MapPin, SlidersHorizontal, ImageOff
+  ArrowUpDown, MapPin, SlidersHorizontal, ImageOff, ScanLine
 } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -52,6 +53,22 @@ export default function InventarioApp() {
   const [umbral, setUmbral] = useState(5);
   const [orden, setOrden] = useState({ campo: "producto_nombre", asc: true });
   const [filtroAlerta, setFiltroAlerta] = useState("todos"); // todos | bajo | cero
+  const [showScanner, setShowScanner] = useState(false);
+
+  const handleScan = useCallback(async (codigo) => {
+    setShowScanner(false);
+    const code = (codigo || "").trim();
+    if (!code) return;
+    const { data } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    if (rows.length === 0) return;
+    const { data: pres } = await supabase
+      .from("presentacion")
+      .select("producto:producto_id(nombre)")
+      .eq("id", rows[0].presentacion_id)
+      .single();
+    if (pres?.producto?.nombre) setBusqueda(pres.producto.nombre);
+  }, []);
 
   // Resumen global (sobre TODO el catálogo, no solo lo filtrado)
   const cargarResumen = useCallback(async () => {
@@ -89,7 +106,7 @@ export default function InventarioApp() {
   const cargarFilas = useCallback(async () => {
     setCargando(true);
     let query = supabase.from("v_inventario_detalle").select("*");
-    if (busqueda.trim()) query = query.ilike("producto_nombre", `%${busqueda.trim()}%`);
+    if (busqueda.trim()) query = query.or(`producto_nombre.ilike.%${busqueda.trim()}%,sku_interno.ilike.%${busqueda.trim()}%`);
     query = query.order(orden.campo, { ascending: orden.asc });
     const { data } = await query.limit(1000);
     setFilas(data || []);
@@ -166,6 +183,8 @@ export default function InventarioApp() {
         </div>
       )}
 
+      {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
+
       {/* Controles tabla */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">
@@ -173,10 +192,14 @@ export default function InventarioApp() {
           <input
             value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
-            placeholder="Buscar producto…"
+            placeholder="Buscar por nombre, SKU o código de barras…"
             className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
           />
         </div>
+        <button onClick={() => setShowScanner(true)}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+          <ScanLine size={15} /> Escanear
+        </button>
         {/* Filtros de alerta */}
         <div className="flex rounded-lg border border-slate-300 p-0.5 text-sm">
           {[

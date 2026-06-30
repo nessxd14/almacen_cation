@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
+import EscanerCodigo from "./EscanerCodigo";
 import {
   ArrowDownToLine, ArrowUpFromLine, Sliders, ArrowLeftRight, PackagePlus,
-  Search, Calendar, User, FileText, MapPin, Filter, History as HistoryIcon
+  Search, Calendar, User, FileText, MapPin, Filter, History as HistoryIcon, ScanLine
 } from "lucide-react";
 
 // ─── Configuración de tipos de movimiento ────────────────────────────────────
@@ -104,6 +105,22 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
+  const [showScanner, setShowScanner] = useState(false);
+
+  const handleScan = useCallback(async (codigo) => {
+    setShowScanner(false);
+    const code = (codigo || "").trim();
+    if (!code) return;
+    const { data } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    if (rows.length === 0) return;
+    const { data: pres } = await supabase
+      .from("presentacion")
+      .select("producto:producto_id(nombre)")
+      .eq("id", rows[0].presentacion_id)
+      .single();
+    if (pres?.producto?.nombre) setBusqueda(pres.producto.nombre);
+  }, []);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -145,6 +162,8 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
 
   return (
     <div>
+      {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
+
       {/* Controles (solo en modo global) */}
       {!productoId && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -153,10 +172,14 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
             <input
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar por producto, SKU o referencia…"
+              placeholder="Buscar por producto, SKU, referencia o código de barras…"
               className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
             />
           </div>
+          <button onClick={() => setShowScanner(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <ScanLine size={15} /> Escanear
+          </button>
           <div className="relative">
             <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <select

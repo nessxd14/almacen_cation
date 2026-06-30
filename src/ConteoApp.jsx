@@ -19,6 +19,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import { subirFotoConteo, pathFotoConteo } from "./fotoConteo";
+import EscanerCodigo from "./EscanerCodigo";
 import {
   Camera, Search, MapPin, CheckCircle, AlertCircle,
   Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader,
@@ -74,64 +75,6 @@ async function initPersistence() {
   catch { return memAdapter(); }
 }
 
-/* ── Escáner por cámara ───────────────────────────────────────────────── */
-function Scanner({ onDetect, onClose }) {
-  const videoRef = useRef(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let stopped = false;
-    let stream = null;
-    let zxingReader = null;
-
-    async function start() {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; }
-        if (videoRef.current) videoRef.current.srcObject = stream;
-
-        if (typeof BarcodeDetector !== "undefined") {
-          const bd = new BarcodeDetector({ formats: ["ean_13","ean_8","code_128","qr_code","upc_a"] });
-          const tick = async () => {
-            if (stopped) return;
-            if (videoRef.current?.readyState === 4) {
-              const results = await bd.detect(videoRef.current).catch(() => []);
-              if (results.length) { onDetect(results[0].rawValue); return; }
-            }
-            requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
-        } else {
-          const { BrowserMultiFormatReader } = await import("@zxing/browser");
-          zxingReader = new BrowserMultiFormatReader();
-          zxingReader.decodeFromVideoElement(videoRef.current, (result) => {
-            if (result && !stopped) onDetect(result.getText());
-          });
-        }
-      } catch {
-        setError("No se pudo acceder a la cámara. Verifica el permiso.");
-      }
-    }
-    start();
-    return () => {
-      stopped = true;
-      stream?.getTracks().forEach((t) => t.stop());
-      zxingReader?.reset?.();
-    };
-  }, [onDetect]);
-
-  return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center gap-4">
-      {error
-        ? <p className="text-white text-sm px-6 text-center">{error}</p>
-        : <video ref={videoRef} autoPlay playsInline className="w-full max-w-sm rounded-lg" />}
-      <button onClick={onClose} className="px-6 py-2 bg-white rounded-full text-sm font-medium">
-        Cerrar
-      </button>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════════════════════════════ */
 export default function ConteoApp() {
   const [store, setStore] = useState(null);
@@ -140,6 +83,7 @@ export default function ConteoApp() {
   // catálogo desde Supabase
   const [ubicaciones, setUbicaciones] = useState([]);
   const [presentaciones, setPresentaciones] = useState([]);
+  const [identificadores, setIdentificadores] = useState([]);
   const [loadingCatalogo, setLoadingCatalogo] = useState(true);
   const [errorCatalogo, setErrorCatalogo] = useState(null);
 
@@ -191,14 +135,17 @@ export default function ConteoApp() {
     async function cargarCatalogo() {
       setLoadingCatalogo(true);
       try {
-        const [{ data: ubs, error: e1 }, { data: pres, error: e2 }] = await Promise.all([
+        const [{ data: ubs, error: e1 }, { data: pres, error: e2 }, { data: ids, error: e3 }] = await Promise.all([
           supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento"),
           supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, unidad_base)").order("nombre"),
+          supabase.from("identificador").select("presentacion_id, valor").eq("activo", true),
         ]);
         if (e1) throw e1;
         if (e2) throw e2;
+        if (e3) throw e3;
         setUbicaciones(ubs || []);
         setPresentaciones(pres || []);
+        setIdentificadores(ids || []);
       } catch (e) {
         setErrorCatalogo(e.message);
       } finally {
@@ -260,19 +207,25 @@ export default function ConteoApp() {
     }
   };
 
-  /* ── búsqueda de presentaciones (texto: nombre / sku) ────────────── */
+  /* ── búsqueda de presentaciones (texto: nombre / sku / código de barras) ── */
   const searchQuery = useCallback((q) => {
     setQuery(q);
     if (!q.trim()) { setResults([]); return; }
     const texto = q.toLowerCase();
+    const idsPorCodigo = new Set(
+      identificadores
+        .filter((i) => i.valor.toLowerCase().includes(texto))
+        .map((i) => i.presentacion_id)
+    );
     setResults(
       presentaciones.filter((p) =>
         p.nombre.toLowerCase().includes(texto) ||
-        p.producto?.nombre.toLowerCase().includes(texto) ||
-        p.producto?.sku_interno.toLowerCase().includes(texto)
+        p.producto?.nombre?.toLowerCase().includes(texto) ||
+        p.producto?.sku_interno?.toLowerCase().includes(texto) ||
+        idsPorCodigo.has(p.id)
       )
     );
-  }, [presentaciones]);
+  }, [presentaciones, identificadores]);
 
   /* ── escaneo: resuelve el código vía RPC resolver_identificador ───── */
   const handleScan = useCallback(async (codigo) => {
@@ -438,7 +391,7 @@ export default function ConteoApp() {
   /* captura */
   if (screen === "capture") return (
     <div className="max-w-md mx-auto pt-4 px-4 space-y-3">
-      {scanning && <Scanner onDetect={handleScan} onClose={() => setScanning(false)} />}
+      {scanning && <EscanerCodigo onDetect={handleScan} onClose={() => setScanning(false)} />}
 
       <div className="flex items-center gap-2">
         <button onClick={() => setScreen("location")} className="text-slate-500 hover:text-slate-700">
