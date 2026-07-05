@@ -8,7 +8,8 @@ import {
 import { HistorialMovimientos } from "./HistorialApp";
 import EditarProducto, { CarruselPrecios } from "./EditarProducto";
 import EscanerCodigo from "./EscanerCodigo";
-import { ubicacionesParaOperacion, ejecutarOperacion } from "./lib/operaciones";
+import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea } from "./lib/operaciones";
+import { agregarAlBorrador } from "./lib/pedidoBorrador";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -298,7 +299,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
 // Reemplaza al antiguo drawer lateral. La grilla es solo preview; acá vive
 // la decisión de "Vender ahora" o "Agregar a pedido" (Fase C).
 
-function QuickView({ producto, onClose, onVerDetalle, onVenderAhora }) {
+function QuickView({ producto, onClose, onVerDetalle, onVenderAhora, onAgregarPedido }) {
   const mapeado = !!producto.shopify_variant_id;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -330,10 +331,9 @@ function QuickView({ producto, onClose, onVerDetalle, onVenderAhora }) {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-700">
               <ShoppingCart size={16} /> Vender ahora
             </button>
-            <button disabled
-              title="Disponible cuando se implemente el Despacho de pedidos (Fase C)"
-              className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-300">
-              <PackagePlus size={16} /> Agregar a pedido — próximamente
+            <button onClick={onAgregarPedido}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <PackagePlus size={16} /> Agregar a pedido
             </button>
           </div>
 
@@ -346,7 +346,10 @@ function QuickView({ producto, onClose, onVerDetalle, onVenderAhora }) {
   );
 }
 
-// ─── Vender ahora: SALIDA inmediata sobre el mismo motor de Fase A ─────────
+// ─── Vender ahora: crea un pedido de 1 línea y lo despacha con el pick auto ──
+// Unificado bajo el mismo modelo de Fase C (Despacho de pedidos): una venta
+// de Tienda hecha así obtiene su ventana de reversión de 30 min igual que
+// cualquier despacho.
 
 const CATEGORIAS_VENTA = [
   { id: "MAYOR",  label: "Mayor" },
@@ -356,9 +359,8 @@ const CATEGORIAS_VENTA = [
 function VenderAhoraModal({ producto, onClose, onVendido }) {
   const [presentaciones, setPresentaciones] = useState([]);
   const [presentacionId, setPresentacionId] = useState("");
-  const [ubicaciones, setUbicaciones] = useState([]);
-  const [ubicacionId, setUbicacionId] = useState("");
-  const [cargandoUbic, setCargandoUbic] = useState(true);
+  const [ubicacionesStock, setUbicacionesStock] = useState([]);
+  const [previewPick, setPreviewPick] = useState(null);
   const [categoria, setCategoria] = useState("");
   const [cantidad, setCantidad] = useState("1");
   const [referencia, setReferencia] = useState("");
@@ -382,38 +384,59 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
 
   useEffect(() => {
     let activo = true;
-    setCargandoUbic(true);
-    ubicacionesParaOperacion({ productoId: producto.id, modo: "SALIDA" }).then(({ ubicaciones: ubs }) => {
-      if (!activo) return;
-      setUbicaciones(ubs);
-      if (ubs.length > 0) setUbicacionId(String(ubs[0].id)); // ya vienen ordenadas por mayor stock
-      setCargandoUbic(false);
+    ubicacionesParaOperacion({ productoId: producto.id, modo: "SALIDA" }).then(({ ubicaciones }) => {
+      if (activo) setUbicacionesStock(ubicaciones);
     });
     return () => { activo = false; };
   }, [producto.id]);
 
   const presentacion = presentaciones.find(p => p.id === Number(presentacionId));
-  const showFlash = (msg, type) => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
+
+  // preview del pick automático (mayor stock primero) mientras se ajusta la cantidad
+  useEffect(() => {
+    let activo = true;
+    if (!presentacion || !cantidad || Number(cantidad) <= 0) { setPreviewPick(null); return; }
+    const cantidadBase = Number(cantidad) * presentacion.factor_unidad_base;
+    calcularPick({ productoId: producto.id, cantidadBase }).then((r) => { if (activo) setPreviewPick(r); });
+    return () => { activo = false; };
+  }, [producto.id, presentacion, cantidad]);
+
+  const labelUbic = (id) => ubicacionesStock.find(u => u.id === id)?.label || `Ubicación ${id}`;
+  const showFlash = (msg, type) => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 4000); };
 
   async function confirmar() {
     if (!categoria) { showFlash("Selecciona la categoría de venta", "error"); return; }
     if (!presentacionId) { showFlash("Selecciona una presentación", "error"); return; }
     if (!cantidad || Number(cantidad) <= 0) { showFlash("Cantidad inválida", "error"); return; }
-    if (!ubicacionId) { showFlash("No hay stock disponible para vender", "error"); return; }
 
     setEjecutando(true);
     const catLabel = CATEGORIAS_VENTA.find(c => c.id === categoria)?.label || categoria;
     const refFinal = referencia.trim() || `Venta directa · ${catLabel}`;
-    const { id, error } = await ejecutarOperacion({
-      modo: "SALIDA",
-      presentacionId,
-      ubicacionId,
-      cantidad,
+    const cantidadBase = Number(cantidad) * presentacion.factor_unidad_base;
+
+    const { id: pedidoId, error: errorPedido } = await crearPedido({
+      categoria,
       referencia: refFinal,
+      lineas: [{ producto_id: producto.id, cantidad_base: cantidadBase }],
     });
+    if (errorPedido) { setEjecutando(false); showFlash("Error: " + errorPedido.message, "error"); return; }
+
+    const { data: lineaRow } = await supabase
+      .from("pedido_linea").select("id").eq("pedido_id", pedidoId).limit(1).single();
+
+    const { asignaciones, faltante } = await calcularPick({ productoId: producto.id, cantidadBase });
+
+    if (asignaciones.length === 0) {
+      setEjecutando(false);
+      onVendido?.({ pedidoId, faltante: cantidadBase, sinDespachar: true });
+      return;
+    }
+
+    const { resultado, error: errorDespacho } = await despacharLinea({ lineaId: lineaRow.id, asignaciones });
     setEjecutando(false);
-    if (error) { showFlash("Error: " + error.message, "error"); return; }
-    onVendido?.(id);
+    if (errorDespacho) { showFlash("Error al despachar: " + errorDespacho.message, "error"); return; }
+
+    onVendido?.({ pedidoId, resultado, faltante });
   }
 
   return (
@@ -457,24 +480,35 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
             ))}
           </select>
 
-          <select value={ubicacionId} onChange={e => setUbicacionId(e.target.value)}
-            disabled={cargandoUbic}
-            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
-            <option value="">— Ubicación —</option>
-            {ubicaciones.map(u => (
-              <option key={u.id} value={u.id}>{u.label} (stock: {u.cantidad_base})</option>
-            ))}
-          </select>
-          {!cargandoUbic && ubicaciones.length === 0 && (
-            <p className="flex items-center gap-1 text-xs text-amber-600">
-              <AlertTriangle size={12} /> Sin stock disponible para vender.
-            </p>
-          )}
-
           <input type="number" min="0.001" step="any" value={cantidad}
             onChange={e => setCantidad(e.target.value)}
             placeholder="Cantidad"
             className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+
+          {/* preview del pick automático — informativo, se recalcula al despachar */}
+          {previewPick && (
+            <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              {previewPick.asignaciones.length === 0 ? (
+                <p className="flex items-center gap-1 text-amber-600">
+                  <AlertTriangle size={12} /> Sin stock disponible — quedará pendiente en el pedido.
+                </p>
+              ) : (
+                <>
+                  <p className="mb-1 font-medium text-slate-500">Se despachará de:</p>
+                  <ul className="space-y-0.5">
+                    {previewPick.asignaciones.map(a => (
+                      <li key={a.ubicacion_id}>• {labelUbic(a.ubicacion_id)} — {a.cantidad_base}</li>
+                    ))}
+                  </ul>
+                  {previewPick.faltante > 0 && (
+                    <p className="mt-1 flex items-center gap-1 text-amber-600">
+                      <AlertTriangle size={12} /> Faltan {previewPick.faltante} — quedará pendiente.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           <input value={referencia} onChange={e => setReferencia(e.target.value)}
             placeholder="Referencia (opcional)"
@@ -752,8 +786,8 @@ export default function CatalogoApp() {
       {/* Flash de venta (sobrevive al cierre de los modales) */}
       {ventaFlash && (
         <div className={`fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg px-4 py-2 text-sm text-white shadow-lg
-          ${ventaFlash.type === "error" ? "bg-red-600" : "bg-emerald-600"}`}>
-          {ventaFlash.type === "error" ? <AlertTriangle size={14} /> : <CheckCircle size={14} />}
+          ${ventaFlash.type === "error" ? "bg-red-600" : ventaFlash.type === "warn" ? "bg-amber-600" : "bg-emerald-600"}`}>
+          {ventaFlash.type === "error" || ventaFlash.type === "warn" ? <AlertTriangle size={14} /> : <CheckCircle size={14} />}
           {ventaFlash.msg}
         </div>
       )}
@@ -765,19 +799,32 @@ export default function CatalogoApp() {
           onClose={() => setSeleccionado(null)}
           onVerDetalle={() => { setDetalleCompleto(seleccionado); setSeleccionado(null); }}
           onVenderAhora={() => setVendiendo(seleccionado)}
+          onAgregarPedido={() => {
+            agregarAlBorrador(seleccionado, 1);
+            setSeleccionado(null);
+            setVentaFlash({ msg: `${seleccionado.nombre} agregado al pedido en borrador — anda a la pestaña Pedidos`, type: "ok" });
+            setTimeout(() => setVentaFlash(null), 4000);
+          }}
         />
       )}
 
-      {/* Vender ahora: SALIDA inmediata */}
+      {/* Vender ahora: crea+despacha un pedido de 1 línea (modelo unificado, Fase C) */}
       {vendiendo && (
         <VenderAhoraModal
           producto={vendiendo}
           onClose={() => setVendiendo(null)}
-          onVendido={() => {
+          onVendido={({ resultado, faltante, sinDespachar }) => {
             setVendiendo(null);
             setSeleccionado(null);
-            setVentaFlash({ msg: "Venta registrada ✓", type: "ok" });
-            setTimeout(() => setVentaFlash(null), 3000);
+            const msg = sinDespachar
+              ? "Pedido creado, sin stock disponible ahora — quedó pendiente (ver Pedidos)"
+              : faltante > 0
+                ? `Venta registrada parcialmente — ${faltante} pendiente de stock (ver Pedidos)`
+                : resultado?.reversible_hasta
+                  ? "Venta registrada ✓ — reversible por 30 min (ver Pedidos)"
+                  : "Venta registrada ✓";
+            setVentaFlash({ msg, type: sinDespachar || faltante > 0 ? "warn" : "ok" });
+            setTimeout(() => setVentaFlash(null), 4000);
             cargar(busqueda, filtroValorId, pagina);
           }}
         />

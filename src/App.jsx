@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse, History } from "lucide-react";
+import { ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse, History, ShoppingBag } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
 import ReconciliacionApp  from "./ReconciliacionApp";
@@ -9,10 +9,12 @@ import CatalogoApp        from "./CatalogoApp";
 import InventarioApp      from "./InventarioApp";
 import HistorialApp       from "./HistorialApp";
 import AdminApp           from "./AdminApp";
+import PedidosApp         from "./PedidosApp";
 
 const TABS = [
   { id: "catalogo",   label: "Catálogo",     icon: BookOpen,        Comp: CatalogoApp },
   { id: "inventario", label: "Inventario",   icon: Warehouse,       Comp: InventarioApp },
+  { id: "pedidos",    label: "Pedidos",      icon: ShoppingBag,     Comp: PedidosApp },
   { id: "historial",  label: "Historial",    icon: History,         Comp: HistorialApp },
   { id: "conteo",     label: "Conteo",       icon: ClipboardList,   Comp: ConteoApp },
   { id: "concilia",   label: "Conciliación", icon: Scale,           Comp: ReconciliacionApp },
