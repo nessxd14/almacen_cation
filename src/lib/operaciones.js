@@ -13,6 +13,13 @@
  *                    p_motivo, p_referencia?, p_usuario?, p_fecha?)
  *   registrar_traslado(p_presentacion_id, p_ubicacion_origen, p_ubicacion_destino,
  *                      p_cantidad_pres, p_referencia?, p_usuario?, p_fecha?)
+ *
+ * Fase C — despacho de pedidos (RPC definidas en
+ * db/migrations/2026-07-05_pedidos.sql, validadas contra la base viva):
+ *   crear_pedido(p_categoria, p_referencia, p_lineas jsonb, p_usuario?) -> bigint
+ *   despachar_linea(p_linea_id, p_asignaciones jsonb, p_usuario?) -> jsonb
+ *   revertir_evento(p_evento_id, p_cantidad_base?, p_usuario?) -> jsonb
+ *   comprar_directo(p_linea_id, p_nota, p_costo?, p_usuario?) -> jsonb
  */
 
 import { supabase } from "../supabaseClient";
@@ -210,4 +217,108 @@ export async function asegurarAsignacion(productoId, ubicacionId) {
     ubicacion_id: uid,
     es_principal: (count || 0) === 0,
   });
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Fase C — Despacho de pedidos
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* ── pick automático: mayor stock primero, greedy hasta cubrir cantidadBase
+ * -> { asignaciones: [{ubicacion_id, cantidad_base}], faltante }
+ * faltante > 0 => la línea quedará parcialmente pendiente.
+ */
+export async function calcularPick({ productoId, cantidadBase }) {
+  const { ubicaciones } = await ubicacionesParaOperacion({ productoId, modo: "SALIDA" });
+  let restante = Number(cantidadBase);
+  const asignaciones = [];
+
+  for (const u of ubicaciones) {
+    if (restante <= 0) break;
+    const disponible = Number(u.cantidad_base) || 0;
+    const tomar = Math.min(restante, disponible);
+    if (tomar <= 0) continue;
+    asignaciones.push({ ubicacion_id: u.id, cantidad_base: tomar });
+    restante -= tomar;
+  }
+
+  return { asignaciones, faltante: Math.max(restante, 0) };
+}
+
+/* ── desglose de presentaciones (display-only, para el picking) ───────
+ * Arma "1 caja ×12 + 3 sueltas": llena greedy desde el factor más grande
+ * (cajas, packs) hasta el más chico (unidad base). No ejecuta nada, es
+ * solo informativo — la SALIDA real siempre se registra en la
+ * presentación base (ver despacharLinea).
+ * ubicacionId se acepta por paridad con el brief pero no afecta el
+ * cálculo hoy (las presentaciones no varían por ubicación).
+ */
+export async function desglosePresentaciones({ productoId, ubicacionId, cantidadBase }) {
+  void ubicacionId;
+  const { data } = await supabase
+    .from("presentacion")
+    .select("id, nombre, factor_unidad_base, es_base")
+    .eq("producto_id", Number(productoId))
+    .order("factor_unidad_base", { ascending: false });
+
+  const presentaciones = data || [];
+  let restante = Number(cantidadBase);
+  const desglose = [];
+
+  for (const p of presentaciones) {
+    const factor = Number(p.factor_unidad_base);
+    if (factor <= 0) continue;
+    const cantidad = Math.floor(restante / factor);
+    if (cantidad > 0) {
+      desglose.push({ presentacion_id: p.id, nombre: p.nombre, cantidad, factor_unidad_base: factor });
+      restante -= cantidad * factor;
+    }
+  }
+
+  return { desglose, restante };
+}
+
+/* ── crear un pedido con sus líneas (en unidad base) ─────────────────── */
+export async function crearPedido({ categoria, referencia, lineas, usuario = "operario" }) {
+  const { data, error } = await supabase.rpc("crear_pedido", {
+    p_categoria: categoria,
+    p_referencia: referencia || null,
+    p_lineas: lineas,
+    p_usuario: usuario,
+  });
+  return { id: data, error };
+}
+
+/* ── despachar una línea: ejecuta el pick (auto o editado) ───────────
+ * asignaciones: [{ubicacion_id, cantidad_base}]
+ * -> { resultado: {linea_id, evento_id, estado, cantidad_despachada,
+ *                  pendiente, kardex_ids, reversible_hasta}, error }
+ */
+export async function despacharLinea({ lineaId, asignaciones, usuario = "operario" }) {
+  const { data, error } = await supabase.rpc("despachar_linea", {
+    p_linea_id: Number(lineaId),
+    p_asignaciones: asignaciones,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── revertir un evento de despacho (total o parcial, solo Tienda) ───── */
+export async function revertirEvento({ eventoId, cantidadBase = null, usuario = "operario" }) {
+  const { data, error } = await supabase.rpc("revertir_evento", {
+    p_evento_id: Number(eventoId),
+    p_cantidad_base: cantidadBase != null ? Number(cantidadBase) : null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── comprar directo: cierra la línea sin tocar Kardex ────────────────── */
+export async function comprarDirecto({ lineaId, nota, costo = null, usuario = "operario" }) {
+  const { data, error } = await supabase.rpc("comprar_directo", {
+    p_linea_id: Number(lineaId),
+    p_nota: nota,
+    p_costo: costo != null ? Number(costo) : null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
 }
