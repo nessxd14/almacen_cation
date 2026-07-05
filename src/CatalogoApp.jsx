@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import {
   Search, LayoutGrid, List, Package, X, Tag, MapPin, Barcode,
-  Link2, Link2Off, ImageOff, Filter, ChevronRight, Boxes, History, Pencil, ScanLine
+  Link2, Link2Off, ImageOff, Filter, ChevronRight, Boxes, History, Pencil, ScanLine,
+  ShoppingCart, CheckCircle, AlertTriangle, Loader, PackagePlus,
 } from "lucide-react";
 import { HistorialMovimientos } from "./HistorialApp";
 import EditarProducto, { CarruselPrecios } from "./EditarProducto";
 import EscanerCodigo from "./EscanerCodigo";
+import { ubicacionesParaOperacion, ejecutarOperacion } from "./lib/operaciones";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -113,13 +115,13 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
   const mapeado = !!producto.shopify_variant_id;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto bg-white shadow-2xl"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
         onClick={e => e.stopPropagation()}>
         {/* Header con imagen */}
         <div className="relative">
           <ImagenProducto url={producto.imagen_url} nombre={producto.nombre}
-            className="h-56 w-full" />
+            className="h-56 w-full rounded-t-2xl" />
           <div className="absolute right-3 top-3 flex gap-2">
             <button onClick={() => setEditando(true)}
               className="flex items-center gap-1 rounded-full bg-white/90 px-3 py-2 text-sm font-medium text-slate-700 shadow hover:bg-white"
@@ -292,6 +294,203 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
   );
 }
 
+// ─── Quick-view: modal centrado con la operación de venta ──────────────────
+// Reemplaza al antiguo drawer lateral. La grilla es solo preview; acá vive
+// la decisión de "Vender ahora" o "Agregar a pedido" (Fase C).
+
+function QuickView({ producto, onClose, onVerDetalle, onVenderAhora }) {
+  const mapeado = !!producto.shopify_variant_id;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="relative">
+          <ImagenProducto url={producto.imagen_url} nombre={producto.nombre}
+            className="h-48 w-full rounded-t-2xl" />
+          <button onClick={onClose}
+            className="absolute right-3 top-3 rounded-full bg-white/90 p-2 text-slate-600 shadow hover:bg-white">
+            <X size={18} />
+          </button>
+          {!mapeado && (
+            <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-medium text-white">
+              <Link2Off size={10} /> Sin mapear
+            </span>
+          )}
+        </div>
+
+        <div className="p-5 text-center">
+          <h2 className="text-lg font-semibold text-slate-900">{producto.nombre}</h2>
+          {producto.sku_interno && <p className="text-sm text-slate-400">SKU: {producto.sku_interno}</p>}
+          <p className="mt-2 text-2xl font-bold text-slate-900">{precioFmt(producto.precio_base)}</p>
+          <div className="mt-2 flex justify-center">
+            <BadgeStock cantidad={producto.stock_total} unidad={producto.unidad_base} />
+          </div>
+
+          <div className="mt-5 space-y-2">
+            <button onClick={onVenderAhora}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-700">
+              <ShoppingCart size={16} /> Vender ahora
+            </button>
+            <button disabled
+              title="Disponible cuando se implemente el Despacho de pedidos (Fase C)"
+              className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-300">
+              <PackagePlus size={16} /> Agregar a pedido — próximamente
+            </button>
+          </div>
+
+          <button onClick={onVerDetalle} className="mt-4 text-sm text-slate-500 underline">
+            Ver detalle completo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Vender ahora: SALIDA inmediata sobre el mismo motor de Fase A ─────────
+
+const CATEGORIAS_VENTA = [
+  { id: "MAYOR",  label: "Mayor" },
+  { id: "TIENDA", label: "Tienda directa" },
+];
+
+function VenderAhoraModal({ producto, onClose, onVendido }) {
+  const [presentaciones, setPresentaciones] = useState([]);
+  const [presentacionId, setPresentacionId] = useState("");
+  const [ubicaciones, setUbicaciones] = useState([]);
+  const [ubicacionId, setUbicacionId] = useState("");
+  const [cargandoUbic, setCargandoUbic] = useState(true);
+  const [categoria, setCategoria] = useState("");
+  const [cantidad, setCantidad] = useState("1");
+  const [referencia, setReferencia] = useState("");
+  const [flash, setFlash] = useState(null);
+  const [ejecutando, setEjecutando] = useState(false);
+
+  useEffect(() => {
+    let activo = true;
+    supabase.from("presentacion")
+      .select("id, nombre, factor_unidad_base, es_base")
+      .eq("producto_id", producto.id)
+      .order("es_base", { ascending: false })
+      .then(({ data }) => {
+        if (!activo) return;
+        setPresentaciones(data || []);
+        const base = (data || []).find(p => p.es_base) || (data || [])[0];
+        if (base) setPresentacionId(String(base.id));
+      });
+    return () => { activo = false; };
+  }, [producto.id]);
+
+  useEffect(() => {
+    let activo = true;
+    setCargandoUbic(true);
+    ubicacionesParaOperacion({ productoId: producto.id, modo: "SALIDA" }).then(({ ubicaciones: ubs }) => {
+      if (!activo) return;
+      setUbicaciones(ubs);
+      if (ubs.length > 0) setUbicacionId(String(ubs[0].id)); // ya vienen ordenadas por mayor stock
+      setCargandoUbic(false);
+    });
+    return () => { activo = false; };
+  }, [producto.id]);
+
+  const presentacion = presentaciones.find(p => p.id === Number(presentacionId));
+  const showFlash = (msg, type) => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
+
+  async function confirmar() {
+    if (!categoria) { showFlash("Selecciona la categoría de venta", "error"); return; }
+    if (!presentacionId) { showFlash("Selecciona una presentación", "error"); return; }
+    if (!cantidad || Number(cantidad) <= 0) { showFlash("Cantidad inválida", "error"); return; }
+    if (!ubicacionId) { showFlash("No hay stock disponible para vender", "error"); return; }
+
+    setEjecutando(true);
+    const catLabel = CATEGORIAS_VENTA.find(c => c.id === categoria)?.label || categoria;
+    const refFinal = referencia.trim() || `Venta directa · ${catLabel}`;
+    const { id, error } = await ejecutarOperacion({
+      modo: "SALIDA",
+      presentacionId,
+      ubicacionId,
+      cantidad,
+      referencia: refFinal,
+    });
+    setEjecutando(false);
+    if (error) { showFlash("Error: " + error.message, "error"); return; }
+    onVendido?.(id);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-900">Vender ahora</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+        </div>
+        <p className="mb-4 text-sm text-slate-500">{producto.nombre}</p>
+
+        {flash && (
+          <div className={`mb-3 flex items-center gap-2 rounded-lg px-3 py-2 text-sm
+            ${flash.type === "error" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
+            {flash.type === "error" ? <AlertTriangle size={14} /> : <CheckCircle size={14} />}
+            {flash.msg}
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {/* categoría: siempre se pregunta — define despacho manual vs Shopify */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Categoría de venta</label>
+            <div className="flex gap-2">
+              {CATEGORIAS_VENTA.map(c => (
+                <button key={c.id} onClick={() => setCategoria(c.id)}
+                  className={`flex-1 rounded-lg border py-2 text-sm font-medium
+                    ${categoria === c.id ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <select value={presentacionId} onChange={e => setPresentacionId(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+            {presentaciones.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.nombre} (×{p.factor_unidad_base} {producto.unidad_base})
+              </option>
+            ))}
+          </select>
+
+          <select value={ubicacionId} onChange={e => setUbicacionId(e.target.value)}
+            disabled={cargandoUbic}
+            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
+            <option value="">— Ubicación —</option>
+            {ubicaciones.map(u => (
+              <option key={u.id} value={u.id}>{u.label} (stock: {u.cantidad_base})</option>
+            ))}
+          </select>
+          {!cargandoUbic && ubicaciones.length === 0 && (
+            <p className="flex items-center gap-1 text-xs text-amber-600">
+              <AlertTriangle size={12} /> Sin stock disponible para vender.
+            </p>
+          )}
+
+          <input type="number" min="0.001" step="any" value={cantidad}
+            onChange={e => setCantidad(e.target.value)}
+            placeholder="Cantidad"
+            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+
+          <input value={referencia} onChange={e => setReferencia(e.target.value)}
+            placeholder="Referencia (opcional)"
+            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+
+          <button onClick={confirmar} disabled={ejecutando}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+            {ejecutando && <Loader size={14} className="animate-spin" />}
+            {ejecutando ? "Registrando…" : "Confirmar venta"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tarjeta galería ─────────────────────────────────────────────────────────
 
 function TarjetaGaleria({ p, onClick }) {
@@ -350,7 +549,10 @@ export default function CatalogoApp() {
   const [busqueda, setBusqueda] = useState("");
   const [productos, setProductos] = useState([]);
   const [cargando, setCargando] = useState(true);
-  const [seleccionado, setSeleccionado] = useState(null);
+  const [seleccionado, setSeleccionado] = useState(null);     // quick-view (grilla)
+  const [detalleCompleto, setDetalleCompleto] = useState(null); // "ver detalle completo"
+  const [vendiendo, setVendiendo] = useState(null);           // modal "vender ahora"
+  const [ventaFlash, setVentaFlash] = useState(null);
   const [total, setTotal] = useState(0);
   const [pagina, setPagina] = useState(0);
 
@@ -547,11 +749,45 @@ export default function CatalogoApp() {
         </div>
       )}
 
-      {/* Detalle */}
-      {seleccionado && (
-        <DetalleProducto
+      {/* Flash de venta (sobrevive al cierre de los modales) */}
+      {ventaFlash && (
+        <div className={`fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg px-4 py-2 text-sm text-white shadow-lg
+          ${ventaFlash.type === "error" ? "bg-red-600" : "bg-emerald-600"}`}>
+          {ventaFlash.type === "error" ? <AlertTriangle size={14} /> : <CheckCircle size={14} />}
+          {ventaFlash.msg}
+        </div>
+      )}
+
+      {/* Quick-view: preview + Vender ahora / Agregar a pedido */}
+      {seleccionado && !vendiendo && (
+        <QuickView
           producto={seleccionado}
           onClose={() => setSeleccionado(null)}
+          onVerDetalle={() => { setDetalleCompleto(seleccionado); setSeleccionado(null); }}
+          onVenderAhora={() => setVendiendo(seleccionado)}
+        />
+      )}
+
+      {/* Vender ahora: SALIDA inmediata */}
+      {vendiendo && (
+        <VenderAhoraModal
+          producto={vendiendo}
+          onClose={() => setVendiendo(null)}
+          onVendido={() => {
+            setVendiendo(null);
+            setSeleccionado(null);
+            setVentaFlash({ msg: "Venta registrada ✓", type: "ok" });
+            setTimeout(() => setVentaFlash(null), 3000);
+            cargar(busqueda, filtroValorId, pagina);
+          }}
+        />
+      )}
+
+      {/* Ver detalle completo: historial, presentaciones, identificadores, editar, ubicaciones */}
+      {detalleCompleto && (
+        <DetalleProducto
+          producto={detalleCompleto}
+          onClose={() => setDetalleCompleto(null)}
           onActualizado={() => { cargar(busqueda, filtroValorId, pagina); }}
         />
       )}

@@ -2,6 +2,9 @@
  * OperacionesApp.jsx  —  Fase 4: Operaciones diarias
  * Cableado a Supabase real. Motor de operación en src/lib/operaciones.js.
  *
+ * Reducido a Entrada / Traslado / Ajuste (Fase B): la Salida/venta vive
+ * en el Catálogo ("Vender ahora"), que reusa el mismo motor compartido.
+ *
  * Enum tipo_movimiento real: INV_INICIAL | ENTRADA | SALIDA | AJUSTE | TRASLADO
  * Columnas ubicacion: id, codigo_zona, estante, nivel, compartimiento
  * Columna producto: sku_interno (no sku)
@@ -15,13 +18,12 @@ import {
   ejecutarOperacion, asegurarAsignacion,
 } from "./lib/operaciones";
 import {
-  PackagePlus, PackageMinus, ArrowLeftRight, SlidersHorizontal,
+  PackagePlus, ArrowLeftRight, SlidersHorizontal,
   AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine, Search, Package,
 } from "lucide-react";
 
 const MODOS = [
   { id: "ENTRADA",  label: "Entrada",  icon: PackagePlus,       color: "text-green-600" },
-  { id: "SALIDA",   label: "Salida",   icon: PackageMinus,      color: "text-red-500"   },
   { id: "TRASLADO", label: "Traslado", icon: ArrowLeftRight,    color: "text-blue-600"  },
   { id: "AJUSTE",   label: "Ajuste",   icon: SlidersHorizontal, color: "text-amber-600" },
 ];
@@ -60,7 +62,6 @@ export default function OperacionesApp() {
   const [cantidadObjetivo, setCantidadObjetivo] = useState("");
   const [referencia, setReferencia] = useState("");
   const [motivo, setMotivo] = useState("");
-  const [permitirSobregiro, setPermitirSobregiro] = useState(false);
   const [showSQL, setShowSQL] = useState(false);
   const [flash, setFlash] = useState(null);
   const [ejecutando, setEjecutando] = useState(false);
@@ -196,7 +197,7 @@ export default function OperacionesApp() {
     setProductoSeleccionado(null); setQueryProducto(""); setResultadosProducto([]);
     setPresentacionId(""); setUbicacionId(""); setUbicacionDestinoId("");
     setCantidad(""); setCantidadObjetivo("");
-    setReferencia(""); setMotivo(""); setPermitirSobregiro(false);
+    setReferencia(""); setMotivo("");
     setStockActual(null);
   };
 
@@ -228,15 +229,6 @@ export default function OperacionesApp() {
       `  p_referencia      => '${referencia}',\n` +
       `  p_usuario         => 'operario'\n);`
     );
-    if (modo === "SALIDA") return (
-      `SELECT registrar_salida(\n` +
-      `  p_presentacion_id    => ${presentacionId},\n` +
-      `  p_ubicacion_id       => ${ubicacionId || "?"},\n` +
-      `  p_cantidad_pres      => ${cantidad || "?"},\n` +
-      `  p_referencia         => '${referencia}',\n` +
-      `  p_usuario            => 'operario',\n` +
-      `  p_permitir_sobregiro => ${permitirSobregiro}\n);`
-    );
     if (modo === "TRASLADO") return (
       `SELECT registrar_traslado(\n` +
       `  p_presentacion_id   => ${presentacionId},\n` +
@@ -256,7 +248,7 @@ export default function OperacionesApp() {
       `  p_usuario                 => 'operario'\n);`
     );
   }, [modo, productoSeleccionado, presentacionId, ubicacionId, ubicacionDestinoId,
-      cantidad, cantidadObjetivo, referencia, motivo, permitirSobregiro]);
+      cantidad, cantidadObjetivo, referencia, motivo]);
 
   /* ── ejecutar operación ──────────────────────────────────────────── */
   const ejecutar = async () => {
@@ -276,7 +268,7 @@ export default function OperacionesApp() {
     setEjecutando(true);
     const { id: resultado, error } = await ejecutarOperacion({
       modo, productoId, presentacionId, ubicacionId, ubicacionDestinoId,
-      cantidad, cantidadObjetivo, motivo, referencia, permitirSobregiro,
+      cantidad, cantidadObjetivo, motivo, referencia,
     });
 
     if (error) {
@@ -300,7 +292,6 @@ export default function OperacionesApp() {
 
       const msgs = {
         ENTRADA: `Entrada registrada — kardex ID ${resultado}`,
-        SALIDA: `Salida registrada — kardex ID ${resultado}`,
         TRASLADO: `Traslado registrado — kardex ID ${resultado}`,
         AJUSTE: `Ajuste registrado — kardex ID ${resultado}`,
       };
@@ -413,9 +404,9 @@ export default function OperacionesApp() {
             </option>
           ))}
         </select>
-        {productoSeleccionado && ubicacionesOrigen.length === 0 && (modo === "SALIDA" || modo === "TRASLADO") && (
+        {productoSeleccionado && ubicacionesOrigen.length === 0 && modo === "TRASLADO" && (
           <p className="text-xs text-amber-600 flex items-center gap-1">
-            <AlertTriangle size={12} /> Sin stock disponible para salida.
+            <AlertTriangle size={12} /> Sin stock disponible para trasladar.
           </p>
         )}
         {productoSeleccionado && sinAsignacionOrigen && modo === "ENTRADA" && (
@@ -453,7 +444,7 @@ export default function OperacionesApp() {
           </>
         )}
 
-        {/* cantidad (ENTRADA, SALIDA, TRASLADO) */}
+        {/* cantidad (ENTRADA, TRASLADO) */}
         {modo !== "AJUSTE" && (
           <div>
             <input type="number" min="0.001" step="any" value={cantidad}
@@ -495,16 +486,6 @@ export default function OperacionesApp() {
           placeholder="Referencia (factura, OC, etc.)"
           className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
 
-        {/* permitir sobregiro (solo SALIDA) */}
-        {modo === "SALIDA" && (
-          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-            <input type="checkbox" checked={permitirSobregiro}
-              onChange={(e) => setPermitirSobregiro(e.target.checked)}
-              className="rounded" />
-            Permitir sobregiro (stock negativo)
-          </label>
-        )}
-
         {/* SQL preview */}
         {sqlPreview && (
           <div>
@@ -544,7 +525,6 @@ export default function OperacionesApp() {
                 <div className="flex items-center gap-2">
                   <span className={`font-semibold ${
                     m.tipo === "ENTRADA" ? "text-green-600"
-                    : m.tipo === "SALIDA" ? "text-red-500"
                     : m.tipo === "AJUSTE" ? "text-amber-600"
                     : "text-blue-600"}`}>
                     {m.tipo}
