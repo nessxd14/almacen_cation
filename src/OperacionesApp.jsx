@@ -1,16 +1,6 @@
 /**
  * OperacionesApp.jsx  —  Fase 4: Operaciones diarias
- * Cableado a Supabase real.
- *
- * Firmas RPC confirmadas:
- *   registrar_entrada(p_presentacion_id, p_ubicacion_id, p_cantidad_pres,
- *                     p_referencia, p_usuario?, p_fecha?, p_costo_unitario?, p_idempotencia?)
- *   registrar_salida(p_presentacion_id, p_ubicacion_id, p_cantidad_pres,
- *                    p_referencia, p_usuario?, p_fecha?, p_idempotencia?, p_permitir_sobregiro?)
- *   registrar_ajuste(p_producto_id, p_ubicacion_id, p_cantidad_base_objetivo,
- *                    p_motivo, p_referencia?, p_usuario?, p_fecha?)
- *   registrar_traslado(p_presentacion_id, p_ubicacion_origen, p_ubicacion_destino,
- *                      p_cantidad_pres, p_referencia?, p_usuario?, p_fecha?)
+ * Cableado a Supabase real. Motor de operación en src/lib/operaciones.js.
  *
  * Enum tipo_movimiento real: INV_INICIAL | ENTRADA | SALIDA | AJUSTE | TRASLADO
  * Columnas ubicacion: id, codigo_zona, estante, nivel, compartimiento
@@ -21,17 +11,13 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import {
+  buscarProductos, ubicacionesParaOperacion, stockEn,
+  ejecutarOperacion, asegurarAsignacion,
+} from "./lib/operaciones";
+import {
   PackagePlus, PackageMinus, ArrowLeftRight, SlidersHorizontal,
-  AlertTriangle, CheckCircle, History, Code2, Loader, RefreshCw, ScanLine,
+  AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine, Search, Package,
 } from "lucide-react";
-
-const uuid = () => crypto.randomUUID
-  ? crypto.randomUUID()
-  : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
-
-const labelUbicacion = (u) =>
-  u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
-const hoy = () => new Date().toISOString().slice(0, 10);
 
 const MODOS = [
   { id: "ENTRADA",  label: "Entrada",  icon: PackagePlus,       color: "text-green-600" },
@@ -43,11 +29,21 @@ const MODOS = [
 export default function OperacionesApp() {
   const [modo, setModo] = useState("ENTRADA");
 
-  // catálogo
-  const [productos, setProductos] = useState([]);
+  // presentaciones (catálogo completo — dataset chico, se filtra local por producto)
   const [presentaciones, setPresentaciones] = useState([]);
-  const [ubicaciones, setUbicaciones] = useState([]);
   const [loadingCat, setLoadingCat] = useState(true);
+
+  // producto: typeahead
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null); // {id, nombre, sku_interno, unidad_base}
+  const [queryProducto, setQueryProducto] = useState("");
+  const [resultadosProducto, setResultadosProducto] = useState([]);
+  const [buscandoProducto, setBuscandoProducto] = useState(false);
+
+  // ubicaciones filtradas por modo (Parte 2)
+  const [ubicacionesOrigen, setUbicacionesOrigen] = useState([]);
+  const [sinAsignacionOrigen, setSinAsignacionOrigen] = useState(false);
+  const [ubicacionesDestino, setUbicacionesDestino] = useState([]);
+  const [sinAsignacionDestino, setSinAsignacionDestino] = useState(false);
 
   // stock actual (consultado al elegir producto+ubicación)
   const [stockActual, setStockActual] = useState(null);
@@ -57,7 +53,6 @@ export default function OperacionesApp() {
   const [movimientos, setMovimientos] = useState([]);
 
   // estado del formulario
-  const [productoId, setProductoId] = useState("");
   const [presentacionId, setPresentacionId] = useState("");
   const [ubicacionId, setUbicacionId] = useState("");
   const [ubicacionDestinoId, setUbicacionDestinoId] = useState("");
@@ -74,46 +69,86 @@ export default function OperacionesApp() {
   const [showScanner, setShowScanner] = useState(false);
   const resolviendoRef = useRef(false);
 
-  /* ── cargar catálogo ─────────────────────────────────────────────── */
+  /* ── cargar presentaciones (catálogo) ─────────────────────────────── */
   useEffect(() => {
     async function cargar() {
       setLoadingCat(true);
-      const [{ data: prods }, { data: pres }, { data: ubs }] = await Promise.all([
-        supabase.from("producto").select("id, nombre, sku_interno, unidad_base").eq("activo", true).order("nombre"),
-        supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base").order("nombre"),
-        supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento"),
-      ]);
-      setProductos(prods || []);
+      const { data: pres } = await supabase
+        .from("presentacion")
+        .select("id, producto_id, nombre, factor_unidad_base, es_base")
+        .order("nombre");
       setPresentaciones(pres || []);
-      setUbicaciones(ubs || []);
       setLoadingCat(false);
     }
     cargar();
   }, []);
 
+  /* ── typeahead de producto (debounce ~300ms) ──────────────────────── */
+  useEffect(() => {
+    if (!queryProducto.trim()) { setResultadosProducto([]); return; }
+    setBuscandoProducto(true);
+    const t = setTimeout(async () => {
+      const rows = await buscarProductos(queryProducto);
+      setResultadosProducto(rows);
+      setBuscandoProducto(false);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [queryProducto]);
+
+  const elegirProducto = (p) => {
+    setProductoSeleccionado(p);
+    setQueryProducto("");
+    setResultadosProducto([]);
+    setPresentacionId("");
+    setUbicacionId("");
+    setUbicacionDestinoId("");
+    setStockActual(null);
+  };
+
+  /* ── ubicaciones de origen según modo (Parte 2) ───────────────────── */
+  useEffect(() => {
+    if (!productoSeleccionado) { setUbicacionesOrigen([]); setSinAsignacionOrigen(false); return; }
+    let cancelado = false;
+    const modoOrigen = modo === "TRASLADO" ? "TRASLADO_ORIGEN" : modo;
+    ubicacionesParaOperacion({ productoId: productoSeleccionado.id, modo: modoOrigen }).then(({ ubicaciones, sinAsignacion }) => {
+      if (cancelado) return;
+      setUbicacionesOrigen(ubicaciones);
+      setSinAsignacionOrigen(sinAsignacion);
+    });
+    return () => { cancelado = true; };
+  }, [productoSeleccionado, modo]);
+
+  /* ── ubicaciones de destino (solo TRASLADO) ───────────────────────── */
+  useEffect(() => {
+    if (modo !== "TRASLADO" || !productoSeleccionado) { setUbicacionesDestino([]); setSinAsignacionDestino(false); return; }
+    let cancelado = false;
+    ubicacionesParaOperacion({ productoId: productoSeleccionado.id, modo: "TRASLADO_DESTINO" }).then(({ ubicaciones, sinAsignacion }) => {
+      if (cancelado) return;
+      setUbicacionesDestino(ubicaciones.filter((u) => u.id !== Number(ubicacionId)));
+      setSinAsignacionDestino(sinAsignacion);
+    });
+    return () => { cancelado = true; };
+  }, [modo, productoSeleccionado, ubicacionId]);
+
   /* ── consultar stock cuando cambia producto+ubicación ────────────── */
   useEffect(() => {
-    if (!productoId || !ubicacionId) { setStockActual(null); return; }
-    async function consultarStock() {
-      setLoadingStock(true);
-      const { data } = await supabase
-        .from("stock_actual")
-        .select("cantidad_base")
-        .eq("producto_id", Number(productoId))
-        .eq("ubicacion_id", Number(ubicacionId))
-        .maybeSingle();
-      setStockActual(data?.cantidad_base ?? 0);
+    if (!productoSeleccionado || !ubicacionId) { setStockActual(null); return; }
+    let cancelado = false;
+    setLoadingStock(true);
+    stockEn({ productoId: productoSeleccionado.id, ubicacionId }).then((v) => {
+      if (cancelado) return;
+      setStockActual(v);
       setLoadingStock(false);
-    }
-    consultarStock();
-  }, [productoId, ubicacionId]);
+    });
+    return () => { cancelado = true; };
+  }, [productoSeleccionado, ubicacionId]);
 
   const showFlash = (msg, type = "ok") => {
     setFlash({ msg, type });
     setTimeout(() => setFlash(null), 3000);
   };
 
-  /* ── escaneo: resolver código → presentación ─────────────────────── */
+  /* ── escaneo: resolver código → producto + presentación ───────────── */
   // resolver_identificador devuelve TODAS las filas activas que matchean el
   // código (valor no es único: el fabricante reusa código para bote y unidad).
   //   0 filas  -> no reconocido
@@ -135,40 +170,43 @@ export default function OperacionesApp() {
       return;
     }
 
-    const productosDistintos = [...new Set(rows.map(r => r.producto_id))];
+    const productosDistintos = [...new Set(rows.map((r) => r.producto_id))];
 
-    if (rows.length === 1) {
-      setProductoId(String(rows[0].producto_id));
-      setPresentacionId(String(rows[0].presentacion_id));
-      flashMsg(`${rows[0].producto_nombre} · ${rows[0].presentacion_nombre}`, "ok");
-    } else if (productosDistintos.length === 1) {
-      // mismo producto, varias presentaciones comparten el código → elegir
-      setProductoId(String(rows[0].producto_id));
-      setPresentacionId("");
-      flashMsg(`${rows[0].producto_nombre}: ${rows.length} presentaciones con ese código, elegí cuál`, "warn");
+    if (productosDistintos.length === 1) {
+      const { data: prod } = await supabase
+        .from("producto")
+        .select("id, nombre, sku_interno, unidad_base")
+        .eq("id", rows[0].producto_id)
+        .single();
+      if (prod) elegirProducto(prod);
+
+      if (rows.length === 1) {
+        setPresentacionId(String(rows[0].presentacion_id));
+        flashMsg(`${rows[0].producto_nombre} · ${rows[0].presentacion_nombre}`, "ok");
+      } else {
+        flashMsg(`${rows[0].producto_nombre}: ${rows.length} presentaciones con ese código, elegí cuál`, "warn");
+      }
     } else {
       // caso raro: el código apunta a varios productos
-      setProductoId("");
-      setPresentacionId("");
       flashMsg(`Código ambiguo (${productosDistintos.length} productos), seleccioná manualmente`, "warn");
     }
   }, []);
 
   const resetForm = () => {
-    setProductoId(""); setPresentacionId(""); setUbicacionId("");
-    setUbicacionDestinoId(""); setCantidad(""); setCantidadObjetivo("");
+    setProductoSeleccionado(null); setQueryProducto(""); setResultadosProducto([]);
+    setPresentacionId(""); setUbicacionId(""); setUbicacionDestinoId("");
+    setCantidad(""); setCantidadObjetivo("");
     setReferencia(""); setMotivo(""); setPermitirSobregiro(false);
     setStockActual(null);
   };
 
   // presentaciones del producto seleccionado
   const presentacionesFiltradas = presentaciones.filter(
-    p => p.producto_id === Number(productoId)
+    (p) => p.producto_id === productoSeleccionado?.id
   );
-  const presentacion = presentaciones.find(p => p.id === Number(presentacionId));
-  const producto = productos.find(p => p.id === Number(productoId));
-  const ubicacion = ubicaciones.find(u => u.id === Number(ubicacionId));
-  const ubicacionDestino = ubicaciones.find(u => u.id === Number(ubicacionDestinoId));
+  const presentacion = presentaciones.find((p) => p.id === Number(presentacionId));
+  const ubicacionLabel = ubicacionesOrigen.find((u) => u.id === Number(ubicacionId))?.label;
+  const ubicacionDestinoLabel = ubicacionesDestino.find((u) => u.id === Number(ubicacionDestinoId))?.label;
 
   const cantidadBase = presentacion && cantidad
     ? Number(cantidad) * presentacion.factor_unidad_base : 0;
@@ -178,6 +216,7 @@ export default function OperacionesApp() {
 
   /* ── SQL preview ─────────────────────────────────────────────────── */
   const sqlPreview = useMemo(() => {
+    const productoId = productoSeleccionado?.id;
     if (!presentacionId && modo !== "AJUSTE") return null;
     if (modo === "AJUSTE" && !productoId) return null;
 
@@ -216,87 +255,44 @@ export default function OperacionesApp() {
       `  p_referencia              => '${referencia}',\n` +
       `  p_usuario                 => 'operario'\n);`
     );
-  }, [modo, productoId, presentacionId, ubicacionId, ubicacionDestinoId,
+  }, [modo, productoSeleccionado, presentacionId, ubicacionId, ubicacionDestinoId,
       cantidad, cantidadObjetivo, referencia, motivo, permitirSobregiro]);
 
   /* ── ejecutar operación ──────────────────────────────────────────── */
   const ejecutar = async () => {
     if (!ubicacionId) { showFlash("Selecciona una ubicación", "error"); return; }
+    const productoId = productoSeleccionado?.id;
+
+    if (modo !== "AJUSTE" && (!presentacionId || !cantidad)) {
+      showFlash("Completa presentación y cantidad", "error"); return;
+    }
+    if (modo === "TRASLADO" && !ubicacionDestinoId) {
+      showFlash("Completa la ubicación destino", "error"); return;
+    }
+    if (modo === "AJUSTE" && (!productoId || !cantidadObjetivo)) {
+      showFlash("Completa producto y cantidad objetivo", "error"); return;
+    }
+
     setEjecutando(true);
-
-    let resultado = null;
-    let error = null;
-
-    if (modo === "ENTRADA") {
-      if (!presentacionId || !cantidad) { showFlash("Completa presentación y cantidad", "error"); setEjecutando(false); return; }
-      ({ data: resultado, error } = await supabase.rpc("registrar_entrada", {
-        p_presentacion_id: Number(presentacionId),
-        p_ubicacion_id: Number(ubicacionId),
-        p_cantidad_pres: Number(cantidad),
-        p_referencia: referencia || "Sin referencia",
-        p_usuario: "operario",
-        p_fecha: hoy(),
-        p_idempotencia: uuid(),
-      }));
-    }
-
-    else if (modo === "SALIDA") {
-      if (!presentacionId || !cantidad) { showFlash("Completa presentación y cantidad", "error"); setEjecutando(false); return; }
-      ({ data: resultado, error } = await supabase.rpc("registrar_salida", {
-        p_presentacion_id: Number(presentacionId),
-        p_ubicacion_id: Number(ubicacionId),
-        p_cantidad_pres: Number(cantidad),
-        p_referencia: referencia || "Sin referencia",
-        p_usuario: "operario",
-        p_fecha: hoy(),
-        p_idempotencia: uuid(),
-        p_permitir_sobregiro: permitirSobregiro,
-      }));
-    }
-
-    else if (modo === "TRASLADO") {
-      if (!presentacionId || !cantidad || !ubicacionDestinoId) {
-        showFlash("Completa presentación, cantidad y ubicación destino", "error");
-        setEjecutando(false); return;
-      }
-      ({ data: resultado, error } = await supabase.rpc("registrar_traslado", {
-        p_presentacion_id: Number(presentacionId),
-        p_ubicacion_origen: Number(ubicacionId),
-        p_ubicacion_destino: Number(ubicacionDestinoId),
-        p_cantidad_pres: Number(cantidad),
-        p_referencia: referencia || "Sin referencia",
-        p_usuario: "operario",
-        p_fecha: hoy(),
-      }));
-    }
-
-    else if (modo === "AJUSTE") {
-      if (!productoId || !cantidadObjetivo) {
-        showFlash("Completa producto y cantidad objetivo", "error");
-        setEjecutando(false); return;
-      }
-      ({ data: resultado, error } = await supabase.rpc("registrar_ajuste", {
-        p_producto_id: Number(productoId),
-        p_ubicacion_id: Number(ubicacionId),
-        p_cantidad_base_objetivo: Number(cantidadObjetivo),
-        p_motivo: motivo || "Ajuste manual",
-        p_referencia: referencia || null,
-        p_usuario: "operario",
-        p_fecha: hoy(),
-      }));
-    }
+    const { id: resultado, error } = await ejecutarOperacion({
+      modo, productoId, presentacionId, ubicacionId, ubicacionDestinoId,
+      cantidad, cantidadObjetivo, motivo, referencia, permitirSobregiro,
+    });
 
     if (error) {
       showFlash("Error: " + error.message, "error");
     } else {
-      // registrar en historial local
-      setMovimientos(prev => [{
+      // ENTRADA/TRASLADO reciben stock: asegurar que la ubicación quede asignada.
+      if (modo === "ENTRADA") await asegurarAsignacion(productoId, ubicacionId);
+      if (modo === "TRASLADO") await asegurarAsignacion(productoId, ubicacionDestinoId);
+
+      setMovimientos((prev) => [{
         id: resultado,
         tipo: modo,
-        producto: producto?.nombre,
+        producto: productoSeleccionado?.nombre,
         presentacion: presentacion?.nombre,
-        ubicacion: labelUbicacion(ubicacion),
-        ubicacionDestino: modo === "TRASLADO" ? labelUbicacion(ubicacionDestino) : null,
+        ubicacion: ubicacionLabel || "—",
+        ubicacionDestino: modo === "TRASLADO" ? (ubicacionDestinoLabel || "—") : null,
         cantidad: modo === "AJUSTE" ? `→ ${cantidadObjetivo} base` : `${cantidad} pres (${cantidadBase.toFixed(2)} base)`,
         referencia,
         ts: new Date().toLocaleTimeString(),
@@ -310,15 +306,10 @@ export default function OperacionesApp() {
       };
       showFlash(msgs[modo]);
 
-      // refrescar stock
+      // refrescar stock y ubicaciones (pudo haberse creado una asignación nueva)
       if (productoId && ubicacionId) {
-        const { data } = await supabase
-          .from("stock_actual")
-          .select("cantidad_base")
-          .eq("producto_id", Number(productoId))
-          .eq("ubicacion_id", Number(ubicacionId))
-          .maybeSingle();
-        setStockActual(data?.cantidad_base ?? 0);
+        const v = await stockEn({ productoId, ubicacionId });
+        setStockActual(v);
       }
       setCantidad(""); setCantidadObjetivo(""); setReferencia(""); setMotivo("");
     }
@@ -331,11 +322,6 @@ export default function OperacionesApp() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-800">Operaciones</h1>
         {loadingCat && <Loader size={14} className="animate-spin text-slate-400" />}
-        {!loadingCat && (
-          <span className="text-xs text-green-600">
-            {productos.length} prod · {ubicaciones.length} ubic
-          </span>
-        )}
       </div>
 
       {/* selector de modo */}
@@ -369,68 +355,114 @@ export default function OperacionesApp() {
           <ScanLine size={16} /> Escanear código
         </button>
 
-        {/* producto (todos los modos) */}
-        <select value={productoId}
-          onChange={e => { setProductoId(e.target.value); setPresentacionId(""); setStockActual(null); }}
-          className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-          <option value="">— Producto —</option>
-          {productos.map(p => (
-            <option key={p.id} value={p.id}>{p.nombre} ({p.sku_interno})</option>
-          ))}
-        </select>
+        {/* producto: typeahead */}
+        {productoSeleccionado ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border rounded-lg text-sm">
+            <Package size={14} className="text-slate-400 shrink-0" />
+            <span className="flex-1 font-medium text-slate-800">{productoSeleccionado.nombre}</span>
+            {productoSeleccionado.sku_interno && (
+              <span className="text-xs text-slate-400">{productoSeleccionado.sku_interno}</span>
+            )}
+            <button onClick={() => elegirProducto(null)} className="text-xs text-blue-500 underline shrink-0">
+              Cambiar
+            </button>
+          </div>
+        ) : (
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={queryProducto} onChange={(e) => setQueryProducto(e.target.value)}
+              placeholder="Buscar producto por nombre o SKU…"
+              className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            {(resultadosProducto.length > 0 || buscandoProducto) && (
+              <div className="absolute z-10 mt-1 w-full border rounded-lg divide-y bg-white shadow-lg max-h-64 overflow-y-auto">
+                {buscandoProducto && <p className="px-3 py-2 text-sm text-slate-400">Buscando…</p>}
+                {resultadosProducto.map((p) => (
+                  <button key={p.id} onClick={() => elegirProducto(p)}
+                    className="w-full text-left px-3 py-2 hover:bg-slate-50 text-sm flex items-center gap-2">
+                    <span className="flex-1 font-medium">{p.nombre}</span>
+                    {p.sku_interno && <span className="text-xs text-slate-400">{p.sku_interno}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* presentación (excepto AJUSTE que opera en unidades base) */}
         {modo !== "AJUSTE" && (
-          <select value={presentacionId} onChange={e => setPresentacionId(e.target.value)}
-            disabled={!productoId}
+          <select value={presentacionId} onChange={(e) => setPresentacionId(e.target.value)}
+            disabled={!productoSeleccionado}
             className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
             <option value="">— Presentación —</option>
-            {presentacionesFiltradas.map(p => (
+            {presentacionesFiltradas.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.nombre} (×{p.factor_unidad_base} {producto?.unidad_base})
+                {p.nombre} (×{p.factor_unidad_base} {productoSeleccionado?.unidad_base})
               </option>
             ))}
           </select>
         )}
 
-        {/* ubicación origen */}
-        <select value={ubicacionId} onChange={e => setUbicacionId(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+        {/* ubicación origen (filtrada por modo — Parte 2) */}
+        <select value={ubicacionId} onChange={(e) => setUbicacionId(e.target.value)}
+          disabled={!productoSeleccionado}
+          className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
           <option value="">{modo === "TRASLADO" ? "— Ubicación origen —" : "— Ubicación —"}</option>
-          {ubicaciones.map(u => (
-            <option key={u.id} value={u.id}>{labelUbicacion(u)}</option>
+          {ubicacionesOrigen.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.label}{u.cantidad_base != null ? ` (stock: ${u.cantidad_base})` : ""}{u.es_principal ? " · principal" : ""}
+            </option>
           ))}
         </select>
+        {productoSeleccionado && ubicacionesOrigen.length === 0 && (modo === "SALIDA" || modo === "TRASLADO") && (
+          <p className="text-xs text-amber-600 flex items-center gap-1">
+            <AlertTriangle size={12} /> Sin stock disponible para salida.
+          </p>
+        )}
+        {productoSeleccionado && sinAsignacionOrigen && modo === "ENTRADA" && (
+          <p className="text-xs text-amber-600 flex items-center gap-1">
+            <AlertTriangle size={12} /> Este producto no tiene ubicaciones asignadas — se asignará automáticamente al recibir.
+          </p>
+        )}
 
         {/* stock actual */}
-        {ubicacionId && productoId && (
+        {ubicacionId && productoSeleccionado && (
           <p className="text-xs text-slate-500 flex items-center gap-1">
             {loadingStock && <Loader size={10} className="animate-spin" />}
-            Stock actual: <strong>{stockActual ?? "—"}</strong> {producto?.unidad_base} base
+            Stock actual: <strong>{stockActual ?? "—"}</strong> {productoSeleccionado?.unidad_base} base
           </p>
         )}
 
         {/* ubicación destino (solo TRASLADO) */}
         {modo === "TRASLADO" && (
-          <select value={ubicacionDestinoId} onChange={e => setUbicacionDestinoId(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-            <option value="">— Ubicación destino —</option>
-            {ubicaciones.filter(u => u.id !== Number(ubicacionId)).map(u => (
-              <option key={u.id} value={u.id}>{labelUbicacion(u)}</option>
-            ))}
-          </select>
+          <>
+            <select value={ubicacionDestinoId} onChange={(e) => setUbicacionDestinoId(e.target.value)}
+              disabled={!productoSeleccionado}
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
+              <option value="">— Ubicación destino —</option>
+              {ubicacionesDestino.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.label}{u.es_principal ? " · principal" : ""}
+                </option>
+              ))}
+            </select>
+            {productoSeleccionado && sinAsignacionDestino && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <AlertTriangle size={12} /> Este producto no tiene ubicaciones asignadas — se asignará automáticamente al recibir.
+              </p>
+            )}
+          </>
         )}
 
         {/* cantidad (ENTRADA, SALIDA, TRASLADO) */}
         {modo !== "AJUSTE" && (
           <div>
             <input type="number" min="0.001" step="any" value={cantidad}
-              onChange={e => setCantidad(e.target.value)}
+              onChange={(e) => setCantidad(e.target.value)}
               placeholder="Cantidad (en unidades de presentación)"
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
             {presentacion && cantidad && (
               <p className="text-xs text-slate-400 mt-1">
-                = {cantidadBase.toFixed(3)} {producto?.unidad_base} base
+                = {cantidadBase.toFixed(3)} {productoSeleccionado?.unidad_base} base
               </p>
             )}
           </div>
@@ -440,12 +472,12 @@ export default function OperacionesApp() {
         {modo === "AJUSTE" && (
           <div>
             <input type="number" min="0" step="any" value={cantidadObjetivo}
-              onChange={e => setCantidadObjetivo(e.target.value)}
+              onChange={(e) => setCantidadObjetivo(e.target.value)}
               placeholder="Cantidad objetivo (unidades base)"
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
             {deltaAjuste !== null && (
               <p className={`text-xs mt-1 font-medium ${deltaAjuste >= 0 ? "text-green-600" : "text-red-500"}`}>
-                Delta: {deltaAjuste >= 0 ? "+" : ""}{deltaAjuste.toFixed(3)} {producto?.unidad_base}
+                Delta: {deltaAjuste >= 0 ? "+" : ""}{deltaAjuste.toFixed(3)} {productoSeleccionado?.unidad_base}
               </p>
             )}
           </div>
@@ -453,13 +485,13 @@ export default function OperacionesApp() {
 
         {/* motivo (solo AJUSTE) */}
         {modo === "AJUSTE" && (
-          <input value={motivo} onChange={e => setMotivo(e.target.value)}
+          <input value={motivo} onChange={(e) => setMotivo(e.target.value)}
             placeholder="Motivo del ajuste *"
             className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
         )}
 
         {/* referencia */}
-        <input value={referencia} onChange={e => setReferencia(e.target.value)}
+        <input value={referencia} onChange={(e) => setReferencia(e.target.value)}
           placeholder="Referencia (factura, OC, etc.)"
           className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
 
@@ -467,7 +499,7 @@ export default function OperacionesApp() {
         {modo === "SALIDA" && (
           <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
             <input type="checkbox" checked={permitirSobregiro}
-              onChange={e => setPermitirSobregiro(e.target.checked)}
+              onChange={(e) => setPermitirSobregiro(e.target.checked)}
               className="rounded" />
             Permitir sobregiro (stock negativo)
           </label>
@@ -476,7 +508,7 @@ export default function OperacionesApp() {
         {/* SQL preview */}
         {sqlPreview && (
           <div>
-            <button onClick={() => setShowSQL(v => !v)}
+            <button onClick={() => setShowSQL((v) => !v)}
               className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
               <Code2 size={12} /> {showSQL ? "Ocultar SQL" : "Ver SQL"}
             </button>
@@ -491,7 +523,7 @@ export default function OperacionesApp() {
         <button onClick={ejecutar} disabled={ejecutando || loadingCat}
           className="w-full py-3 bg-slate-800 text-white rounded-xl font-semibold hover:bg-slate-700 disabled:opacity-50 flex items-center justify-center gap-2">
           {ejecutando && <Loader size={14} className="animate-spin" />}
-          {ejecutando ? "Registrando…" : `Registrar ${MODOS.find(m => m.id === modo)?.label}`}
+          {ejecutando ? "Registrando…" : `Registrar ${MODOS.find((m) => m.id === modo)?.label}`}
         </button>
       </div>
 
@@ -506,7 +538,7 @@ export default function OperacionesApp() {
             <button onClick={() => setMovimientos([])}
               className="text-xs text-slate-400 underline">Limpiar</button>
           </div>
-          {movimientos.map(m => (
+          {movimientos.map((m) => (
             <div key={m.id} className="bg-white border rounded-lg px-3 py-2 text-xs flex justify-between items-start gap-2">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
