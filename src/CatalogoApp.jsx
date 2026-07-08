@@ -93,10 +93,10 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
         .from("presentacion")
         .select("id, nombre, factor_unidad_base, es_base, identificador(valor, tipo)")
         .eq("producto_id", producto.id);
-      // Stock por ubicación
+      // Stock por ubicación (incluye virtuales — necesario para el total real)
       const { data: stock } = await supabase
         .from("stock_actual")
-        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento)")
+        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento, sucursal:sucursal_id(tipo))")
         .eq("producto_id", producto.id);
 
       if (activo) {
@@ -238,18 +238,18 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                 </div>
               </section>
 
-              {/* Ubicaciones con su stock */}
+              {/* Ubicaciones con su stock (excluye sucursales virtuales, igual que v_inventario_detalle) */}
               <section>
                 <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <MapPin size={12} /> Stock por ubicación
                 </h3>
-                {detalle.stock.length === 0 ? (
+                {detalle.stock.filter(s => s.ubicacion?.sucursal?.tipo !== "virtual").length === 0 ? (
                   <p className="text-sm text-slate-400">
                     Sin stock registrado todavía. Aparecerá al hacer el primer conteo.
                   </p>
                 ) : (
                   <div className="space-y-1.5">
-                    {detalle.stock.map((s, i) => (
+                    {detalle.stock.filter(s => s.ubicacion?.sucursal?.tipo !== "virtual").map((s, i) => (
                       <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
                         <MapPin size={13} className="text-slate-400" />
                         <span className="flex-1 text-slate-700">{etiquetaUbicacion(s.ubicacion)}</span>
