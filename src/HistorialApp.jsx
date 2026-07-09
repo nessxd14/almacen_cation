@@ -80,6 +80,11 @@ function FilaMovimiento({ mov, mostrarProducto }) {
       <td className={`px-3 py-2.5 text-right text-sm font-bold ${signoColor}`}>
         {cantidad > 0 ? "+" : ""}{cantidadFmt(cantidad)}
       </td>
+      <td className={`px-3 py-2.5 text-right text-sm font-medium ${
+        mov.saldo_base == null ? "text-slate-400" : Number(mov.saldo_base) < 0 ? "text-red-600" : "text-slate-700"
+      }`}>
+        {mov.saldo_base == null ? "—" : cantidadFmt(mov.saldo_base)}
+      </td>
       <td className="px-3 py-2.5 text-sm text-slate-600">
         <div className="max-w-xs">
           <p className="truncate">{mov.referencia}</p>
@@ -149,6 +154,18 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
         m.producto?.sku_interno?.toLowerCase().includes(q) ||
         m.referencia?.toLowerCase().includes(q)
       );
+    }
+
+    // Saldo acumulado por producto+ubicación: ya calculado en v_kardex_movimientos,
+    // se pinta tal cual (sin recalcular en el front).
+    if (lista.length > 0) {
+      const ids = lista.map(m => m.id);
+      const { data: saldos } = await supabase
+        .from("v_kardex_movimientos")
+        .select("id, saldo_base")
+        .in("id", ids);
+      const mapaSaldo = new Map((saldos || []).map(s => [s.id, s.saldo_base]));
+      for (const m of lista) m.saldo_base = mapaSaldo.get(m.id) ?? null;
     }
 
     setMovs(lista);
@@ -222,15 +239,16 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
                 {!productoId && <th className="px-3 py-2">Producto</th>}
                 <th className="px-3 py-2">Ubicación</th>
                 <th className="px-3 py-2 text-right">Cant.</th>
+                <th className="px-3 py-2 text-right">Saldo</th>
                 <th className="px-3 py-2">Referencia</th>
                 <th className="px-3 py-2">Usuario</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {cargando ? (
-                <tr><td colSpan={productoId ? 6 : 7} className="px-3 py-10 text-center text-slate-400">Cargando…</td></tr>
+                <tr><td colSpan={productoId ? 7 : 8} className="px-3 py-10 text-center text-slate-400">Cargando…</td></tr>
               ) : movs.length === 0 ? (
-                <tr><td colSpan={productoId ? 6 : 7} className="px-3 py-10 text-center text-slate-400">
+                <tr><td colSpan={productoId ? 7 : 8} className="px-3 py-10 text-center text-slate-400">
                   <HistoryIcon size={28} className="mx-auto mb-2 text-slate-300" />
                   Sin movimientos registrados todavía.
                 </td></tr>
