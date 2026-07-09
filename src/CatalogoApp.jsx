@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import {
   Search, LayoutGrid, List, Package, X, Tag, MapPin, Barcode,
-  Link2, Link2Off, ImageOff, Filter, ChevronRight, Boxes, History, Pencil, ScanLine,
+  Link2, Link2Off, ImageOff, Filter, ChevronRight, ChevronDown, Boxes, History, Pencil, ScanLine,
   ShoppingCart, CheckCircle, AlertTriangle, Loader, PackagePlus,
 } from "lucide-react";
 import { HistorialMovimientos } from "./HistorialApp";
@@ -72,6 +72,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
   const [cargando, setCargando] = useState(true);
   const [vistaPanel, setVistaPanel] = useState("detalle"); // "detalle" | "historial"
   const [editando, setEditando] = useState(false);
+  const [mostrarUbicaciones, setMostrarUbicaciones] = useState(false);
 
   useEffect(() => {
     let activo = true;
@@ -173,19 +174,62 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
             <HistorialMovimientos productoId={producto.id} compacto />
           ) : (
           <>
-          {/* Stock total destacado */}
-          {!cargando && (
-            <div className="mb-5 flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3">
-              <Boxes size={20} className="text-slate-400" />
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Stock total</p>
-                <p className="text-lg font-bold text-slate-900">
-                  {cantidadFmt(detalle.stock.reduce((s, r) => s + Number(r.cantidad_base || 0), 0))}
-                  <span className="ml-1 text-sm font-normal text-slate-400">{producto.unidad_base}</span>
-                </p>
+          {/* Stock total destacado + "Presente en X ubicaciones" desplegable */}
+          {!cargando && (() => {
+            const ubicacionesConStock = detalle.stock.filter(
+              s => s.ubicacion?.sucursal?.tipo !== "virtual" && Number(s.cantidad_base) !== 0
+            );
+            return (
+              <div className="mb-5 rounded-xl bg-slate-50 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <Boxes size={20} className="text-slate-400" />
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-400">Stock total</p>
+                    <p className="text-lg font-bold text-slate-900">
+                      {cantidadFmt(detalle.stock.reduce((s, r) => s + Number(r.cantidad_base || 0), 0))}
+                      <span className="ml-1 text-sm font-normal text-slate-400">{producto.unidad_base}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button onClick={() => setMostrarUbicaciones(v => !v)}
+                  className="mt-2 flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
+                  {mostrarUbicaciones ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  Presente en {ubicacionesConStock.length} {ubicacionesConStock.length === 1 ? "ubicación" : "ubicaciones"}
+                </button>
+
+                {mostrarUbicaciones && (
+                  <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2">
+                    {ubicacionesConStock.length === 0 ? (
+                      <p className="text-sm text-slate-400">
+                        Sin stock registrado todavía. Aparecerá al hacer el primer conteo.
+                      </p>
+                    ) : (
+                      ubicacionesConStock.map((s, i) => {
+                        const n = Number(s.cantidad_base);
+                        const negativo = n < 0;
+                        return (
+                          <div key={i} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm
+                            ${negativo ? "border-red-200 bg-red-50" : "border-slate-200"}`}>
+                            <MapPin size={13} className={negativo ? "text-red-500" : "text-slate-400"} />
+                            <span className={`flex-1 ${negativo ? "text-red-700" : "text-slate-700"}`}>
+                              {etiquetaUbicacion(s.ubicacion)}
+                            </span>
+                            <span className={`font-semibold ${negativo ? "text-red-600" : "text-slate-900"}`}>
+                              {cantidadFmt(n)}
+                              <span className={`ml-1 text-xs font-normal ${negativo ? "text-red-400" : "text-slate-400"}`}>
+                                {producto.unidad_base}
+                              </span>
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {cargando ? (
             <p className="text-sm text-slate-400">Cargando detalle…</p>
@@ -238,45 +282,23 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                 </div>
               </section>
 
-              {/* Ubicaciones con su stock (excluye sucursales virtuales, igual que v_inventario_detalle) */}
-              <section>
-                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <MapPin size={12} /> Stock por ubicación
-                </h3>
-                {detalle.stock.filter(s => s.ubicacion?.sucursal?.tipo !== "virtual").length === 0 ? (
-                  <p className="text-sm text-slate-400">
-                    Sin stock registrado todavía. Aparecerá al hacer el primer conteo.
-                  </p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {detalle.stock.filter(s => s.ubicacion?.sucursal?.tipo !== "virtual").map((s, i) => (
-                      <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                        <MapPin size={13} className="text-slate-400" />
-                        <span className="flex-1 text-slate-700">{etiquetaUbicacion(s.ubicacion)}</span>
-                        <span className="font-semibold text-slate-900">
-                          {cantidadFmt(s.cantidad_base)}
-                          <span className="ml-1 text-xs font-normal text-slate-400">{producto.unidad_base}</span>
-                        </span>
-                      </div>
+              {/* Ubicaciones asignadas sin stock (para saber dónde debería ir) */}
+              {detalle.ubicaciones.length > 0 && (
+                <section>
+                  <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <MapPin size={12} /> Ubicaciones asignadas
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {detalle.ubicaciones.map((u, i) => (
+                      <span key={i} className="flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                        <MapPin size={10} className={u.es_principal ? "text-slate-700" : "text-slate-400"} />
+                        {etiquetaUbicacion(u.ubicacion)}
+                        {u.es_principal && <span className="text-slate-400">·principal</span>}
+                      </span>
                     ))}
                   </div>
-                )}
-                {/* Ubicaciones asignadas sin stock (para saber dónde debería ir) */}
-                {detalle.ubicaciones.length > 0 && (
-                  <div className="mt-2">
-                    <p className="mb-1 text-xs text-slate-400">Ubicaciones asignadas:</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {detalle.ubicaciones.map((u, i) => (
-                        <span key={i} className="flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                          <MapPin size={10} className={u.es_principal ? "text-slate-700" : "text-slate-400"} />
-                          {etiquetaUbicacion(u.ubicacion)}
-                          {u.es_principal && <span className="text-slate-400">·principal</span>}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </section>
+                </section>
+              )}
             </div>
           )}
           </>
