@@ -650,6 +650,34 @@ function armarBloques(grupos) {
   return bloques;
 }
 
+// Arma la misma forma de "grupos" que devuelve buscarAgrupado (búsqueda),
+// pero para una página plana de productos (browse-all): agrupa por
+// familia_id usando un mapa liviano producto_id -> {familia_id,
+// familia_nombre, atributos}, sin tocar la paginación — el agrupamiento
+// queda acotado a los productos de la página actual (una familia con
+// variantes repartidas en dos páginas no se junta entre páginas).
+function agruparPorFamiliaLocal(lista, mapaFamilia) {
+  const grupos = new Map();
+  const orden = [];
+  for (const p of lista) {
+    const fam = mapaFamilia.get(p.id);
+    const key = fam?.familia_id ?? `p:${p.id}`;
+    if (!grupos.has(key)) {
+      grupos.set(key, {
+        familia_id: fam?.familia_id ?? null,
+        familia_nombre: fam?.familia_nombre ?? p.nombre,
+        familia_imagen_url: null,
+        variantes: [],
+      });
+      orden.push(key);
+    }
+    const g = grupos.get(key);
+    if (!g.familia_imagen_url && p.imagen_url) g.familia_imagen_url = p.imagen_url;
+    g.variantes.push({ ...p, atributos: fam?.atributos || [] });
+  }
+  return orden.map(k => grupos.get(k));
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 const PAGINA = 40;
@@ -781,19 +809,31 @@ export default function CatalogoApp() {
     const { data, count } = await query;
     const lista = data || [];
 
+    let mapaFamilia = new Map();
     if (lista.length > 0) {
       const ids = lista.map(p => p.id);
-      const { data: stocks } = await supabase
-        .from("v_producto_stock")
-        .select("producto_id, stock_total")
-        .in("producto_id", ids);
+      const [{ data: stocks }, { data: extra }] = await Promise.all([
+        supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
+        // Mapa liviano producto_id -> familia + atributos, solo para agrupar
+        // visualmente esta página — no reemplaza la query paginada de arriba.
+        supabase
+          .from("producto")
+          .select("id, familia_id, familia:familia_id(nombre), producto_atributo(atributo_valor:atributo_valor_id(valor, atributo:atributo_id(nombre)))")
+          .in("id", ids),
+      ]);
       const mapaStock = new Map((stocks || []).map(s => [s.producto_id, s.stock_total]));
       for (const p of lista) p.stock_total = mapaStock.get(p.id) ?? 0;
+
+      mapaFamilia = new Map((extra || []).map(p => [p.id, {
+        familia_id: p.familia_id,
+        familia_nombre: p.familia?.nombre,
+        atributos: (p.producto_atributo || [])
+          .filter(pa => pa.atributo_valor)
+          .map(pa => ({ atributo: pa.atributo_valor.atributo?.nombre, valor: pa.atributo_valor.valor })),
+      }]));
     }
 
-    // Envueltos como grupos de 1 variante para reusar el mismo renderer
-    // (nunca muestran encabezado de familia — mismo aspecto que antes).
-    setGrupos(lista.map(p => ({ familia_id: null, familia_nombre: p.nombre, familia_imagen_url: p.imagen_url, variantes: [p] })));
+    setGrupos(agruparPorFamiliaLocal(lista, mapaFamilia));
     setTotal(count || 0);
     setBuscando(false);
     setCargando(false);
