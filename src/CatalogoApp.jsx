@@ -33,6 +33,19 @@ function cantidadFmt(v) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 }
 
+// Texto informativo "≈ N paquetes de M" a partir de una cantidad en unidad
+// base y la presentación de bulto del producto (si tiene una) — no editable,
+// no afecta lo que se envía al backend (que siempre viaja en unidad base).
+function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
+  if (!presentacionBulto || !cantidadBaseStr) return null;
+  const n = Number(cantidadBaseStr);
+  const factor = Number(presentacionBulto.factor_unidad_base);
+  if (!n || n <= 0 || !factor) return null;
+  const contenedor = (presentacionBulto.nombre.split(" ")[0] || "paquete").toLowerCase();
+  const paquetes = n / factor;
+  return `≈ ${cantidadFmt(paquetes)} ${contenedor}${paquetes === 1 ? "" : "s"} de ${cantidadFmt(factor)}`;
+}
+
 // Badge de stock: gris si 0, ámbar si bajo (<=5), verde si hay
 function BadgeStock({ cantidad, unidad }) {
   const n = Number(cantidad || 0);
@@ -413,6 +426,10 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
   }, [producto.id]);
 
   const presentacion = presentaciones.find(p => p.id === Number(presentacionId));
+  // Presentación de bulto (no-base), si el producto tiene una — solo para
+  // el texto informativo "≈ N paquetes"; Vender ahora siempre opera en
+  // unidad base (Parte B), sin selector de presentación.
+  const presentacionBulto = presentaciones.find(p => !p.es_base);
 
   // preview del pick automático (mayor stock primero) mientras se ajusta la cantidad
   useEffect(() => {
@@ -493,19 +510,16 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
             </div>
           </div>
 
-          <select value={presentacionId} onChange={e => setPresentacionId(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-            {presentaciones.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.nombre} (×{p.factor_unidad_base} {producto.unidad_base})
-              </option>
-            ))}
-          </select>
-
-          <input type="number" min="0.001" step="any" value={cantidad}
-            onChange={e => setCantidad(e.target.value)}
-            placeholder="Cantidad"
-            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          {/* Siempre en unidad base, sin selector de presentación (Parte B) */}
+          <div>
+            <input type="number" min="0.001" step="any" value={cantidad}
+              onChange={e => setCantidad(e.target.value)}
+              placeholder={`Cantidad (${producto.unidad_base} base)`}
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            {textoAproxBulto(cantidad, presentacionBulto) && (
+              <p className="mt-1 text-xs text-slate-400">{textoAproxBulto(cantidad, presentacionBulto)}</p>
+            )}
+          </div>
 
           {/* preview del pick automático — informativo, se recalcula al despachar */}
           {previewPick && (

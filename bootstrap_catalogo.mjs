@@ -330,6 +330,13 @@ async function cargar(familias) {
 
       for (const prod of fam.productos) {
         // Upsert producto por shopify_variant_id. (xmax = 0) => fue INSERT.
+        // unidad_base va SIEMPRE hardcodeado a 'unidad', nunca derivado del
+        // título/opciones de Shopify: Shopify no expone un "tamaño de bulto"
+        // estructurado, y adivinarlo del título (regex tipo "PAQUETE X N")
+        // es justo el patrón inconsistente que se migró a `presentacion`
+        // (ver db/migrations/*_presentaciones_paquete.sql). Un producto
+        // nuevo que venga en caja/paquete queda en 'unidad' + su
+        // presentación de bulto se agrega a mano después.
         const pr = await client.query(
           `INSERT INTO producto
              (familia_id, nombre, sku_interno, unidad_base, precio_base,
