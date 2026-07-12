@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import {
@@ -22,6 +22,71 @@ function etiquetaUbicacion(zona, estante, nivel, compartimiento) {
   else if (estante) partes.push(estante);
   if (compartimiento) partes.push(compartimiento);
   return partes.join(" › ");
+}
+
+// Agrupa filas (producto×ubicación) por familia, preservando el orden de
+// aparición. Solo aporta un encabezado cuando 2+ productos distintos de la
+// misma familia están presentes en las filas dadas — si el filtro/búsqueda
+// deja a un solo integrante visible, ese grupo queda "suelto" (sin encabezado).
+function agruparPorFamilia(filas, mapaFamilia) {
+  const grupos = new Map();
+  const orden = [];
+  for (const f of filas) {
+    const fam = mapaFamilia.get(f.producto_id);
+    const key = fam?.familia_id ?? `p:${f.producto_id}`;
+    if (!grupos.has(key)) {
+      grupos.set(key, { familia_id: fam?.familia_id ?? null, familia_nombre: fam?.familia_nombre ?? null, filas: [], productoIds: new Set() });
+      orden.push(key);
+    }
+    const g = grupos.get(key);
+    g.filas.push(f);
+    g.productoIds.add(f.producto_id);
+  }
+  return orden.map(k => grupos.get(k));
+}
+
+const ETIQUETA_CAMPO = {
+  producto_nombre: "Producto",
+  codigo_zona: "Ubicación",
+  cantidad_base: "Cantidad",
+  valor_linea: "Valor",
+};
+
+function FilaInventario({ f, alerta }) {
+  return (
+    <tr className="hover:bg-slate-50">
+      <td className="px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          {f.imagen_url
+            ? <img src={f.imagen_url} alt="" className="h-8 w-8 shrink-0 rounded object-cover" loading="lazy" />
+            : <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-slate-100"><ImageOff size={13} className="text-slate-300" /></div>}
+          <div className="min-w-0">
+            <p className="truncate font-medium text-slate-800">{f.producto_nombre}</p>
+            {f.sku_interno && <p className="truncate text-xs text-slate-400">{f.sku_interno}</p>}
+          </div>
+        </div>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className="flex items-center gap-1 text-slate-600">
+          <MapPin size={12} className="text-slate-400" />
+          {etiquetaUbicacion(f.codigo_zona, f.estante, f.nivel, f.compartimiento)}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
+          ${alerta === "cero" ? "bg-slate-100 text-slate-400"
+            : alerta === "bajo" ? "bg-amber-100 text-amber-700"
+            : "bg-emerald-100 text-emerald-700"}`}>
+          {alerta === "cero" && <PackageX size={11} />}
+          {alerta === "bajo" && <AlertTriangle size={11} />}
+          {cantidadFmt(f.cantidad_base)} {f.unidad_base}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-right font-medium text-slate-700">
+        {precioFmt(f.valor_linea)}
+      </td>
+    </tr>
+  );
 }
 
 function TarjetaResumen({ icono: Icono, etiqueta, valor, sub, acento = "slate" }) {
@@ -48,6 +113,7 @@ function TarjetaResumen({ icono: Icono, etiqueta, valor, sub, acento = "slate" }
 export default function InventarioApp() {
   const [resumen, setResumen] = useState(null);
   const [filas, setFilas] = useState([]);
+  const [mapaFamilia, setMapaFamilia] = useState(new Map()); // producto_id -> {familia_id, familia_nombre}
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [umbral, setUmbral] = useState(5);
@@ -109,7 +175,27 @@ export default function InventarioApp() {
     if (busqueda.trim()) query = query.or(`producto_nombre.ilike.%${busqueda.trim()}%,sku_interno.ilike.%${busqueda.trim()}%`);
     query = query.order(orden.campo, { ascending: orden.asc });
     const { data } = await query.limit(1000);
-    setFilas(data || []);
+    const lista = data || [];
+    setFilas(lista);
+
+    // Mapa liviano producto_id -> familia, solo para agrupar visualmente
+    // (no altera v_inventario_detalle ni el orden/filtrado de las filas).
+    const ids = [...new Set(lista.map(f => f.producto_id))];
+    if (ids.length > 0) {
+      const { data: prods } = await supabase
+        .from("producto")
+        .select("id, familia_id, familia:familia_id(nombre)")
+        .in("id", ids);
+      const mapa = new Map(
+        (prods || [])
+          .filter(p => p.familia_id != null)
+          .map(p => [p.id, { familia_id: p.familia_id, familia_nombre: p.familia?.nombre }])
+      );
+      setMapaFamilia(mapa);
+    } else {
+      setMapaFamilia(new Map());
+    }
+
     setCargando(false);
   }, [busqueda, orden]);
 
@@ -147,6 +233,12 @@ export default function InventarioApp() {
       </button>
     </th>
   );
+
+  // El agrupamiento por familia solo tiene sentido con el orden por defecto
+  // (Producto) — con cualquier otro criterio se desactiva para no producir
+  // un agrupamiento incoherente con el orden pedido.
+  const agrupando = orden.campo === "producto_nombre";
+  const bloques = agrupando ? agruparPorFamilia(filasFiltradas, mapaFamilia) : null;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -216,6 +308,13 @@ export default function InventarioApp() {
         </div>
       </div>
 
+      {/* Aviso: agrupamiento por familia desactivado con este orden */}
+      {!agrupando && !cargando && filasFiltradas.length > 0 && (
+        <p className="mb-2 text-xs text-slate-400">
+          Orden por {ETIQUETA_CAMPO[orden.campo] || orden.campo} — vista sin agrupar.
+        </p>
+      )}
+
       {/* Tabla */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
@@ -237,44 +336,25 @@ export default function InventarioApp() {
                     ? "Sin stock registrado todavía. Aparecerá al hacer los primeros conteos."
                     : "No hay filas que coincidan con el filtro."}
                 </td></tr>
+              ) : agrupando ? (
+                bloques.map(g => (
+                  <Fragment key={g.familia_id ?? `p:${g.filas[0].producto_id}`}>
+                    {g.productoIds.size > 1 && (
+                      <tr className="bg-slate-50">
+                        <td colSpan={4} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {g.familia_nombre} <span className="font-normal normal-case text-slate-400">({g.productoIds.size} variantes)</span>
+                        </td>
+                      </tr>
+                    )}
+                    {g.filas.map(f => (
+                      <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={nivelAlerta(f.cantidad_base)} />
+                    ))}
+                  </Fragment>
+                ))
               ) : (
-                filasFiltradas.map((f, i) => {
-                  const alerta = nivelAlerta(f.cantidad_base);
-                  return (
-                    <tr key={`${f.producto_id}-${f.ubicacion_id}`} className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          {f.imagen_url
-                            ? <img src={f.imagen_url} alt="" className="h-8 w-8 shrink-0 rounded object-cover" loading="lazy" />
-                            : <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-slate-100"><ImageOff size={13} className="text-slate-300" /></div>}
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-slate-800">{f.producto_nombre}</p>
-                            {f.sku_interno && <p className="truncate text-xs text-slate-400">{f.sku_interno}</p>}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="flex items-center gap-1 text-slate-600">
-                          <MapPin size={12} className="text-slate-400" />
-                          {etiquetaUbicacion(f.codigo_zona, f.estante, f.nivel, f.compartimiento)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
-                          ${alerta === "cero" ? "bg-slate-100 text-slate-400"
-                            : alerta === "bajo" ? "bg-amber-100 text-amber-700"
-                            : "bg-emerald-100 text-emerald-700"}`}>
-                          {alerta === "cero" && <PackageX size={11} />}
-                          {alerta === "bajo" && <AlertTriangle size={11} />}
-                          {cantidadFmt(f.cantidad_base)} {f.unidad_base}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-medium text-slate-700">
-                        {precioFmt(f.valor_linea)}
-                      </td>
-                    </tr>
-                  );
-                })
+                filasFiltradas.map(f => (
+                  <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={nivelAlerta(f.cantidad_base)} />
+                ))
               )}
             </tbody>
           </table>
