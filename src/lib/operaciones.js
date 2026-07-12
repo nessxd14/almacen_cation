@@ -46,6 +46,99 @@ export async function buscarProductos(q) {
   return data || [];
 }
 
+/* ── búsqueda agrupada por familia (typeahead de familias/variantes) ──
+ * Motor compartido para Catálogo/Inventario/Operaciones (briefs siguientes).
+ * No reemplaza a buscarProductos: esa sigue intacta para los flujos que
+ * ya la usan (typeahead de producto suelto en Operaciones, etc.).
+ *
+ * -> [{ familia_id, familia_nombre, familia_imagen_url,
+ *       variantes: [{ producto_id, nombre, sku_interno, atributos: [{atributo, valor}] }] }]
+ *    familia_id es null para productos sin familia (o familias de 1 variante
+ *    que no matchean por nombre de familia): esos grupos traen variantes.length === 1.
+ *
+ * Buscar por SKU/nombre de una variante trae el grupo completo de su familia
+ * (todas las variantes activas), no solo la variante que matcheó — el
+ * consumidor decide si resalta o filtra.
+ */
+export async function buscarAgrupado(q) {
+  const texto = (q || "").trim();
+  if (!texto) return [];
+
+  // 1. Productos que matchean directo por nombre/SKU (para saber a qué
+  //    familias pertenecen y qué productos sueltos entran).
+  const { data: directos } = await supabase
+    .from("producto")
+    .select("id, familia_id")
+    .eq("activo", true)
+    .or(`nombre.ilike.%${texto}%,sku_interno.ilike.%${texto}%`)
+    .limit(200);
+
+  // 2. Familias que matchean por su propio nombre.
+  const { data: familiasMatch } = await supabase
+    .from("familia")
+    .select("id")
+    .ilike("nombre", `%${texto}%`)
+    .limit(200);
+
+  const familiaIds = new Set();
+  for (const p of directos || []) if (p.familia_id != null) familiaIds.add(p.familia_id);
+  for (const f of familiasMatch || []) familiaIds.add(f.id);
+
+  const productoIdsSueltos = (directos || [])
+    .filter(p => p.familia_id == null)
+    .map(p => p.id);
+
+  if (familiaIds.size === 0 && productoIdsSueltos.length === 0) return [];
+
+  // 3. Traer TODAS las variantes activas de las familias implicadas, más
+  //    los productos sueltos (sin familia) que matchearon directo.
+  const orParts = [];
+  if (familiaIds.size > 0) orParts.push(`familia_id.in.(${[...familiaIds].join(",")})`);
+  if (productoIdsSueltos.length > 0) orParts.push(`id.in.(${productoIdsSueltos.join(",")})`);
+
+  const { data: variantes } = await supabase
+    .from("producto")
+    .select(`
+      id, nombre, sku_interno, familia_id, imagen_url,
+      familia:familia_id(id, nombre),
+      producto_atributo(atributo_valor:atributo_valor_id(valor, atributo:atributo_id(nombre)))
+    `)
+    .eq("activo", true)
+    .or(orParts.join(","))
+    .limit(200);
+
+  // Agrupar en JS por familia_id (o por producto_id si no tiene familia).
+  const grupos = new Map();
+  for (const p of variantes || []) {
+    const atributos = (p.producto_atributo || [])
+      .filter(pa => pa.atributo_valor)
+      .map(pa => ({ atributo: pa.atributo_valor.atributo?.nombre, valor: pa.atributo_valor.valor }));
+
+    const key = p.familia_id ?? `p:${p.id}`;
+    if (!grupos.has(key)) {
+      grupos.set(key, {
+        familia_id: p.familia_id ?? null,
+        familia_nombre: p.familia?.nombre ?? p.nombre,
+        familia_imagen_url: null,
+        variantes: [],
+      });
+    }
+    const grupo = grupos.get(key);
+    if (!grupo.familia_imagen_url && p.imagen_url) grupo.familia_imagen_url = p.imagen_url;
+    grupo.variantes.push({
+      producto_id: p.id,
+      nombre: p.nombre,
+      sku_interno: p.sku_interno,
+      atributos,
+    });
+  }
+
+  const lista = [...grupos.values()];
+  lista.sort((a, b) => a.familia_nombre.localeCompare(b.familia_nombre));
+  for (const g of lista) g.variantes.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return lista;
+}
+
 /* ── ubicaciones según el modo de operación ───────────────────────────
  * modo: "ENTRADA" | "SALIDA" | "AJUSTE" | "TRASLADO_ORIGEN" | "TRASLADO_DESTINO"
  * -> { ubicaciones: [{id, label, cantidad_base?, es_principal?}], sinAsignacion }

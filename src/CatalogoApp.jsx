@@ -8,7 +8,7 @@ import {
 import { HistorialMovimientos } from "./HistorialApp";
 import EditarProducto, { CarruselPrecios } from "./EditarProducto";
 import EscanerCodigo from "./EscanerCodigo";
-import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea } from "./lib/operaciones";
+import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea, buscarAgrupado } from "./lib/operaciones";
 import { agregarAlBorrador } from "./lib/pedidoBorrador";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -547,9 +547,43 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
   );
 }
 
+// Texto principal de la tarjeta/fila: si es una variante dentro de una familia
+// agrupada, muestra su(s) atributo(s) distintivo(s) en vez de repetir el
+// nombre completo de la familia (ej. "Naranja", o "Naranja · L").
+function textoVariante(p, mostrarAtributos) {
+  if (mostrarAtributos && p.atributos?.length > 0) {
+    return p.atributos.map(a => a.valor).join(" · ");
+  }
+  return p.nombre;
+}
+
+// ─── Encabezado de familia (separador visual, no clickeable) ────────────────
+
+function EncabezadoFamilia({ grupo }) {
+  return (
+    <div className="mb-2 flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2.5">
+      <ImagenProducto url={grupo.familia_imagen_url} nombre={grupo.familia_nombre}
+        className="h-7 w-7 shrink-0 rounded-md" />
+      <h3 className="truncate text-sm font-semibold text-slate-700">{grupo.familia_nombre}</h3>
+      <span className="shrink-0 text-xs text-slate-400">({grupo.variantes.length})</span>
+    </div>
+  );
+}
+
+function EncabezadoFamiliaFila({ grupo }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+      <ImagenProducto url={grupo.familia_imagen_url} nombre={grupo.familia_nombre}
+        className="h-6 w-6 shrink-0 rounded" />
+      <span className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{grupo.familia_nombre}</span>
+      <span className="shrink-0 text-xs text-slate-400">({grupo.variantes.length})</span>
+    </div>
+  );
+}
+
 // ─── Tarjeta galería ─────────────────────────────────────────────────────────
 
-function TarjetaGaleria({ p, onClick }) {
+function TarjetaGaleria({ p, mostrarAtributos, onClick }) {
   const mapeado = !!p.shopify_variant_id;
   return (
     <button onClick={onClick}
@@ -564,7 +598,7 @@ function TarjetaGaleria({ p, onClick }) {
         )}
       </div>
       <div className="flex flex-1 flex-col p-3">
-        <p className="line-clamp-2 text-sm font-medium text-slate-800">{p.nombre}</p>
+        <p className="line-clamp-2 text-sm font-medium text-slate-800">{textoVariante(p, mostrarAtributos)}</p>
         {p.sku_interno && <p className="mt-0.5 text-xs text-slate-400">{p.sku_interno}</p>}
         <div className="mt-auto flex items-center justify-between pt-2">
           <p className="text-sm font-bold text-slate-900">{precioFmt(p.precio_base)}</p>
@@ -577,15 +611,16 @@ function TarjetaGaleria({ p, onClick }) {
 
 // ─── Fila lista ──────────────────────────────────────────────────────────────
 
-function FilaLista({ p, onClick }) {
+function FilaLista({ p, mostrarAtributos, indentado, onClick }) {
   const mapeado = !!p.shopify_variant_id;
   return (
     <button onClick={onClick}
-      className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-0 hover:bg-slate-50">
+      className={`flex w-full items-center gap-3 border-b border-slate-100 py-2.5 text-left last:border-0 hover:bg-slate-50
+        ${indentado ? "pl-9 pr-3" : "px-3"}`}>
       <ImagenProducto url={p.imagen_url} nombre={p.nombre}
         className="h-11 w-11 shrink-0 rounded-md" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-800">{p.nombre}</p>
+        <p className="truncate text-sm font-medium text-slate-800">{textoVariante(p, mostrarAtributos)}</p>
         {p.sku_interno && <p className="truncate text-xs text-slate-400">{p.sku_interno}</p>}
       </div>
       {!mapeado && <Link2Off size={14} className="shrink-0 text-slate-300" />}
@@ -596,6 +631,53 @@ function FilaLista({ p, onClick }) {
   );
 }
 
+// ─── Arma bloques de render: familias agrupadas quedan con su propio
+// encabezado + subgrilla; las familias de 1 sola variante (o sin familia)
+// se acumulan en bloques "sueltos" compartidos, sin encabezado — mismo
+// aspecto que la grilla plana de siempre. ──────────────────────────────────
+function armarBloques(grupos) {
+  const bloques = [];
+  let buffer = [];
+  for (const g of grupos) {
+    if (g.variantes.length > 1) {
+      if (buffer.length > 0) { bloques.push({ tipo: "sueltos", variantes: buffer }); buffer = []; }
+      bloques.push({ tipo: "familia", grupo: g });
+    } else {
+      buffer.push(g.variantes[0]);
+    }
+  }
+  if (buffer.length > 0) bloques.push({ tipo: "sueltos", variantes: buffer });
+  return bloques;
+}
+
+// Arma la misma forma de "grupos" que devuelve buscarAgrupado (búsqueda),
+// pero para una página plana de productos (browse-all): agrupa por
+// familia_id usando un mapa liviano producto_id -> {familia_id,
+// familia_nombre, atributos}, sin tocar la paginación — el agrupamiento
+// queda acotado a los productos de la página actual (una familia con
+// variantes repartidas en dos páginas no se junta entre páginas).
+function agruparPorFamiliaLocal(lista, mapaFamilia) {
+  const grupos = new Map();
+  const orden = [];
+  for (const p of lista) {
+    const fam = mapaFamilia.get(p.id);
+    const key = fam?.familia_id ?? `p:${p.id}`;
+    if (!grupos.has(key)) {
+      grupos.set(key, {
+        familia_id: fam?.familia_id ?? null,
+        familia_nombre: fam?.familia_nombre ?? p.nombre,
+        familia_imagen_url: null,
+        variantes: [],
+      });
+      orden.push(key);
+    }
+    const g = grupos.get(key);
+    if (!g.familia_imagen_url && p.imagen_url) g.familia_imagen_url = p.imagen_url;
+    g.variantes.push({ ...p, atributos: fam?.atributos || [] });
+  }
+  return orden.map(k => grupos.get(k));
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 const PAGINA = 40;
@@ -603,7 +685,8 @@ const PAGINA = 40;
 export default function CatalogoApp() {
   const [vista, setVista] = useState("galeria");   // "galeria" | "lista"
   const [busqueda, setBusqueda] = useState("");
-  const [productos, setProductos] = useState([]);
+  const [grupos, setGrupos] = useState([]);        // [{familia_id, familia_nombre, familia_imagen_url, variantes}]
+  const [buscando, setBuscando] = useState(false);  // true si hay texto de búsqueda activo (sin paginación)
   const [cargando, setCargando] = useState(true);
   const [seleccionado, setSeleccionado] = useState(null);     // quick-view (grilla)
   const [detalleCompleto, setDetalleCompleto] = useState(null); // "ver detalle completo"
@@ -643,10 +726,66 @@ export default function CatalogoApp() {
       .then(({ data }) => setAtributos(data || []));
   }, []);
 
+  // Completa las variantes que devuelve buscarAgrupado (solo id/nombre/sku/atributos)
+  // con los campos que ya usan las tarjetas/quick-view/detalle: precio, stock,
+  // imagen, mapeo Shopify, etc. — mismos campos que la query plana de siempre.
+  const enriquecerVariantes = async (gruposCrudos) => {
+    const ids = gruposCrudos.flatMap(g => g.variantes.map(v => v.producto_id));
+    if (ids.length === 0) return [];
+
+    const [{ data: detalles }, { data: stocks }] = await Promise.all([
+      supabase
+        .from("producto")
+        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url")
+        .in("id", ids),
+      supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
+    ]);
+    const mapaDet = new Map((detalles || []).map(d => [d.id, d]));
+    const mapaStock = new Map((stocks || []).map(s => [s.producto_id, s.stock_total]));
+
+    return gruposCrudos.map(g => ({
+      ...g,
+      variantes: g.variantes
+        .filter(v => mapaDet.has(v.producto_id))
+        .map(v => ({
+          ...mapaDet.get(v.producto_id),
+          atributos: v.atributos,
+          stock_total: mapaStock.get(v.producto_id) ?? 0,
+        })),
+    })).filter(g => g.variantes.length > 0);
+  };
+
   const cargar = useCallback(async (q, valorId, pag) => {
     setCargando(true);
+    const texto = q.trim();
 
-    // Si hay filtro de atributo, primero traemos los producto_id que lo tienen
+    if (texto) {
+      // Búsqueda agrupada por familia (motor: lib/operaciones.buscarAgrupado)
+      let gruposCrudos = await buscarAgrupado(texto);
+
+      if (valorId) {
+        const { data } = await supabase
+          .from("producto_atributo")
+          .select("producto_id")
+          .eq("atributo_valor_id", valorId);
+        const idsFiltro = new Set((data || []).map(r => r.producto_id));
+        gruposCrudos = gruposCrudos
+          .map(g => ({ ...g, variantes: g.variantes.filter(v => idsFiltro.has(v.producto_id)) }))
+          .filter(g => g.variantes.length > 0);
+      }
+
+      const gruposCompletos = await enriquecerVariantes(gruposCrudos);
+      const totalVariantes = gruposCompletos.reduce((s, g) => s + g.variantes.length, 0);
+
+      setGrupos(gruposCompletos);
+      setTotal(totalVariantes);
+      setBuscando(true);
+      setCargando(false);
+      return;
+    }
+
+    // Sin texto de búsqueda: navegación paginada de siempre, sin agrupar
+    // (buscarAgrupado es un motor de búsqueda, no un listado general).
     let idsFiltro = null;
     if (valorId) {
       const { data } = await supabase
@@ -655,7 +794,7 @@ export default function CatalogoApp() {
         .eq("atributo_valor_id", valorId);
       idsFiltro = (data || []).map(r => r.producto_id);
       if (idsFiltro.length === 0) {
-        setProductos([]); setTotal(0); setCargando(false); return;
+        setGrupos([]); setTotal(0); setBuscando(false); setCargando(false); return;
       }
     }
 
@@ -664,27 +803,39 @@ export default function CatalogoApp() {
       .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url", { count: "exact" })
       .eq("activo", true);
 
-    if (q.trim()) query = query.or(`nombre.ilike.%${q.trim()}%,sku_interno.ilike.%${q.trim()}%`);
     if (idsFiltro) query = query.in("id", idsFiltro);
-
     query = query.order("nombre").range(pag * PAGINA, pag * PAGINA + PAGINA - 1);
 
     const { data, count } = await query;
     const lista = data || [];
 
-    // Stock total de esta página desde la vista pre-agregada
+    let mapaFamilia = new Map();
     if (lista.length > 0) {
       const ids = lista.map(p => p.id);
-      const { data: stocks } = await supabase
-        .from("v_producto_stock")
-        .select("producto_id, stock_total")
-        .in("producto_id", ids);
+      const [{ data: stocks }, { data: extra }] = await Promise.all([
+        supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
+        // Mapa liviano producto_id -> familia + atributos, solo para agrupar
+        // visualmente esta página — no reemplaza la query paginada de arriba.
+        supabase
+          .from("producto")
+          .select("id, familia_id, familia:familia_id(nombre), producto_atributo(atributo_valor:atributo_valor_id(valor, atributo:atributo_id(nombre)))")
+          .in("id", ids),
+      ]);
       const mapaStock = new Map((stocks || []).map(s => [s.producto_id, s.stock_total]));
       for (const p of lista) p.stock_total = mapaStock.get(p.id) ?? 0;
+
+      mapaFamilia = new Map((extra || []).map(p => [p.id, {
+        familia_id: p.familia_id,
+        familia_nombre: p.familia?.nombre,
+        atributos: (p.producto_atributo || [])
+          .filter(pa => pa.atributo_valor)
+          .map(pa => ({ atributo: pa.atributo_valor.atributo?.nombre, valor: pa.atributo_valor.valor })),
+      }]));
     }
 
-    setProductos(lista);
+    setGrupos(agruparPorFamiliaLocal(lista, mapaFamilia));
     setTotal(count || 0);
+    setBuscando(false);
     setCargando(false);
   }, []);
 
@@ -765,27 +916,52 @@ export default function CatalogoApp() {
       {/* Resultados */}
       {cargando ? (
         <div className="py-16 text-center text-slate-400">Cargando productos…</div>
-      ) : productos.length === 0 ? (
+      ) : grupos.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 py-16 text-center">
           <Package size={32} className="mx-auto mb-3 text-slate-300" />
           <p className="text-sm text-slate-400">No se encontraron productos con esos criterios.</p>
         </div>
       ) : vista === "galeria" ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {productos.map(p => (
-            <TarjetaGaleria key={p.id} p={p} onClick={() => setSeleccionado(p)} />
+        <div className="space-y-6">
+          {armarBloques(grupos).map((b, i) => b.tipo === "familia" ? (
+            <div key={`f-${b.grupo.familia_id}`}>
+              <EncabezadoFamilia grupo={b.grupo} />
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {b.grupo.variantes.map(v => (
+                  <TarjetaGaleria key={v.id} p={v} mostrarAtributos onClick={() => setSeleccionado(v)} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div key={`s-${i}`} className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              {b.variantes.map(v => (
+                <TarjetaGaleria key={v.id} p={v} onClick={() => setSeleccionado(v)} />
+              ))}
+            </div>
           ))}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          {productos.map(p => (
-            <FilaLista key={p.id} p={p} onClick={() => setSeleccionado(p)} />
+          {armarBloques(grupos).map((b, i) => b.tipo === "familia" ? (
+            <div key={`f-${b.grupo.familia_id}`}>
+              <EncabezadoFamiliaFila grupo={b.grupo} />
+              {b.grupo.variantes.map(v => (
+                <FilaLista key={v.id} p={v} mostrarAtributos indentado onClick={() => setSeleccionado(v)} />
+              ))}
+            </div>
+          ) : (
+            <div key={`s-${i}`}>
+              {b.variantes.map(v => (
+                <FilaLista key={v.id} p={v} onClick={() => setSeleccionado(v)} />
+              ))}
+            </div>
           ))}
         </div>
       )}
 
-      {/* Paginación */}
-      {totalPaginas > 1 && (
+      {/* Paginación (solo navegando sin búsqueda activa; los resultados de
+          búsqueda agrupada se muestran completos, sin paginar) */}
+      {!buscando && totalPaginas > 1 && (
         <div className="mt-5 flex items-center justify-center gap-3">
           <button
             onClick={() => setPagina(p => Math.max(0, p - 1))}

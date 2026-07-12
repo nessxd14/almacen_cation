@@ -14,14 +14,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
+import TypeaheadProducto from "./TypeaheadProducto";
 import {
-  buscarProductos, ubicacionesParaOperacion, calcularPick, desglosePresentaciones,
+  ubicacionesParaOperacion, calcularPick, desglosePresentaciones,
   crearPedido, despacharLinea, revertirEvento, comprarDirecto,
 } from "./lib/operaciones";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
 import {
   ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
-  AlertTriangle, Loader, ArrowLeft, X, Search, ScanLine,
+  AlertTriangle, Loader, ArrowLeft, X, ScanLine,
   ShoppingBag, Clock, Boxes,
 } from "lucide-react";
 
@@ -126,27 +127,13 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   const [referencia, setReferencia] = useState("");
   const [lineas, setLineas] = useState(lineasIniciales || []);
   const [query, setQuery] = useState("");
-  const [resultados, setResultados] = useState([]);
-  const [buscando, setBuscando] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [flash, setFlash] = useState(null);
   const [creando, setCreando] = useState(false);
 
-  useEffect(() => {
-    if (!query.trim()) { setResultados([]); return; }
-    setBuscando(true);
-    const t = setTimeout(async () => {
-      const rows = await buscarProductos(query);
-      setResultados(rows);
-      setBuscando(false);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [query]);
-
   const showFlash = (msg, type = "error") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
   function agregarProducto(p) {
-    setQuery(""); setResultados([]);
     setLineas((prev) => {
       const existente = prev.find((l) => l.producto_id === p.id);
       if (existente) {
@@ -230,24 +217,13 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
           className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
 
         <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar producto por nombre, SKU o código…"
-              className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-            {(resultados.length > 0 || buscando) && (
-              <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border bg-white shadow-lg divide-y">
-                {buscando && <p className="px-3 py-2 text-sm text-slate-400">Buscando…</p>}
-                {resultados.map((p) => (
-                  <button key={p.id} onClick={() => agregarProducto(p)}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50">
-                    <span className="flex-1 font-medium">{p.nombre}</span>
-                    {p.sku_interno && <span className="text-xs text-slate-400">{p.sku_interno}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <TypeaheadProducto
+            value={query}
+            onChange={setQuery}
+            onSeleccionar={agregarProducto}
+            placeholder="Buscar producto por nombre, SKU o código…"
+            className="flex-1"
+          />
           <button onClick={() => setShowScanner(true)} className="rounded-lg bg-slate-800 px-3 py-2 text-white">
             <ScanLine size={16} />
           </button>

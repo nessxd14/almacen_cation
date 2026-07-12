@@ -13,13 +13,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
+import TypeaheadProducto from "./TypeaheadProducto";
 import {
-  buscarProductos, ubicacionesParaOperacion, stockEn,
+  ubicacionesParaOperacion, stockEn,
   ejecutarOperacion, asegurarAsignacion,
 } from "./lib/operaciones";
 import {
   PackagePlus, ArrowLeftRight, SlidersHorizontal,
-  AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine, Search, Package,
+  AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine, Package,
 } from "lucide-react";
 
 const MODOS = [
@@ -38,8 +39,6 @@ export default function OperacionesApp() {
   // producto: typeahead
   const [productoSeleccionado, setProductoSeleccionado] = useState(null); // {id, nombre, sku_interno, unidad_base}
   const [queryProducto, setQueryProducto] = useState("");
-  const [resultadosProducto, setResultadosProducto] = useState([]);
-  const [buscandoProducto, setBuscandoProducto] = useState(false);
 
   // ubicaciones filtradas por modo (Parte 2)
   const [ubicacionesOrigen, setUbicacionesOrigen] = useState([]);
@@ -84,22 +83,9 @@ export default function OperacionesApp() {
     cargar();
   }, []);
 
-  /* ── typeahead de producto (debounce ~300ms) ──────────────────────── */
-  useEffect(() => {
-    if (!queryProducto.trim()) { setResultadosProducto([]); return; }
-    setBuscandoProducto(true);
-    const t = setTimeout(async () => {
-      const rows = await buscarProductos(queryProducto);
-      setResultadosProducto(rows);
-      setBuscandoProducto(false);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [queryProducto]);
-
   const elegirProducto = (p) => {
     setProductoSeleccionado(p);
     setQueryProducto("");
-    setResultadosProducto([]);
     setPresentacionId("");
     setUbicacionId("");
     setUbicacionDestinoId("");
@@ -194,7 +180,7 @@ export default function OperacionesApp() {
   }, []);
 
   const resetForm = () => {
-    setProductoSeleccionado(null); setQueryProducto(""); setResultadosProducto([]);
+    setProductoSeleccionado(null); setQueryProducto("");
     setPresentacionId(""); setUbicacionId(""); setUbicacionDestinoId("");
     setCantidad(""); setCantidadObjetivo("");
     setReferencia(""); setMotivo("");
@@ -359,24 +345,12 @@ export default function OperacionesApp() {
             </button>
           </div>
         ) : (
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={queryProducto} onChange={(e) => setQueryProducto(e.target.value)}
-              placeholder="Buscar producto por nombre o SKU…"
-              className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-            {(resultadosProducto.length > 0 || buscandoProducto) && (
-              <div className="absolute z-10 mt-1 w-full border rounded-lg divide-y bg-white shadow-lg max-h-64 overflow-y-auto">
-                {buscandoProducto && <p className="px-3 py-2 text-sm text-slate-400">Buscando…</p>}
-                {resultadosProducto.map((p) => (
-                  <button key={p.id} onClick={() => elegirProducto(p)}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-50 text-sm flex items-center gap-2">
-                    <span className="flex-1 font-medium">{p.nombre}</span>
-                    {p.sku_interno && <span className="text-xs text-slate-400">{p.sku_interno}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <TypeaheadProducto
+            value={queryProducto}
+            onChange={setQueryProducto}
+            onSeleccionar={elegirProducto}
+            placeholder="Buscar producto por nombre o SKU…"
+          />
         )}
 
         {/* presentación (excepto AJUSTE que opera en unidades base) */}
