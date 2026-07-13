@@ -232,7 +232,7 @@ export async function stockEn({ productoId, ubicacionId }) {
  */
 export async function ejecutarOperacion({
   modo, productoId, presentacionId, ubicacionId, ubicacionDestinoId,
-  cantidad, cantidadObjetivo, motivo, referencia, usuario = "operario", permitirSobregiro,
+  cantidad, cantidadObjetivo, motivo, referencia, usuario, permitirSobregiro,
 }) {
   const fecha = hoy();
   let resultado;
@@ -371,7 +371,7 @@ export async function desglosePresentaciones({ productoId, ubicacionId, cantidad
 }
 
 /* ── crear un pedido con sus líneas (en unidad base) ─────────────────── */
-export async function crearPedido({ categoria, referencia, lineas, usuario = "operario" }) {
+export async function crearPedido({ categoria, referencia, lineas, usuario }) {
   const { data, error } = await supabase.rpc("crear_pedido", {
     p_categoria: categoria,
     p_referencia: referencia || null,
@@ -386,7 +386,7 @@ export async function crearPedido({ categoria, referencia, lineas, usuario = "op
  * -> { resultado: {linea_id, evento_id, estado, cantidad_despachada,
  *                  pendiente, kardex_ids, reversible_hasta}, error }
  */
-export async function despacharLinea({ lineaId, asignaciones, usuario = "operario" }) {
+export async function despacharLinea({ lineaId, asignaciones, usuario }) {
   const { data, error } = await supabase.rpc("despachar_linea", {
     p_linea_id: Number(lineaId),
     p_asignaciones: asignaciones,
@@ -396,7 +396,7 @@ export async function despacharLinea({ lineaId, asignaciones, usuario = "operari
 }
 
 /* ── revertir un evento de despacho (total o parcial, solo Tienda) ───── */
-export async function revertirEvento({ eventoId, cantidadBase = null, usuario = "operario" }) {
+export async function revertirEvento({ eventoId, cantidadBase = null, usuario }) {
   const { data, error } = await supabase.rpc("revertir_evento", {
     p_evento_id: Number(eventoId),
     p_cantidad_base: cantidadBase != null ? Number(cantidadBase) : null,
@@ -406,7 +406,7 @@ export async function revertirEvento({ eventoId, cantidadBase = null, usuario = 
 }
 
 /* ── comprar directo: cierra la línea sin tocar Kardex ────────────────── */
-export async function comprarDirecto({ lineaId, nota, costo = null, usuario = "operario" }) {
+export async function comprarDirecto({ lineaId, nota, costo = null, usuario }) {
   const { data, error } = await supabase.rpc("comprar_directo", {
     p_linea_id: Number(lineaId),
     p_nota: nota,

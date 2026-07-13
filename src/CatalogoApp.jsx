@@ -10,6 +10,7 @@ import EditarProducto, { CarruselPrecios } from "./EditarProducto";
 import EscanerCodigo from "./EscanerCodigo";
 import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea, buscarAgrupado } from "./lib/operaciones";
 import { agregarAlBorrador } from "./lib/pedidoBorrador";
+import { useUsuarioActual } from "./lib/useAuth";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -392,6 +393,7 @@ const CATEGORIAS_VENTA = [
 ];
 
 function VenderAhoraModal({ producto, onClose, onVendido }) {
+  const usuarioActual = useUsuarioActual();
   const [presentaciones, setPresentaciones] = useState([]);
   const [presentacionId, setPresentacionId] = useState("");
   const [ubicacionesStock, setUbicacionesStock] = useState([]);
@@ -457,6 +459,7 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
       categoria,
       referencia: refFinal,
       lineas: [{ producto_id: producto.id, cantidad_base: cantidadBase }],
+      usuario: usuarioActual.nombre,
     });
     if (errorPedido) { setEjecutando(false); showFlash("Error: " + errorPedido.message, "error"); return; }
 
@@ -471,7 +474,7 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
       return;
     }
 
-    const { resultado, error: errorDespacho } = await despacharLinea({ lineaId: lineaRow.id, asignaciones });
+    const { resultado, error: errorDespacho } = await despacharLinea({ lineaId: lineaRow.id, asignaciones, usuario: usuarioActual.nombre });
     setEjecutando(false);
     if (errorDespacho) { showFlash("Error al despachar: " + errorDespacho.message, "error"); return; }
 

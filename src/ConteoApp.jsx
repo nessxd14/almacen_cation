@@ -21,6 +21,7 @@ import { supabase } from "./supabaseClient";
 import { subirFotoConteo, pathFotoConteo } from "./fotoConteo";
 import EscanerCodigo from "./EscanerCodigo";
 import { fetchAll } from "./lib/fetchAll";
+import { useUsuarioActual } from "./lib/useAuth";
 import {
   Camera, Search, MapPin, CheckCircle, AlertCircle,
   Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader,
@@ -78,6 +79,7 @@ async function initPersistence() {
 
 /* ═══════════════════════════════════════════════════════════════════════ */
 export default function ConteoApp() {
+  const usuarioActual = useUsuarioActual();
   const [store, setStore] = useState(null);
   const [storeMode, setStoreMode] = useState(null);
 
@@ -292,7 +294,7 @@ export default function ConteoApp() {
       foto_ref: fotoPath,
       factor_a_base_snap: esHuerfano ? null : selected.factor_unidad_base,
       numero_conteo: 1,
-      contador: "operario",
+      contador: usuarioActual.nombre,
       capturado_en: nowISO(),
       estado: "CAPTURADO",
     };

@@ -20,6 +20,7 @@ import {
   crearPedido, despacharLinea, revertirEvento, comprarDirecto,
 } from "./lib/operaciones";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
+import { useUsuarioActual } from "./lib/useAuth";
 import {
   ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine,
@@ -135,6 +136,7 @@ function ListaPedidos({ onSeleccionar, onNuevo }) {
 
 /* ── Armador de pedido ─────────────────────────────────────────────────── */
 function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
+  const usuarioActual = useUsuarioActual();
   const [categoria, setCategoria] = useState("");
   const [referencia, setReferencia] = useState("");
   const [lineas, setLineas] = useState(lineasIniciales || []);
@@ -222,6 +224,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       categoria,
       referencia: referencia.trim() || null,
       lineas: lineas.map((l) => ({ producto_id: l.producto_id, cantidad_base: Number(l.cantidad_base) })),
+      usuario: usuarioActual.nombre,
     });
     setCreando(false);
     if (error) { showFlash("Error: " + error.message); return; }
@@ -309,6 +312,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
 
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
 function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar }) {
+  const usuarioActual = useUsuarioActual();
   const [abierto, setAbierto] = useState(false);
   const [asignaciones, setAsignaciones] = useState([]);
   const [ubicacionesDisponibles, setUbicacionesDisponibles] = useState([]);
@@ -376,7 +380,7 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar }) {
     if (totalAsignado > pendiente + 0.0001) { showFlash(`El total asignado (${totalAsignado}) excede lo pendiente (${pendiente})`); return; }
 
     setDespachando(true);
-    const { error } = await despacharLinea({ lineaId: linea.id, asignaciones: filtradas });
+    const { error } = await despacharLinea({ lineaId: linea.id, asignaciones: filtradas, usuario: usuarioActual.nombre });
     setDespachando(false);
     if (error) { showFlash("Error: " + error.message); return; }
     setAbierto(false);
@@ -386,7 +390,7 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar }) {
   async function confirmarCompraDirecta() {
     if (!nota.trim()) { showFlash("La nota es obligatoria"); return; }
     setGuardandoCompra(true);
-    const { error } = await comprarDirecto({ lineaId: linea.id, nota: nota.trim(), costo: costo ? Number(costo) : null });
+    const { error } = await comprarDirecto({ lineaId: linea.id, nota: nota.trim(), costo: costo ? Number(costo) : null, usuario: usuarioActual.nombre });
     setGuardandoCompra(false);
     if (error) { showFlash("Error: " + error.message); return; }
     setMostrarComprado(false);
@@ -394,7 +398,7 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar }) {
   }
 
   async function revertir(eventoId, montoParcial) {
-    const { error } = await revertirEvento({ eventoId, cantidadBase: montoParcial ?? null });
+    const { error } = await revertirEvento({ eventoId, cantidadBase: montoParcial ?? null, usuario: usuarioActual.nombre });
     if (error) { showFlash("Error al revertir: " + error.message); return; }
     onRefrescar();
   }
