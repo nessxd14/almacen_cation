@@ -50,9 +50,12 @@ function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
 export default function OperacionesApp() {
   const [modo, setModo] = useState("ENTRADA");
 
-  // presentaciones (catálogo completo — dataset chico, se filtra local por producto)
-  const [presentaciones, setPresentaciones] = useState([]);
-  const [loadingCat, setLoadingCat] = useState(true);
+  // presentaciones del producto actualmente seleccionado (NO el catálogo
+  // completo — presentacion ya supera las 1.000 filas que Supabase/PostgREST
+  // recorta en silencio sin .range()/.limit(); se pide solo lo que hace
+  // falta, cuando hace falta, mismo criterio que ubicacionesParaOperacion).
+  const [presentacionesProducto, setPresentacionesProducto] = useState([]);
+  const [cargandoPresentaciones, setCargandoPresentaciones] = useState(false);
 
   // producto: typeahead
   const [productoSeleccionado, setProductoSeleccionado] = useState(null); // {id, nombre, sku_interno, unidad_base}
@@ -87,31 +90,40 @@ export default function OperacionesApp() {
   const [showScanner, setShowScanner] = useState(false);
   const resolviendoRef = useRef(false);
 
-  /* ── cargar presentaciones (catálogo) ─────────────────────────────── */
+  /* ── presentaciones del producto elegido (puntual, no el catálogo) ─── */
   useEffect(() => {
-    async function cargar() {
-      setLoadingCat(true);
-      const { data: pres } = await supabase
-        .from("presentacion")
-        .select("id, producto_id, nombre, factor_unidad_base, es_base")
-        .order("nombre");
-      setPresentaciones(pres || []);
-      setLoadingCat(false);
+    if (!productoSeleccionado) {
+      setPresentacionesProducto([]);
+      setPresentacionId("");
+      return;
     }
-    cargar();
-  }, []);
+    let cancelado = false;
+    setCargandoPresentaciones(true);
+    supabase
+      .from("presentacion")
+      .select("id, producto_id, nombre, factor_unidad_base, es_base")
+      .eq("producto_id", productoSeleccionado.id)
+      .order("es_base", { ascending: false })
+      .then(({ data }) => {
+        if (cancelado) return;
+        const lista = data || [];
+        setPresentacionesProducto(lista);
+        // Default siempre en la presentación base — nunca arrancar en la de
+        // bulto, para minimizar el riesgo de una entrada ×N por error.
+        const base = lista.find((pr) => pr.es_base);
+        setPresentacionId(base ? String(base.id) : "");
+        setCargandoPresentaciones(false);
+      });
+    return () => { cancelado = true; };
+  }, [productoSeleccionado]);
 
   const elegirProducto = useCallback((p) => {
     setProductoSeleccionado(p);
     setQueryProducto("");
-    // Default siempre en la presentación base — nunca arrancar en la de
-    // bulto, para minimizar el riesgo de una entrada ×N por error.
-    const base = presentaciones.find((pr) => pr.producto_id === p?.id && pr.es_base);
-    setPresentacionId(base ? String(base.id) : "");
     setUbicacionId("");
     setUbicacionDestinoId("");
     setStockActual(null);
-  }, [presentaciones]);
+  }, []);
 
   /* ── ubicaciones de origen según modo (Parte 2) ───────────────────── */
   useEffect(() => {
@@ -208,14 +220,10 @@ export default function OperacionesApp() {
     setStockActual(null);
   };
 
-  // presentaciones del producto seleccionado
-  const presentacionesFiltradas = presentaciones.filter(
-    (p) => p.producto_id === productoSeleccionado?.id
-  );
-  const presentacion = presentaciones.find((p) => p.id === Number(presentacionId));
+  const presentacion = presentacionesProducto.find((p) => p.id === Number(presentacionId));
   // Presentación de bulto (no-base) del producto, si tiene una — solo para
   // el texto informativo "≈ N paquetes" en Traslado/Ajuste (Parte B).
-  const presentacionBulto = presentacionesFiltradas.find((p) => !p.es_base);
+  const presentacionBulto = presentacionesProducto.find((p) => !p.es_base);
   const ubicacionLabel = ubicacionesOrigen.find((u) => u.id === Number(ubicacionId))?.label;
   const ubicacionDestinoLabel = ubicacionesDestino.find((u) => u.id === Number(ubicacionDestinoId))?.label;
 
@@ -322,7 +330,7 @@ export default function OperacionesApp() {
     <div className="max-w-lg mx-auto pt-4 px-4 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-800">Operaciones</h1>
-        {loadingCat && <Loader size={14} className="animate-spin text-slate-400" />}
+        {cargandoPresentaciones && <Loader size={14} className="animate-spin text-slate-400" />}
       </div>
 
       {/* selector de modo */}
@@ -379,13 +387,14 @@ export default function OperacionesApp() {
 
         {/* presentación — solo Entrada (Parte A). Traslado/Ajuste operan
             siempre en unidad base, sin selector (Parte B). Default en la
-            base, nunca arranca en la de bulto (ver elegirProducto). */}
+            base, nunca arranca en la de bulto (ver el efecto que carga
+            presentacionesProducto). */}
         {modo === "ENTRADA" && (
           <select value={presentacionId} onChange={(e) => setPresentacionId(e.target.value)}
-            disabled={!productoSeleccionado}
+            disabled={!productoSeleccionado || cargandoPresentaciones}
             className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
             <option value="">— Presentación —</option>
-            {presentacionesFiltradas.map((p) => (
+            {presentacionesProducto.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nombre} (×{p.factor_unidad_base} {productoSeleccionado?.unidad_base})
               </option>
@@ -520,7 +529,7 @@ export default function OperacionesApp() {
           </div>
         )}
 
-        <button onClick={ejecutar} disabled={ejecutando || loadingCat}
+        <button onClick={ejecutar} disabled={ejecutando || cargandoPresentaciones}
           className="w-full py-3 bg-slate-800 text-white rounded-xl font-semibold hover:bg-slate-700 disabled:opacity-50 flex items-center justify-center gap-2">
           {ejecutando && <Loader size={14} className="animate-spin" />}
           {ejecutando ? "Registrando…" : `Registrar ${MODOS.find((m) => m.id === modo)?.label}`}
