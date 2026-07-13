@@ -19,6 +19,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
+import { fetchAll } from "./lib/fetchAll";
 import {
   ArrowUpFromLine, Link, PlusCircle, Trash2,
   CheckCircle, AlertCircle, Loader, RefreshCw,
@@ -45,22 +46,23 @@ export default function PromocionHuerfanos() {
   const [nuevoFactor, setNuevoFactor] = useState("1");
 
   /* ── cargar huérfanos y presentaciones ───────────────────────────── */
+  // presentaciones: el selector "vincular a existente" necesita el
+  // universo completo (no hay producto ya elegido para filtrar por él),
+  // así que se pagina con fetchAll — presentacion ya supera las 1.000
+  // filas que un select sin .range() recorta en silencio.
   const cargar = async () => {
     setLoading(true);
-    const [{ data: huerfanosData }, { data: presData }] = await Promise.all([
+    const [{ data: huerfanosData }, presData] = await Promise.all([
       supabase
         .from("conteo_fisico_inicial")
         .select("id, descripcion_libre, ubicacion_id, cantidad, capturado_en, ubicacion(codigo_zona, estante, nivel, compartimiento)")
         .eq("es_no_catalogado", true)
         .eq("estado", "CAPTURADO")
         .order("capturado_en", { ascending: false }),
-      supabase
-        .from("presentacion")
-        .select("id, nombre, producto(id, nombre, sku_interno)")
-        .order("nombre"),
+      fetchAll(() => supabase.from("presentacion").select("id, nombre, producto(id, nombre, sku_interno)").order("id")),
     ]);
     setHuerfanos(huerfanosData || []);
-    setPresentaciones(presData || []);
+    setPresentaciones(presData.slice().sort((a, b) => a.nombre.localeCompare(b.nombre)));
     setLoading(false);
   };
 

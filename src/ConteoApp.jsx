@@ -20,6 +20,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import { subirFotoConteo, pathFotoConteo } from "./fotoConteo";
 import EscanerCodigo from "./EscanerCodigo";
+import { fetchAll } from "./lib/fetchAll";
 import {
   Camera, Search, MapPin, CheckCircle, AlertCircle,
   Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader,
@@ -130,22 +131,24 @@ export default function ConteoApp() {
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, []);
 
-  // cargar catálogo desde Supabase
+  // cargar catálogo desde Supabase — completo, paginando: esta pantalla
+  // necesita TODAS las presentaciones/identificadores en memoria para la
+  // búsqueda offline (searchQuery) y para resolver escaneos (handleScan)
+  // sin red. presentacion e identificador ya superan las 1.000 filas que
+  // Supabase/PostgREST recorta en silencio sin .range() — un solo select
+  // dejaba afuera los productos más nuevos (ver fetchAll).
   useEffect(() => {
     async function cargarCatalogo() {
       setLoadingCatalogo(true);
       try {
-        const [{ data: ubs, error: e1 }, { data: pres, error: e2 }, { data: ids, error: e3 }] = await Promise.all([
-          supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento"),
-          supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, unidad_base)").order("nombre"),
-          supabase.from("identificador").select("presentacion_id, valor").eq("activo", true),
+        const [ubs, pres, ids] = await Promise.all([
+          fetchAll(() => supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento")),
+          fetchAll(() => supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, unidad_base)").order("id")),
+          fetchAll(() => supabase.from("identificador").select("presentacion_id, valor").eq("activo", true).order("id")),
         ]);
-        if (e1) throw e1;
-        if (e2) throw e2;
-        if (e3) throw e3;
-        setUbicaciones(ubs || []);
-        setPresentaciones(pres || []);
-        setIdentificadores(ids || []);
+        setUbicaciones(ubs);
+        setPresentaciones(pres);
+        setIdentificadores(ids);
       } catch (e) {
         setErrorCatalogo(e.message);
       } finally {
@@ -218,12 +221,14 @@ export default function ConteoApp() {
         .map((i) => i.presentacion_id)
     );
     setResults(
-      presentaciones.filter((p) =>
-        p.nombre.toLowerCase().includes(texto) ||
-        p.producto?.nombre?.toLowerCase().includes(texto) ||
-        p.producto?.sku_interno?.toLowerCase().includes(texto) ||
-        idsPorCodigo.has(p.id)
-      )
+      presentaciones
+        .filter((p) =>
+          p.nombre.toLowerCase().includes(texto) ||
+          p.producto?.nombre?.toLowerCase().includes(texto) ||
+          p.producto?.sku_interno?.toLowerCase().includes(texto) ||
+          idsPorCodigo.has(p.id)
+        )
+        .sort((a, b) => a.nombre.localeCompare(b.nombre))
     );
   }, [presentaciones, identificadores]);
 
