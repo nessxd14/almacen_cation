@@ -29,6 +29,24 @@ const MODOS = [
   { id: "AJUSTE",   label: "Ajuste",   icon: SlidersHorizontal, color: "text-amber-600" },
 ];
 
+function cantidadFmt(v) {
+  const n = Number(v || 0);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
+}
+
+// Texto informativo "≈ N paquetes de M" a partir de una cantidad en unidad
+// base y la presentación de bulto del producto (si tiene una) — no editable,
+// no afecta lo que se envía al backend (que siempre viaja en unidad base).
+function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
+  if (!presentacionBulto || !cantidadBaseStr) return null;
+  const n = Number(cantidadBaseStr);
+  const factor = Number(presentacionBulto.factor_unidad_base);
+  if (!n || n <= 0 || !factor) return null;
+  const contenedor = (presentacionBulto.nombre.split(" ")[0] || "paquete").toLowerCase();
+  const paquetes = n / factor;
+  return `≈ ${cantidadFmt(paquetes)} ${contenedor}${paquetes === 1 ? "" : "s"} de ${cantidadFmt(factor)}`;
+}
+
 export default function OperacionesApp() {
   const [modo, setModo] = useState("ENTRADA");
 
@@ -83,14 +101,17 @@ export default function OperacionesApp() {
     cargar();
   }, []);
 
-  const elegirProducto = (p) => {
+  const elegirProducto = useCallback((p) => {
     setProductoSeleccionado(p);
     setQueryProducto("");
-    setPresentacionId("");
+    // Default siempre en la presentación base — nunca arrancar en la de
+    // bulto, para minimizar el riesgo de una entrada ×N por error.
+    const base = presentaciones.find((pr) => pr.producto_id === p?.id && pr.es_base);
+    setPresentacionId(base ? String(base.id) : "");
     setUbicacionId("");
     setUbicacionDestinoId("");
     setStockActual(null);
-  };
+  }, [presentaciones]);
 
   /* ── ubicaciones de origen según modo (Parte 2) ───────────────────── */
   useEffect(() => {
@@ -177,7 +198,7 @@ export default function OperacionesApp() {
       // caso raro: el código apunta a varios productos
       flashMsg(`Código ambiguo (${productosDistintos.length} productos), seleccioná manualmente`, "warn");
     }
-  }, []);
+  }, [elegirProducto]);
 
   const resetForm = () => {
     setProductoSeleccionado(null); setQueryProducto("");
@@ -192,6 +213,9 @@ export default function OperacionesApp() {
     (p) => p.producto_id === productoSeleccionado?.id
   );
   const presentacion = presentaciones.find((p) => p.id === Number(presentacionId));
+  // Presentación de bulto (no-base) del producto, si tiene una — solo para
+  // el texto informativo "≈ N paquetes" en Traslado/Ajuste (Parte B).
+  const presentacionBulto = presentacionesFiltradas.find((p) => !p.es_base);
   const ubicacionLabel = ubicacionesOrigen.find((u) => u.id === Number(ubicacionId))?.label;
   const ubicacionDestinoLabel = ubicacionesDestino.find((u) => u.id === Number(ubicacionDestinoId))?.label;
 
@@ -353,8 +377,10 @@ export default function OperacionesApp() {
           />
         )}
 
-        {/* presentación (excepto AJUSTE que opera en unidades base) */}
-        {modo !== "AJUSTE" && (
+        {/* presentación — solo Entrada (Parte A). Traslado/Ajuste operan
+            siempre en unidad base, sin selector (Parte B). Default en la
+            base, nunca arranca en la de bulto (ver elegirProducto). */}
+        {modo === "ENTRADA" && (
           <select value={presentacionId} onChange={(e) => setPresentacionId(e.target.value)}
             disabled={!productoSeleccionado}
             className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
@@ -418,8 +444,9 @@ export default function OperacionesApp() {
           </>
         )}
 
-        {/* cantidad (ENTRADA, TRASLADO) */}
-        {modo !== "AJUSTE" && (
+        {/* cantidad — Entrada: en la presentación elegida arriba, con
+            conversión en vivo (Parte A). */}
+        {modo === "ENTRADA" && (
           <div>
             <input type="number" min="0.001" step="any" value={cantidad}
               onChange={(e) => setCantidad(e.target.value)}
@@ -429,6 +456,21 @@ export default function OperacionesApp() {
               <p className="text-xs text-slate-400 mt-1">
                 = {cantidadBase.toFixed(3)} {productoSeleccionado?.unidad_base} base
               </p>
+            )}
+          </div>
+        )}
+
+        {/* cantidad — Traslado: siempre en unidad base, sin selector
+            (Parte B). Texto informativo de bulto si el producto tiene una
+            presentación de paquete/bote — no editable, no afecta el envío. */}
+        {modo === "TRASLADO" && (
+          <div>
+            <input type="number" min="0.001" step="any" value={cantidad}
+              onChange={(e) => setCantidad(e.target.value)}
+              placeholder={`Cantidad (${productoSeleccionado?.unidad_base || "unidades"} base)`}
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            {textoAproxBulto(cantidad, presentacionBulto) && (
+              <p className="text-xs text-slate-400 mt-1">{textoAproxBulto(cantidad, presentacionBulto)}</p>
             )}
           </div>
         )}
@@ -444,6 +486,9 @@ export default function OperacionesApp() {
               <p className={`text-xs mt-1 font-medium ${deltaAjuste >= 0 ? "text-green-600" : "text-red-500"}`}>
                 Delta: {deltaAjuste >= 0 ? "+" : ""}{deltaAjuste.toFixed(3)} {productoSeleccionado?.unidad_base}
               </p>
+            )}
+            {textoAproxBulto(cantidadObjetivo, presentacionBulto) && (
+              <p className="text-xs text-slate-400 mt-1">{textoAproxBulto(cantidadObjetivo, presentacionBulto)}</p>
             )}
           </div>
         )}

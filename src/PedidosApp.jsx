@@ -31,6 +31,18 @@ function cantidadFmt(v) {
   const n = Number(v || 0);
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 }
+// Texto informativo "≈ N paquetes de M" a partir de una cantidad en unidad
+// base y la presentación de bulto del producto (si tiene una) — no editable,
+// no afecta lo que se envía al backend (que siempre viaja en unidad base).
+function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
+  if (!presentacionBulto || !cantidadBaseStr) return null;
+  const n = Number(cantidadBaseStr);
+  const factor = Number(presentacionBulto.factor_unidad_base);
+  if (!n || n <= 0 || !factor) return null;
+  const contenedor = (presentacionBulto.nombre.split(" ")[0] || "paquete").toLowerCase();
+  const paquetes = n / factor;
+  return `≈ ${cantidadFmt(paquetes)} ${contenedor}${paquetes === 1 ? "" : "s"} de ${cantidadFmt(factor)}`;
+}
 function fechaFmt(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -130,10 +142,33 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   const [showScanner, setShowScanner] = useState(false);
   const [flash, setFlash] = useState(null);
   const [creando, setCreando] = useState(false);
+  // producto_id -> {nombre, factor_unidad_base} | null — presentación de
+  // bulto de cada línea, solo para el texto informativo (Parte B).
+  const [bultoPorProducto, setBultoPorProducto] = useState({});
+
+  // Líneas que ya vienen precargadas (borrador desde Catálogo) no pasan por
+  // agregarProducto — se resuelve su presentación de bulto acá, una vez.
+  useEffect(() => {
+    const ids = (lineasIniciales || []).map((l) => l.producto_id);
+    if (ids.length === 0) return;
+    supabase.from("presentacion")
+      .select("producto_id, nombre, factor_unidad_base")
+      .in("producto_id", ids)
+      .eq("es_base", false)
+      .then(({ data }) => {
+        setBultoPorProducto((prev) => {
+          const next = { ...prev };
+          for (const id of ids) if (!(id in next)) next[id] = null;
+          for (const row of data || []) next[row.producto_id] = row;
+          return next;
+        });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const showFlash = (msg, type = "error") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
-  function agregarProducto(p) {
+  const agregarProducto = useCallback(async (p) => {
     setLineas((prev) => {
       const existente = prev.find((l) => l.producto_id === p.id);
       if (existente) {
@@ -141,7 +176,17 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       }
       return [...prev, { producto_id: p.id, nombre: p.nombre, sku_interno: p.sku_interno, unidad_base: p.unidad_base, cantidad_base: 1 }];
     });
-  }
+    if (!(p.id in bultoPorProducto)) {
+      const { data } = await supabase
+        .from("presentacion")
+        .select("nombre, factor_unidad_base")
+        .eq("producto_id", p.id)
+        .eq("es_base", false)
+        .limit(1)
+        .maybeSingle();
+      setBultoPorProducto((prev) => ({ ...prev, [p.id]: data || null }));
+    }
+  }, [bultoPorProducto]);
 
   const handleScan = useCallback(async (codigo) => {
     setShowScanner(false);
@@ -154,7 +199,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       .from("producto").select("id, nombre, sku_interno, unidad_base")
       .eq("id", rows[0].producto_id).single();
     if (prod) agregarProducto(prod);
-  }, []);
+  }, [agregarProducto]);
 
   function actualizarCantidad(productoId, valor) {
     setLineas((prev) => prev.map((l) => l.producto_id === productoId ? { ...l, cantidad_base: valor } : l));
@@ -236,6 +281,9 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-800">{l.nombre}</p>
                   {l.sku_interno && <p className="text-xs text-slate-400">{l.sku_interno}</p>}
+                  {textoAproxBulto(l.cantidad_base, bultoPorProducto[l.producto_id]) && (
+                    <p className="text-xs text-slate-400">{textoAproxBulto(l.cantidad_base, bultoPorProducto[l.producto_id])}</p>
+                  )}
                 </div>
                 <input type="number" min="0.001" step="any" value={l.cantidad_base}
                   onChange={(e) => actualizarCantidad(l.producto_id, e.target.value)}
