@@ -18,6 +18,7 @@ import {
   ubicacionesParaOperacion, stockEn,
   ejecutarOperacion, asegurarAsignacion,
 } from "./lib/operaciones";
+import { useUsuarioActual } from "./lib/useAuth";
 import {
   PackagePlus, ArrowLeftRight, SlidersHorizontal,
   AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine, Package,
@@ -28,6 +29,10 @@ const MODOS = [
   { id: "TRASLADO", label: "Traslado", icon: ArrowLeftRight,    color: "text-blue-600"  },
   { id: "AJUSTE",   label: "Ajuste",   icon: SlidersHorizontal, color: "text-amber-600" },
 ];
+
+// Ajuste es un movimiento sensible sin confirmación adicional hoy — se
+// oculta para 'operario' (confirmado por Ness). Admin ve todo.
+const MODOS_SOLO_ADMIN = new Set(["AJUSTE"]);
 
 function cantidadFmt(v) {
   const n = Number(v || 0);
@@ -48,6 +53,11 @@ function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
 }
 
 export default function OperacionesApp() {
+  const usuarioActual = useUsuarioActual();
+  const modosVisibles = usuarioActual?.rol === "admin"
+    ? MODOS
+    : MODOS.filter((m) => !MODOS_SOLO_ADMIN.has(m.id));
+
   const [modo, setModo] = useState("ENTRADA");
 
   // presentaciones del producto actualmente seleccionado (NO el catálogo
@@ -90,6 +100,12 @@ export default function OperacionesApp() {
   const [showScanner, setShowScanner] = useState(false);
   const resolviendoRef = useRef(false);
 
+  // presentación específica a preferir sobre la base al resolver el próximo
+  // fetch de presentaciones (ej: escaneo de código que resuelve a una
+  // presentación puntual) — sin esto, el efecto de abajo pisa la elección
+  // del escaneo con la base en cuanto termina su fetch async.
+  const presentacionPreferidaRef = useRef(null);
+
   /* ── presentaciones del producto elegido (puntual, no el catálogo) ─── */
   useEffect(() => {
     if (!productoSeleccionado) {
@@ -109,15 +125,19 @@ export default function OperacionesApp() {
         const lista = data || [];
         setPresentacionesProducto(lista);
         // Default siempre en la presentación base — nunca arrancar en la de
-        // bulto, para minimizar el riesgo de una entrada ×N por error.
-        const base = lista.find((pr) => pr.es_base);
-        setPresentacionId(base ? String(base.id) : "");
+        // bulto, para minimizar el riesgo de una entrada ×N por error — salvo
+        // que venga una preferencia puntual (ej: escaneo de código de barras).
+        const preferida = presentacionPreferidaRef.current;
+        presentacionPreferidaRef.current = null;
+        const elegida = (preferida && lista.find((pr) => pr.id === preferida)) || lista.find((pr) => pr.es_base);
+        setPresentacionId(elegida ? String(elegida.id) : "");
         setCargandoPresentaciones(false);
       });
     return () => { cancelado = true; };
   }, [productoSeleccionado]);
 
-  const elegirProducto = useCallback((p) => {
+  const elegirProducto = useCallback((p, { presentacionIdPreferida } = {}) => {
+    presentacionPreferidaRef.current = presentacionIdPreferida ?? null;
     setProductoSeleccionado(p);
     setQueryProducto("");
     setUbicacionId("");
@@ -174,7 +194,7 @@ export default function OperacionesApp() {
   //   0 filas  -> no reconocido
   //   1 fila   -> autocompleta producto + presentación
   //   >1 filas -> setea producto y fuerza a elegir presentación (lo que pide el esquema)
-  const handleScan = useCallback(async (codigo) => {
+  const handleScan = async (codigo) => {
     setShowScanner(false);
     const code = (codigo || "").trim();
     if (!code || resolviendoRef.current) return;
@@ -198,10 +218,13 @@ export default function OperacionesApp() {
         .select("id, nombre, sku_interno, unidad_base")
         .eq("id", rows[0].producto_id)
         .single();
-      if (prod) elegirProducto(prod);
+      if (prod) {
+        elegirProducto(prod, {
+          presentacionIdPreferida: rows.length === 1 ? Number(rows[0].presentacion_id) : null,
+        });
+      }
 
       if (rows.length === 1) {
-        setPresentacionId(String(rows[0].presentacion_id));
         flashMsg(`${rows[0].producto_nombre} · ${rows[0].presentacion_nombre}`, "ok");
       } else {
         flashMsg(`${rows[0].producto_nombre}: ${rows.length} presentaciones con ese código, elegí cuál`, "warn");
@@ -210,7 +233,7 @@ export default function OperacionesApp() {
       // caso raro: el código apunta a varios productos
       flashMsg(`Código ambiguo (${productosDistintos.length} productos), seleccioná manualmente`, "warn");
     }
-  }, [elegirProducto]);
+  };
 
   const resetForm = () => {
     setProductoSeleccionado(null); setQueryProducto("");
@@ -239,13 +262,14 @@ export default function OperacionesApp() {
     if (!presentacionId && modo !== "AJUSTE") return null;
     if (modo === "AJUSTE" && !productoId) return null;
 
+    const usuarioSql = usuarioActual?.nombre || "?";
     if (modo === "ENTRADA") return (
       `SELECT registrar_entrada(\n` +
       `  p_presentacion_id => ${presentacionId},\n` +
       `  p_ubicacion_id    => ${ubicacionId || "?"},\n` +
       `  p_cantidad_pres   => ${cantidad || "?"},\n` +
       `  p_referencia      => '${referencia}',\n` +
-      `  p_usuario         => 'operario'\n);`
+      `  p_usuario         => '${usuarioSql}'\n);`
     );
     if (modo === "TRASLADO") return (
       `SELECT registrar_traslado(\n` +
@@ -254,7 +278,7 @@ export default function OperacionesApp() {
       `  p_ubicacion_destino => ${ubicacionDestinoId || "?"},\n` +
       `  p_cantidad_pres     => ${cantidad || "?"},\n` +
       `  p_referencia        => '${referencia}',\n` +
-      `  p_usuario           => 'operario'\n);`
+      `  p_usuario           => '${usuarioSql}'\n);`
     );
     if (modo === "AJUSTE") return (
       `SELECT registrar_ajuste(\n` +
@@ -263,10 +287,10 @@ export default function OperacionesApp() {
       `  p_cantidad_base_objetivo  => ${cantidadObjetivo || "?"},\n` +
       `  p_motivo                  => '${motivo}',\n` +
       `  p_referencia              => '${referencia}',\n` +
-      `  p_usuario                 => 'operario'\n);`
+      `  p_usuario                 => '${usuarioSql}'\n);`
     );
   }, [modo, productoSeleccionado, presentacionId, ubicacionId, ubicacionDestinoId,
-      cantidad, cantidadObjetivo, referencia, motivo]);
+      cantidad, cantidadObjetivo, referencia, motivo, usuarioActual]);
 
   /* ── ejecutar operación ──────────────────────────────────────────── */
   const ejecutar = async () => {
@@ -286,7 +310,7 @@ export default function OperacionesApp() {
     setEjecutando(true);
     const { id: resultado, error } = await ejecutarOperacion({
       modo, productoId, presentacionId, ubicacionId, ubicacionDestinoId,
-      cantidad, cantidadObjetivo, motivo, referencia,
+      cantidad, cantidadObjetivo, motivo, referencia, usuario: usuarioActual.nombre,
     });
 
     if (error) {
@@ -335,7 +359,7 @@ export default function OperacionesApp() {
 
       {/* selector de modo */}
       <div className="grid grid-cols-4 gap-1 bg-slate-100 rounded-xl p-1">
-        {MODOS.map(({ id, label, icon: Icon, color }) => (
+        {modosVisibles.map(({ id, label, icon: Icon, color }) => (
           <button key={id} onClick={() => { setModo(id); resetForm(); }}
             className={`flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium transition-colors
               ${modo === id ? "bg-white shadow-sm " + color : "text-slate-500 hover:text-slate-700"}`}>
