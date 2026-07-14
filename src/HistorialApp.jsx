@@ -114,9 +114,11 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
 
   const handleScan = useCallback(async (codigo) => {
     setShowScanner(false);
-    const code = (codigo || "").trim();
+    // eslint-disable-next-line no-control-regex
+    const code = (codigo || "").trim().replace(/[\x00-\x1F\x7F]/g, "");
     if (!code) return;
-    const { data } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    const { data, error } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    if (error) { console.error("resolver_identificador:", error); return; }
     const rows = Array.isArray(data) ? data : (data ? [data] : []);
     if (rows.length === 0) return;
     const { data: pres } = await supabase
@@ -189,7 +191,7 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
             <input
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") handleScan(busqueda); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleScan(busqueda); } }}
               placeholder="Buscar por producto, SKU, referencia o código de barras…"
               className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
             />

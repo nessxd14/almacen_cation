@@ -24,14 +24,21 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
   const [grupos, setGrupos] = useState([]);
   const [buscando, setBuscando] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [errorResolver, setErrorResolver] = useState(null);
 
+  // activeIndex se resetea acá, síncrono con cada cambio de value (no solo
+  // cuando el debounce de abajo termina): si no se reseteara acá, un índice
+  // resaltado por una búsqueda anterior podía quedar "vivo" mientras se
+  // escribe/escanea un código nuevo, y el Enter terminaba seleccionando esa
+  // fila vieja en vez de intentar resolver el código nuevo.
   useEffect(() => {
-    if (!value.trim()) { setGrupos([]); setActiveIndex(-1); return; }
+    setActiveIndex(-1);
+    setErrorResolver(null);
+    if (!value.trim()) { setGrupos([]); return; }
     setBuscando(true);
     const t = setTimeout(async () => {
       const g = await buscarAgrupado(value);
       setGrupos(g);
-      setActiveIndex(-1);
       setBuscando(false);
     }, 300);
     return () => clearTimeout(t);
@@ -62,19 +69,27 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
   // pasar por el dropdown de sugerencias (no hay fila resaltada). Antes de
   // tratar el valor como texto de búsqueda libre, se intenta resolver como
   // código de barras — mismo RPC que usa el flujo de cámara (EscanerCodigo).
+  // Se limpian caracteres de control (algunos lectores de mesa inyectan un
+  // Tab u otro byte de control junto con el código) además del trim normal,
+  // y cualquier error de red/consulta se muestra en vez de tragarse en
+  // silencio — antes, un error acá se veía igual que "no hace nada".
   async function intentarResolverComoCodigo() {
-    const code = value.trim();
+    // eslint-disable-next-line no-control-regex
+    const code = value.trim().replace(/[\x00-\x1F\x7F]/g, "");
     if (!code) return false;
-    const { data } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    setErrorResolver(null);
+    const { data, error } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    if (error) { console.error("resolver_identificador:", error); setErrorResolver("No se pudo resolver el código"); return false; }
     const rows = Array.isArray(data) ? data : (data ? [data] : []);
     if (rows.length === 0) return false;
     const productosDistintos = [...new Set(rows.map(r => r.producto_id))];
     if (productosDistintos.length !== 1) return false; // código ambiguo: dejar que el usuario elija a mano
-    const { data: prod } = await supabase
+    const { data: prod, error: errorProd } = await supabase
       .from("producto")
       .select("id, nombre, sku_interno, unidad_base")
       .eq("id", productosDistintos[0])
       .single();
+    if (errorProd) { console.error("producto:", errorProd); setErrorResolver("No se pudo resolver el código"); return false; }
     if (!prod) return false;
     setGrupos([]);
     setActiveIndex(-1);
@@ -95,6 +110,7 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
         e.preventDefault();
         seleccionar(variantesFlat[activeIndex]);
       } else {
+        e.preventDefault();
         intentarResolverComoCodigo();
       }
     } else if (e.key === "Escape") {
@@ -113,6 +129,7 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
         placeholder={placeholder}
         className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
       />
+      {errorResolver && <p className="mt-1 text-xs text-red-600">{errorResolver}</p>}
       {(variantesFlat.length > 0 || buscando) && (
         <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border bg-white shadow-lg divide-y">
           {buscando && <p className="px-3 py-2 text-sm text-slate-400">Buscando…</p>}
