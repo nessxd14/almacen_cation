@@ -119,6 +119,7 @@ export default function OperacionesApp() {
       .from("presentacion")
       .select("id, producto_id, nombre, factor_unidad_base, es_base")
       .eq("producto_id", productoSeleccionado.id)
+      .eq("activo", true)
       .order("es_base", { ascending: false })
       .then(({ data }) => {
         if (cancelado) return;

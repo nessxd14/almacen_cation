@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import {
-  X, Save, Camera, Plus, Trash2, Barcode, Tag, Check, AlertCircle,
+  X, Save, Camera, Plus, Trash2, Pencil, Barcode, Tag, Check, AlertCircle,
   Lock, Store, Users, Building2, ChevronLeft, ChevronRight, Package2
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
@@ -45,6 +45,17 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
+  // Presentaciones no-base: cuáles ya tienen movimientos en el Kardex (no se
+  // pueden borrar, solo desactivar) — se calcula al cargar, no por click.
+  const [presentacionesConMovimientos, setPresentacionesConMovimientos] = useState(new Set());
+  const [editandoPresentacionId, setEditandoPresentacionId] = useState(null);
+  const [editNombre, setEditNombre] = useState("");
+  const [editFactor, setEditFactor] = useState("");
+  const [guardandoEdicionPresentacion, setGuardandoEdicionPresentacion] = useState(false);
+  // Confirmación simple antes de eliminar/desactivar: { id, tipo: "eliminar" | "desactivar" }
+  const [confirmandoPresentacion, setConfirmandoPresentacion] = useState(null);
+  const [procesandoPresentacionId, setProcesandoPresentacionId] = useState(null);
+
   // Alta de identificador
   const [nuevoCodigo, setNuevoCodigo] = useState("");
   const [nuevoTipo, setNuevoTipo] = useState("barra");
@@ -61,16 +72,32 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     setCargando(true);
     const { data: pres } = await supabase
       .from("presentacion")
-      .select("id, nombre, factor_unidad_base, es_base, identificador(id, valor, tipo, es_principal)")
+      .select("id, nombre, factor_unidad_base, es_base, activo, identificador(id, valor, tipo, es_principal)")
       .eq("producto_id", producto.id)
       .order("es_base", { ascending: false });
-    setPresentaciones(pres || []);
-    const base = (pres || []).find(p => p.es_base);
+    const lista = pres || [];
+    setPresentaciones(lista);
+    const base = lista.find(p => p.es_base);
     setPresentacionBaseId(base?.id || null);
     setPresDestino(String(base?.id || ""));
+
+    // Chequeo de movimientos por presentación no-base (nunca la tabla
+    // completa: acotado a las pocas presentaciones de este producto) — la
+    // base nunca se edita/borra/desactiva, no hace falta chequearla.
+    const idsNoBase = lista.filter(p => !p.es_base).map(p => p.id);
+    const conMovimientos = new Set();
+    await Promise.all(idsNoBase.map(async (id) => {
+      const { count } = await supabase
+        .from("kardex_transacciones")
+        .select("id", { count: "exact", head: true })
+        .eq("presentacion_id", id);
+      if (count > 0) conMovimientos.add(id);
+    }));
+    setPresentacionesConMovimientos(conMovimientos);
+
     // Aplanar identificadores con su presentación
     const ids = [];
-    for (const p of pres || []) {
+    for (const p of lista) {
       for (const id of p.identificador || []) {
         ids.push({ ...id, presentacion_id: p.id, presentacion_nombre: p.nombre });
       }
@@ -129,6 +156,62 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     setNuevaPresentNombre("");
     setNuevoFactorPresentacion("");
     setMostrarNuevaPresentacion(false);
+    cargar();
+  }
+
+  // ── Editar presentación (nombre/factor — nunca la base) ──
+  function empezarEdicionPresentacion(p) {
+    setConfirmandoPresentacion(null);
+    setEditandoPresentacionId(p.id);
+    setEditNombre(p.nombre);
+    setEditFactor(String(p.factor_unidad_base));
+  }
+
+  function cancelarEdicionPresentacion() {
+    setEditandoPresentacionId(null);
+    setEditNombre("");
+    setEditFactor("");
+  }
+
+  async function guardarEdicionPresentacion(id) {
+    const nombre = editNombre.trim();
+    if (!nombre) { show("El nombre de la presentación es obligatorio", "err"); return; }
+    const factor = Number(editFactor);
+    if (!editFactor || !factor || factor <= 0) { show("Factor inválido", "err"); return; }
+    const dup = presentaciones.some(p => p.id !== id && p.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (dup) { show("Ya existe una presentación con ese nombre", "err"); return; }
+
+    setGuardandoEdicionPresentacion(true);
+    const { error } = await supabase
+      .from("presentacion")
+      .update({ nombre, factor_unidad_base: factor })
+      .eq("id", id);
+    setGuardandoEdicionPresentacion(false);
+    if (error) { show("Error al guardar la presentación: " + error.message, "err"); return; }
+
+    show("Presentación actualizada");
+    cancelarEdicionPresentacion();
+    cargar();
+  }
+
+  // ── Eliminar (sin movimientos) o desactivar (con movimientos) ──
+  // Nunca DELETE de una presentación con historial: rompería la referencia
+  // del Kardex, que es append-only. presentacionesConMovimientos ya viene
+  // calculado desde cargar(), así que el botón muestra la acción correcta
+  // sin volver a chequear al momento del click.
+  async function confirmarAccionPresentacion(p) {
+    const tieneMovimientos = presentacionesConMovimientos.has(p.id);
+    setProcesandoPresentacionId(p.id);
+    const { error } = tieneMovimientos
+      ? await supabase.from("presentacion").update({ activo: false }).eq("id", p.id)
+      : await supabase.from("presentacion").delete().eq("id", p.id);
+    setProcesandoPresentacionId(null);
+    setConfirmandoPresentacion(null);
+    if (error) {
+      show(`Error al ${tieneMovimientos ? "desactivar" : "eliminar"} la presentación: ` + error.message, "err");
+      return;
+    }
+    show(tieneMovimientos ? "Presentación desactivada" : "Presentación eliminada");
     cargar();
   }
 
@@ -230,16 +313,86 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
               <p className="text-sm text-slate-400">Cargando…</p>
             ) : (
               <div className="mb-3 space-y-1.5">
-                {presentaciones.map(p => (
-                  <div key={p.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
-                    <Package2 size={14} className="text-slate-400" />
-                    <span className="flex-1 text-sm text-slate-800">{p.nombre}</span>
-                    <span className="text-xs text-slate-400">×{p.factor_unidad_base}</span>
-                    {p.es_base && (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">base</span>
-                    )}
-                  </div>
-                ))}
+                {presentaciones.map(p => {
+                  if (editandoPresentacionId === p.id) {
+                    return (
+                      <div key={p.id} className="space-y-2 rounded-lg bg-slate-50 p-3">
+                        <input
+                          value={editNombre}
+                          onChange={e => setEditNombre(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                        />
+                        <input
+                          type="number" min="0.0001" step="any"
+                          value={editFactor}
+                          onChange={e => setEditFactor(e.target.value)}
+                          placeholder={`Factor (unidades de "${form.unidad_base || "unidad"}" por presentación)`}
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={() => guardarEdicionPresentacion(p.id)} disabled={guardandoEdicionPresentacion}
+                            className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                            <Save size={14} /> {guardandoEdicionPresentacion ? "Guardando…" : "Guardar"}
+                          </button>
+                          <button onClick={cancelarEdicionPresentacion}
+                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const tieneMovimientos = presentacionesConMovimientos.has(p.id);
+                  const confirmando = confirmandoPresentacion?.id === p.id ? confirmandoPresentacion.tipo : null;
+
+                  return (
+                    <div key={p.id} className={`rounded-lg border px-3 py-2 ${p.activo === false ? "border-slate-100 opacity-50" : "border-slate-200"}`}>
+                      <div className="flex items-center gap-2">
+                        <Package2 size={14} className="shrink-0 text-slate-400" />
+                        <span className="flex-1 text-sm text-slate-800">{p.nombre}</span>
+                        <span className="text-xs text-slate-400">×{p.factor_unidad_base}</span>
+                        {p.es_base && (
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">base</span>
+                        )}
+                        {!p.es_base && p.activo === false && (
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">Inactiva</span>
+                        )}
+                        {!p.es_base && !confirmando && (
+                          <>
+                            <button onClick={() => empezarEdicionPresentacion(p)}
+                              className="shrink-0 text-slate-400 hover:text-slate-700" title="Editar">
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => setConfirmandoPresentacion({ id: p.id, tipo: tieneMovimientos ? "desactivar" : "eliminar" })}
+                              className="shrink-0 text-red-500 hover:text-red-700"
+                              title={tieneMovimientos ? "Desactivar" : "Eliminar"}>
+                              <Trash2 size={14} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {confirmando && (
+                        <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          {confirmando === "desactivar"
+                            ? "Esta presentación ya tiene movimientos en el Kardex, no se puede eliminar — se va a desactivar en su lugar."
+                            : "¿Eliminar esta presentación? No se puede deshacer."}
+                          <div className="mt-2 flex gap-2">
+                            <button onClick={() => confirmarAccionPresentacion(p)} disabled={procesandoPresentacionId === p.id}
+                              className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                              {procesandoPresentacionId === p.id ? "Procesando…" : confirmando === "desactivar" ? "Desactivar" : "Eliminar"}
+                            </button>
+                            <button onClick={() => setConfirmandoPresentacion(null)}
+                              className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-100">
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
