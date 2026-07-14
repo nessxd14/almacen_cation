@@ -63,28 +63,28 @@ function BadgeStock({ cantidad, unidad }) {
   );
 }
 
-// Badge compacto de presentaciones no-base: no lista todas (eso sigue siendo
-// trabajo del detalle completo), solo un indicador. 1 presentación -> su
-// factor (×10) o nombre corto; 2+ -> "+N presentaciones". Sin presentaciones
-// extra: no renderiza nada, sin espacio vacío.
-function BadgePresentaciones({ presentaciones }) {
-  if (!presentaciones || presentaciones.length === 0) return null;
-  if (presentaciones.length === 1) {
-    const pr = presentaciones[0];
-    const factor = Number(pr.factor_unidad_base);
-    const texto = factor > 0 ? `×${cantidadFmt(factor)}` : pr.nombre;
-    return (
-      <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600"
-        title={pr.nombre}>
-        {texto}
-      </span>
-    );
-  }
+// Coma decimal (consistente con precioFmt/"Bs 5,00"), sin decimales
+// sobrantes: 51 -> "51", 2.04 -> "2,04" (nunca "2,0400000...").
+function numeroFmt(v) {
+  return new Intl.NumberFormat("es-BO", { maximumFractionDigits: 2 }).format(v);
+}
+
+// Desglose real del stock total convertido a cada presentación no-base
+// activa del producto — no un contador ("+N presentaciones"), el cálculo
+// mismo: stock_total / factor_unidad_base, con "≈" adelante porque es
+// derivado, no un dato guardado. Sin presentaciones extra: no renderiza
+// nada, sin espacio vacío.
+function DesgloseConversiones({ stockTotal, presentaciones }) {
+  const extra = (presentaciones || []).filter(p => !p.es_base && p.activo !== false);
+  if (extra.length === 0) return null;
   return (
-    <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600"
-      title={presentaciones.map(pr => pr.nombre).join(", ")}>
-      +{presentaciones.length} presentaciones
-    </span>
+    <>
+      {extra.map(p => (
+        <span key={p.id} className="ml-1 text-sm font-normal text-slate-400">
+          · ≈ {numeroFmt(Number(stockTotal) / Number(p.factor_unidad_base))} {p.nombre}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -131,7 +131,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
       // Identificadores (vía presentaciones del producto)
       const { data: pres } = await supabase
         .from("presentacion")
-        .select("id, nombre, factor_unidad_base, es_base, identificador(valor, tipo)")
+        .select("id, nombre, factor_unidad_base, es_base, activo, identificador(valor, tipo)")
         .eq("producto_id", producto.id);
       // Stock por ubicación (incluye virtuales — necesario para el total real)
       const { data: stock } = await supabase
@@ -218,6 +218,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
             const ubicacionesConStock = detalle.stock.filter(
               s => s.ubicacion?.sucursal?.tipo !== "virtual" && Number(s.cantidad_base) !== 0
             );
+            const stockTotal = detalle.stock.reduce((s, r) => s + Number(r.cantidad_base || 0), 0);
             return (
               <div className="mb-5 rounded-xl bg-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -225,11 +226,11 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-slate-400">Stock total</p>
                     <p className="text-lg font-bold text-slate-900">
-                      {cantidadFmt(detalle.stock.reduce((s, r) => s + Number(r.cantidad_base || 0), 0))}
+                      {cantidadFmt(stockTotal)}
                       <span className="ml-1 text-sm font-normal text-slate-400">{producto.unidad_base}</span>
+                      <DesgloseConversiones stockTotal={stockTotal} presentaciones={detalle.presentaciones} />
                     </p>
                   </div>
-                  <BadgePresentaciones presentaciones={detalle.presentaciones.filter(p => !p.es_base)} />
                 </div>
 
                 <button onClick={() => setMostrarUbicaciones(v => !v)}
