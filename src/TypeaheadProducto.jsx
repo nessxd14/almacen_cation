@@ -11,6 +11,9 @@
  *
  * onSeleccionar recibe {id, nombre, sku_interno, unidad_base} — mismo shape
  * que devolvía buscarProductos, para no tocar los consumidores existentes.
+ * Si el match vino de un código de barras leído por Enter (scanner físico)
+ * se llama con un segundo argumento {presentacionIdPreferida}; los
+ * consumidores que no lo esperan simplemente lo ignoran.
  */
 import { useState, useEffect } from "react";
 import { Search } from "lucide-react";
@@ -55,18 +58,44 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
     if (data) onSeleccionar(data);
   }
 
+  // Scanner físico (pistola/lector de mesa): "escribe" el código + Enter, sin
+  // pasar por el dropdown de sugerencias (no hay fila resaltada). Antes de
+  // tratar el valor como texto de búsqueda libre, se intenta resolver como
+  // código de barras — mismo RPC que usa el flujo de cámara (EscanerCodigo).
+  async function intentarResolverComoCodigo() {
+    const code = value.trim();
+    if (!code) return false;
+    const { data } = await supabase.rpc("resolver_identificador", { p_codigo: code });
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    if (rows.length === 0) return false;
+    const productosDistintos = [...new Set(rows.map(r => r.producto_id))];
+    if (productosDistintos.length !== 1) return false; // código ambiguo: dejar que el usuario elija a mano
+    const { data: prod } = await supabase
+      .from("producto")
+      .select("id, nombre, sku_interno, unidad_base")
+      .eq("id", productosDistintos[0])
+      .single();
+    if (!prod) return false;
+    setGrupos([]);
+    setActiveIndex(-1);
+    onChange("");
+    onSeleccionar(prod, { presentacionIdPreferida: rows.length === 1 ? Number(rows[0].presentacion_id) : null });
+    return true;
+  }
+
   function onKeyDown(e) {
-    if (variantesFlat.length === 0) return;
-    if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown" && variantesFlat.length > 0) {
       e.preventDefault();
       setActiveIndex(i => (i + 1) % variantesFlat.length);
-    } else if (e.key === "ArrowUp") {
+    } else if (e.key === "ArrowUp" && variantesFlat.length > 0) {
       e.preventDefault();
       setActiveIndex(i => (i <= 0 ? variantesFlat.length : i) - 1);
     } else if (e.key === "Enter") {
       if (activeIndex >= 0 && activeIndex < variantesFlat.length) {
         e.preventDefault();
         seleccionar(variantesFlat[activeIndex]);
+      } else {
+        intentarResolverComoCodigo();
       }
     } else if (e.key === "Escape") {
       setGrupos([]);

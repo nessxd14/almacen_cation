@@ -189,6 +189,7 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
             <input
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleScan(busqueda); }}
               placeholder="Buscar por producto, SKU, referencia o código de barras…"
               className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
             />

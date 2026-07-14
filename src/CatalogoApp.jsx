@@ -719,6 +719,10 @@ export default function CatalogoApp() {
   const [showScanner, setShowScanner] = useState(false);
   const debounceRef = useRef(null);
 
+  // Resuelve un código (cámara o scanner físico + Enter en el buscador) y
+  // abre directo el quick-view del producto — no pasa por la búsqueda de
+  // texto. Ambiguo entre productos distintos: no hay uno solo para abrir,
+  // se deja como estaba (el usuario busca a mano).
   const handleScan = useCallback(async (codigo) => {
     setShowScanner(false);
     const code = (codigo || "").trim();
@@ -726,12 +730,20 @@ export default function CatalogoApp() {
     const { data } = await supabase.rpc("resolver_identificador", { p_codigo: code });
     const rows = Array.isArray(data) ? data : (data ? [data] : []);
     if (rows.length === 0) return;
-    const { data: pres } = await supabase
-      .from("presentacion")
-      .select("producto:producto_id(nombre)")
-      .eq("id", rows[0].presentacion_id)
-      .single();
-    if (pres?.producto?.nombre) setBusqueda(pres.producto.nombre);
+    const productosDistintos = [...new Set(rows.map(r => r.producto_id))];
+    if (productosDistintos.length !== 1) return;
+    const [{ data: prod }, { data: stock }] = await Promise.all([
+      supabase
+        .from("producto")
+        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url")
+        .eq("id", productosDistintos[0])
+        .single(),
+      supabase.from("v_producto_stock").select("stock_total").eq("producto_id", productosDistintos[0]).maybeSingle(),
+    ]);
+    if (prod) {
+      setBusqueda("");
+      setSeleccionado({ ...prod, stock_total: stock?.stock_total ?? 0 });
+    }
   }, []);
 
   // Cargar lista de valores de atributo para el filtro
@@ -890,6 +902,7 @@ export default function CatalogoApp() {
           <input
             value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleScan(busqueda); }}
             placeholder="Buscar por nombre, SKU o código de barras…"
             className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
           />
