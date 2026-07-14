@@ -47,6 +47,25 @@ function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
   return `≈ ${cantidadFmt(paquetes)} ${contenedor}${paquetes === 1 ? "" : "s"} de ${cantidadFmt(factor)}`;
 }
 
+// Presentaciones no-base de un lote de productos, para el badge compacto de
+// las tarjetas — batch por página/resultado (WHERE producto_id IN (...)),
+// nunca una consulta por tarjeta ni la tabla completa sin filtrar (mismo
+// criterio que el fix urgente de presentacion > 1.000 filas).
+async function cargarPresentacionesExtra(ids) {
+  if (ids.length === 0) return new Map();
+  const { data } = await supabase
+    .from("presentacion")
+    .select("producto_id, nombre, factor_unidad_base")
+    .in("producto_id", ids)
+    .eq("es_base", false);
+  const mapa = new Map();
+  for (const pr of data || []) {
+    if (!mapa.has(pr.producto_id)) mapa.set(pr.producto_id, []);
+    mapa.get(pr.producto_id).push(pr);
+  }
+  return mapa;
+}
+
 // Badge de stock: gris si 0, ámbar si bajo (<=5), verde si hay
 function BadgeStock({ cantidad, unidad }) {
   const n = Number(cantidad || 0);
@@ -59,6 +78,31 @@ function BadgeStock({ cantidad, unidad }) {
     <span className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${estilo}`}
       title={`${cantidadFmt(n)} ${unidad || "u"} en stock`}>
       <Boxes size={11} /> {cantidadFmt(n)}
+    </span>
+  );
+}
+
+// Badge compacto de presentaciones no-base: no lista todas (eso sigue siendo
+// trabajo del detalle completo), solo un indicador. 1 presentación -> su
+// factor (×10) o nombre corto; 2+ -> "+N presentaciones". Sin presentaciones
+// extra: no renderiza nada, sin espacio vacío.
+function BadgePresentaciones({ presentaciones }) {
+  if (!presentaciones || presentaciones.length === 0) return null;
+  if (presentaciones.length === 1) {
+    const pr = presentaciones[0];
+    const factor = Number(pr.factor_unidad_base);
+    const texto = factor > 0 ? `×${cantidadFmt(factor)}` : pr.nombre;
+    return (
+      <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600"
+        title={pr.nombre}>
+        {texto}
+      </span>
+    );
+  }
+  return (
+    <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600"
+      title={presentaciones.map(pr => pr.nombre).join(", ")}>
+      +{presentaciones.length} presentaciones
     </span>
   );
 }
@@ -617,9 +661,12 @@ function TarjetaGaleria({ p, mostrarAtributos, onClick }) {
       <div className="flex flex-1 flex-col p-3">
         <p className="line-clamp-2 text-sm font-medium text-slate-800">{textoVariante(p, mostrarAtributos)}</p>
         {p.sku_interno && <p className="mt-0.5 text-xs text-slate-400">{p.sku_interno}</p>}
-        <div className="mt-auto flex items-center justify-between pt-2">
+        <div className="mt-auto flex items-center justify-between gap-1 pt-2">
           <p className="text-sm font-bold text-slate-900">{precioFmt(p.precio_base)}</p>
-          <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
+          <div className="flex items-center gap-1">
+            <BadgePresentaciones presentaciones={p.presentaciones_extra} />
+            <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
+          </div>
         </div>
       </div>
     </button>
@@ -641,6 +688,7 @@ function FilaLista({ p, mostrarAtributos, indentado, onClick }) {
         {p.sku_interno && <p className="truncate text-xs text-slate-400">{p.sku_interno}</p>}
       </div>
       {!mapeado && <Link2Off size={14} className="shrink-0 text-slate-300" />}
+      <BadgePresentaciones presentaciones={p.presentaciones_extra} />
       <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
       <span className="shrink-0 text-sm font-semibold text-slate-900">{precioFmt(p.precio_base)}</span>
       <ChevronRight size={15} className="shrink-0 text-slate-300" />
@@ -762,12 +810,13 @@ export default function CatalogoApp() {
     const ids = gruposCrudos.flatMap(g => g.variantes.map(v => v.producto_id));
     if (ids.length === 0) return [];
 
-    const [{ data: detalles }, { data: stocks }] = await Promise.all([
+    const [{ data: detalles }, { data: stocks }, mapaPresentaciones] = await Promise.all([
       supabase
         .from("producto")
         .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url")
         .in("id", ids),
       supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
+      cargarPresentacionesExtra(ids),
     ]);
     const mapaDet = new Map((detalles || []).map(d => [d.id, d]));
     const mapaStock = new Map((stocks || []).map(s => [s.producto_id, s.stock_total]));
@@ -780,6 +829,7 @@ export default function CatalogoApp() {
           ...mapaDet.get(v.producto_id),
           atributos: v.atributos,
           stock_total: mapaStock.get(v.producto_id) ?? 0,
+          presentaciones_extra: mapaPresentaciones.get(v.producto_id) || [],
         })),
     })).filter(g => g.variantes.length > 0);
   };
@@ -841,7 +891,7 @@ export default function CatalogoApp() {
     let mapaFamilia = new Map();
     if (lista.length > 0) {
       const ids = lista.map(p => p.id);
-      const [{ data: stocks }, { data: extra }] = await Promise.all([
+      const [{ data: stocks }, { data: extra }, mapaPresentaciones] = await Promise.all([
         supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
         // Mapa liviano producto_id -> familia + atributos, solo para agrupar
         // visualmente esta página — no reemplaza la query paginada de arriba.
@@ -849,9 +899,13 @@ export default function CatalogoApp() {
           .from("producto")
           .select("id, familia_id, familia:familia_id(nombre), producto_atributo(atributo_valor:atributo_valor_id(valor, atributo:atributo_id(nombre)))")
           .in("id", ids),
+        cargarPresentacionesExtra(ids),
       ]);
       const mapaStock = new Map((stocks || []).map(s => [s.producto_id, s.stock_total]));
-      for (const p of lista) p.stock_total = mapaStock.get(p.id) ?? 0;
+      for (const p of lista) {
+        p.stock_total = mapaStock.get(p.id) ?? 0;
+        p.presentaciones_extra = mapaPresentaciones.get(p.id) || [];
+      }
 
       mapaFamilia = new Map((extra || []).map(p => [p.id, {
         familia_id: p.familia_id,
