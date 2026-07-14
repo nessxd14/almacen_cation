@@ -73,9 +73,14 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
   // Tab u otro byte de control junto con el código) además del trim normal,
   // y cualquier error de red/consulta se muestra en vez de tragarse en
   // silencio — antes, un error acá se veía igual que "no hace nada".
-  async function intentarResolverComoCodigo() {
+  // Recibe el valor directo del DOM (e.target.value), no el prop `value` de
+  // React: bajo ráfagas muy rápidas de teclas (lector de código de barras
+  // físico) el estado puede no haberse re-renderizado todavía cuando llega
+  // el Enter, y closurear sobre `value` podía leer un string viejo/vacío —
+  // el input real del navegador siempre tiene el valor completo ya tipeado.
+  async function intentarResolverComoCodigo(valorActual) {
     // eslint-disable-next-line no-control-regex
-    const code = value.trim().replace(/[\x00-\x1F\x7F]/g, "");
+    const code = valorActual.trim().replace(/[\x00-\x1F\x7F]/g, "");
     if (!code) return false;
     setErrorResolver(null);
     const { data, error } = await supabase.rpc("resolver_identificador", { p_codigo: code });
@@ -111,7 +116,7 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
         seleccionar(variantesFlat[activeIndex]);
       } else {
         e.preventDefault();
-        intentarResolverComoCodigo();
+        intentarResolverComoCodigo(e.target.value);
       }
     } else if (e.key === "Escape") {
       setGrupos([]);
