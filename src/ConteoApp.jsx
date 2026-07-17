@@ -22,6 +22,7 @@ import { subirFotoConteo, pathFotoConteo } from "./fotoConteo";
 import EscanerCodigo from "./EscanerCodigo";
 import { fetchAll } from "./lib/fetchAll";
 import { useUsuarioActual } from "./lib/useAuth";
+import { metaProducto } from "./lib/producto";
 import {
   Camera, Search, MapPin, CheckCircle, AlertCircle,
   Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader,
@@ -145,7 +146,7 @@ export default function ConteoApp() {
       try {
         const [ubs, pres, ids] = await Promise.all([
           fetchAll(() => supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento")),
-          fetchAll(() => supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, unidad_base)").order("id")),
+          fetchAll(() => supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, marca, unidad_base)").order("id")),
           fetchAll(() => supabase.from("identificador").select("presentacion_id, valor").eq("activo", true).order("id")),
         ]);
         setUbicaciones(ubs);
@@ -228,6 +229,7 @@ export default function ConteoApp() {
           p.nombre.toLowerCase().includes(texto) ||
           p.producto?.nombre?.toLowerCase().includes(texto) ||
           p.producto?.sku_interno?.toLowerCase().includes(texto) ||
+          p.producto?.marca?.toLowerCase().includes(texto) ||
           idsPorCodigo.has(p.id)
         )
         .sort((a, b) => a.nombre.localeCompare(b.nombre))
@@ -438,8 +440,13 @@ export default function ConteoApp() {
               {results.map((p) => (
                 <button key={p.id} onClick={() => { setSelected(p); setResults([]); setQuery(""); }}
                   className="w-full text-left px-3 py-2 hover:bg-slate-50 text-sm">
-                  <span className="font-medium">{p.producto?.nombre}</span>
-                  <span className="text-slate-500"> · {p.nombre}</span>
+                  <div>
+                    <span className="font-medium">{p.producto?.nombre}</span>
+                    <span className="text-slate-500"> · {p.nombre}</span>
+                  </div>
+                  {metaProducto(p.producto) && (
+                    <p className="text-xs text-slate-500">{metaProducto(p.producto)}</p>
+                  )}
                 </button>
               ))}
             </div>
@@ -454,6 +461,9 @@ export default function ConteoApp() {
       {selected && !esHuerfano && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm">
           <p className="font-semibold text-blue-800">{selected.producto?.nombre}</p>
+          {metaProducto(selected.producto) && (
+            <p className="text-xs text-slate-500">{metaProducto(selected.producto)}</p>
+          )}
           <p className="text-blue-600">{selected.nombre} · factor {selected.factor_unidad_base} {selected.producto?.unidad_base}</p>
           <button onClick={() => setSelected(null)} className="text-xs text-blue-400 underline mt-1">Cambiar</button>
         </div>

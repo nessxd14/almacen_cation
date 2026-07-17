@@ -19,6 +19,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
+import { metaProducto } from "./lib/producto";
 import {
   Scale, CheckCircle, XCircle, AlertTriangle,
   ChevronDown, ChevronUp, Loader, ArrowLeft,
@@ -76,7 +77,7 @@ export default function ReconciliacionApp() {
 
       const [{ data: ubs }, { data: pres }] = await Promise.all([
         supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").in("id", ubIds),
-        supabase.from("presentacion").select("id, nombre, producto(id, nombre, sku_interno)").in("id", prIds),
+        supabase.from("presentacion").select("id, nombre, producto(id, nombre, sku_interno, marca)").in("id", prIds),
       ]);
 
       const ubMap = Object.fromEntries((ubs || []).map(u => [u.id, u]));
@@ -251,6 +252,9 @@ export default function ReconciliacionApp() {
                 <p className="font-medium text-sm text-slate-800">
                   {pr?.producto?.nombre} · {pr?.nombre}
                 </p>
+                {metaProducto(pr?.producto) && (
+                  <p className="text-xs text-slate-500">{metaProducto(pr?.producto)}</p>
+                )}
                 <p className="text-xs text-slate-500">{labelUbicacion(ub)}</p>
               </div>
               <div className="flex items-center gap-2">

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
+import { metaProducto } from "./lib/producto";
 import {
   ArrowDownToLine, ArrowUpFromLine, Sliders, ArrowLeftRight, PackagePlus,
   Search, Calendar, User, FileText, MapPin, Filter, History as HistoryIcon, ScanLine
@@ -68,7 +69,9 @@ function FilaMovimiento({ mov, mostrarProducto }) {
       {mostrarProducto && (
         <td className="px-3 py-2.5">
           <p className="truncate text-sm font-medium text-slate-800">{mov.producto?.nombre || `#${mov.producto_id}`}</p>
-          {mov.producto?.sku_interno && <p className="text-xs text-slate-400">{mov.producto.sku_interno}</p>}
+          {metaProducto(mov.producto) && (
+            <div className="text-xs text-slate-500">{metaProducto(mov.producto)}</div>
+          )}
         </td>
       )}
       <td className="px-3 py-2.5">
@@ -136,7 +139,7 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
       .select(`
         id, producto_id, cantidad, tipo_movimiento, referencia, motivo,
         fecha_efectiva, creado_por, creado_en, traslado_grupo_id,
-        producto:producto_id(nombre, sku_interno),
+        producto:producto_id(nombre, sku_interno, marca),
         ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento)
       `)
       .order("creado_en", { ascending: false })
@@ -154,6 +157,7 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
       lista = lista.filter(m =>
         m.producto?.nombre?.toLowerCase().includes(q) ||
         m.producto?.sku_interno?.toLowerCase().includes(q) ||
+        m.producto?.marca?.toLowerCase().includes(q) ||
         m.referencia?.toLowerCase().includes(q)
       );
     }

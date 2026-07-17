@@ -9,8 +9,9 @@
  * Compartido por OperacionesApp y PedidosApp (antes cada uno tenía su
  * propio typeahead inline sobre buscarProductos, duplicado).
  *
- * onSeleccionar recibe {id, nombre, sku_interno, unidad_base} — mismo shape
- * que devolvía buscarProductos, para no tocar los consumidores existentes.
+ * onSeleccionar recibe {id, nombre, sku_interno, marca, unidad_base} — mismo
+ * shape que devolvía buscarProductos (+ marca), para no tocar los
+ * consumidores existentes.
  * Si el match vino de un código de barras leído por Enter (scanner físico)
  * se llama con un segundo argumento {presentacionIdPreferida}; los
  * consumidores que no lo esperan simplemente lo ignoran.
@@ -54,12 +55,12 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
     setGrupos([]);
     setActiveIndex(-1);
     onChange("");
-    // buscarAgrupado no trae unidad_base (solo id/nombre/sku/atributos) —
-    // se completa acá para que el consumidor reciba el mismo shape que
-    // antes devolvía buscarProductos: {id, nombre, sku_interno, unidad_base}.
+    // buscarAgrupado no trae marca/unidad_base (solo id/nombre/sku/atributos)
+    // — se completa acá para que el consumidor reciba el mismo shape que
+    // antes devolvía buscarProductos: {id, nombre, sku_interno, marca, unidad_base}.
     const { data } = await supabase
       .from("producto")
-      .select("id, nombre, sku_interno, unidad_base")
+      .select("id, nombre, sku_interno, marca, unidad_base")
       .eq("id", v.producto_id)
       .single();
     if (data) onSeleccionar(data);
@@ -91,7 +92,7 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
     if (productosDistintos.length !== 1) return false; // código ambiguo: dejar que el usuario elija a mano
     const { data: prod, error: errorProd } = await supabase
       .from("producto")
-      .select("id, nombre, sku_interno, unidad_base")
+      .select("id, nombre, sku_interno, marca, unidad_base")
       .eq("id", productosDistintos[0])
       .single();
     if (errorProd) { console.error("producto:", errorProd); setErrorResolver("No se pudo resolver el código"); return false; }
