@@ -77,6 +77,15 @@ function normalizarBarcode(raw) {
   return s === '' ? null : s;
 }
 
+// Shopify es la fuente: se preserva tal cual llega (solo trim y truncado
+// defensivo), sin title-case ni transformación — WMS es dueño después de
+// esta siembra única, no hay re-normalización continua.
+function normalizarVendor(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  return s === '' ? null : s.slice(0, 120);
+}
+
 // Mapa de nombres de opción inconsistentes -> atributo canónico.
 const MAPA_ATRIBUTOS = {
   'COLOR': 'Color', 'COLORES': 'Color', 'COLOR ': 'Color',
@@ -137,6 +146,7 @@ query($cursor: String) {
         id
         title
         handle
+        vendor
         variants(first: 100) {
           edges {
             node {
@@ -213,7 +223,7 @@ function transformar(productos) {
   const rep = {
     familias: 0, productos: 0, presentaciones: 0,
     identBarra: 0, identFabrica: 0,
-    skuColision: 0, sinCodigo: 0, sinPrecio: 0,
+    skuColision: 0, sinCodigo: 0, sinPrecio: 0, sinVendor: 0,
     atributos: new Set(), valores: 0,
   };
 
@@ -221,6 +231,7 @@ function transformar(productos) {
   for (const p of productos) {
     const variantes = p.variants.edges.map((e) => e.node);
     const multi = variantes.length > 1;
+    const marca = normalizarVendor(p.vendor);   // vendor es a nivel product, común a todas las variantes
 
     const fam = {
       esFamilia: multi,
@@ -236,6 +247,7 @@ function transformar(productos) {
       const skuUnico = sku && freqSku.get(sku) === 1;
       if (sku && !skuUnico) rep.skuColision++;
       if (!sku && !barcode) rep.sinCodigo++;
+      if (!marca) rep.sinVendor++;
 
       const precio = v.price != null && v.price !== '' ? Number(v.price) : null;
       if (precio === null || precio === 0) rep.sinPrecio++;
@@ -266,6 +278,7 @@ function transformar(productos) {
       fam.productos.push({
         nombre,
         sku_interno: skuUnico ? sku.slice(0, 64) : null,
+        marca,
         precio_base: precio,
         shopify_variant_id: idNumerico(v.id),
         shopify_inventory_item_id: idNumerico(v.inventoryItem?.id),
@@ -337,11 +350,14 @@ async function cargar(familias) {
         // (ver db/migrations/*_presentaciones_paquete.sql). Un producto
         // nuevo que venga en caja/paquete queda en 'unidad' + su
         // presentación de bulto se agrega a mano después.
+        // marca va en el INSERT pero NO en el DO UPDATE SET: se siembra
+        // solo al crear el producto (semilla única desde Shopify.vendor) y
+        // nunca pisa una corrección manual al re-correr el bootstrap.
         const pr = await client.query(
           `INSERT INTO producto
              (familia_id, nombre, sku_interno, unidad_base, precio_base,
-              activo, shopify_variant_id, shopify_inventory_item_id)
-           VALUES ($1, $2, $3, 'unidad', $4, TRUE, $5, $6)
+              activo, shopify_variant_id, shopify_inventory_item_id, marca)
+           VALUES ($1, $2, $3, 'unidad', $4, TRUE, $5, $6, $7)
            ON CONFLICT (shopify_variant_id) WHERE shopify_variant_id IS NOT NULL DO UPDATE
              SET nombre = EXCLUDED.nombre,
                  familia_id = EXCLUDED.familia_id,
@@ -349,7 +365,7 @@ async function cargar(familias) {
                  shopify_inventory_item_id = EXCLUDED.shopify_inventory_item_id
            RETURNING id, (xmax = 0) AS insertado`,
           [familiaId, prod.nombre, prod.sku_interno, prod.precio_base,
-           prod.shopify_variant_id, prod.shopify_inventory_item_id]);
+           prod.shopify_variant_id, prod.shopify_inventory_item_id, prod.marca]);
 
         const productoId = pr.rows[0].id;
         const esNuevo = pr.rows[0].insertado;
@@ -410,6 +426,7 @@ function imprimirReporte(rep) {
   console.log(`  SKU en colisión (-> NULL):   ${rep.skuColision}`);
   console.log(`  Sin código escaneable:       ${rep.sinCodigo}  (se cuentan por nombre)`);
   console.log(`  Sin precio (0 o vacío):      ${rep.sinPrecio}`);
+  console.log(`  Sin vendor en Shopify:       ${rep.sinVendor}`);
   console.log('==========================================\n');
 }
 
