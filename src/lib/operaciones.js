@@ -64,13 +64,13 @@ export async function buscarAgrupado(q) {
   const texto = (q || "").trim();
   if (!texto) return [];
 
-  // 1. Productos que matchean directo por nombre/SKU (para saber a qué
-  //    familias pertenecen y qué productos sueltos entran).
+  // 1. Productos que matchean directo por nombre/SKU/marca (para saber a
+  //    qué familias pertenecen y qué productos sueltos entran).
   const { data: directos } = await supabase
     .from("producto")
     .select("id, familia_id")
     .eq("activo", true)
-    .or(`nombre.ilike.%${texto}%,sku_interno.ilike.%${texto}%`)
+    .or(`nombre.ilike.%${texto}%,sku_interno.ilike.%${texto}%,marca.ilike.%${texto}%`)
     .limit(200);
 
   // 2. Familias que matchean por su propio nombre.

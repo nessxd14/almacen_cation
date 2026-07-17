@@ -11,6 +11,7 @@ import EscanerCodigo from "./EscanerCodigo";
 import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea, buscarAgrupado } from "./lib/operaciones";
 import { agregarAlBorrador } from "./lib/pedidoBorrador";
 import { useUsuarioActual } from "./lib/useAuth";
+import { metaProducto, marcaFmt } from "./lib/producto";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -179,6 +180,9 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
         <div className="p-5">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">{producto.nombre}</h2>
+            {marcaFmt(producto.marca) && (
+              <p className="text-xs text-slate-500">{marcaFmt(producto.marca)}</p>
+            )}
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {producto.sku_interno && (
                 <span className="text-sm text-slate-500">SKU: {producto.sku_interno}</span>
@@ -643,7 +647,7 @@ function TarjetaGaleria({ p, mostrarAtributos, onClick }) {
       </div>
       <div className="flex flex-1 flex-col p-3">
         <p className="line-clamp-2 text-sm font-medium text-slate-800">{textoVariante(p, mostrarAtributos)}</p>
-        {p.sku_interno && <p className="mt-0.5 text-xs text-slate-400">{p.sku_interno}</p>}
+        {metaProducto(p) && <p className="mt-0.5 text-xs text-slate-400">{metaProducto(p)}</p>}
         <div className="mt-auto flex items-center justify-between pt-2">
           <p className="text-sm font-bold text-slate-900">{precioFmt(p.precio_base)}</p>
           <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
@@ -665,7 +669,7 @@ function FilaLista({ p, mostrarAtributos, indentado, onClick }) {
         className="h-11 w-11 shrink-0 rounded-md" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-slate-800">{textoVariante(p, mostrarAtributos)}</p>
-        {p.sku_interno && <p className="truncate text-xs text-slate-400">{p.sku_interno}</p>}
+        {metaProducto(p) && <p className="truncate text-xs text-slate-400">{metaProducto(p)}</p>}
       </div>
       {!mapeado && <Link2Off size={14} className="shrink-0 text-slate-300" />}
       <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />

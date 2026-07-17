@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
+import { metaProducto } from "./lib/producto";
 import {
   Boxes, Package, DollarSign, AlertTriangle, PackageX, Search,
   ArrowUpDown, MapPin, SlidersHorizontal, ImageOff, ScanLine
@@ -62,7 +63,11 @@ function FilaInventario({ f, alerta }) {
             : <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-slate-100"><ImageOff size={13} className="text-slate-300" /></div>}
           <div className="min-w-0">
             <p className="truncate font-medium text-slate-800">{f.producto_nombre}</p>
-            {f.sku_interno && <p className="truncate text-xs text-slate-400">{f.sku_interno}</p>}
+            {metaProducto({ marca: f.marca, sku_interno: f.sku_interno }) && (
+              <p className="truncate text-xs text-slate-400">
+                {metaProducto({ marca: f.marca, sku_interno: f.sku_interno })}
+              </p>
+            )}
           </div>
         </div>
       </td>
@@ -174,7 +179,7 @@ export default function InventarioApp() {
   const cargarFilas = useCallback(async () => {
     setCargando(true);
     let query = supabase.from("v_inventario_detalle").select("*");
-    if (busqueda.trim()) query = query.or(`producto_nombre.ilike.%${busqueda.trim()}%,sku_interno.ilike.%${busqueda.trim()}%`);
+    if (busqueda.trim()) query = query.or(`producto_nombre.ilike.%${busqueda.trim()}%,sku_interno.ilike.%${busqueda.trim()}%,marca.ilike.%${busqueda.trim()}%`);
     query = query.order(orden.campo, { ascending: orden.asc });
     const { data } = await query.limit(1000);
     const lista = data || [];

@@ -19,6 +19,7 @@ import {
   ejecutarOperacion, asegurarAsignacion,
 } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
+import { metaProducto } from "./lib/producto";
 import {
   PackagePlus, ArrowLeftRight, SlidersHorizontal,
   AlertTriangle, CheckCircle, History, Code2, Loader, ScanLine, Package,
@@ -216,7 +217,7 @@ export default function OperacionesApp() {
     if (productosDistintos.length === 1) {
       const { data: prod } = await supabase
         .from("producto")
-        .select("id, nombre, sku_interno, unidad_base")
+        .select("id, nombre, sku_interno, marca, unidad_base")
         .eq("id", rows[0].producto_id)
         .single();
       if (prod) {
@@ -446,6 +447,14 @@ export default function OperacionesApp() {
         {productoSeleccionado && sinAsignacionOrigen && modo === "ENTRADA" && (
           <p className="text-xs text-amber-600 flex items-center gap-1">
             <AlertTriangle size={12} /> Este producto no tiene ubicaciones asignadas — se asignará automáticamente al recibir.
+          </p>
+        )}
+
+        {productoSeleccionado && (
+          <p className="text-xs text-slate-500">
+            {metaProducto(productoSeleccionado)}
+            {metaProducto(productoSeleccionado) && " · "}
+            Unidad base: {productoSeleccionado.unidad_base}
           </p>
         )}
 
