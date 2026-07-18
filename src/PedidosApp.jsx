@@ -11,13 +11,14 @@
  * este tab es donde se resuelven backorders, compras directas y reversiones.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import TypeaheadProducto from "./TypeaheadProducto";
 import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones,
   crearPedido, despacharLinea, revertirEvento, comprarDirecto,
+  estadoSaldoLinea, saldoDisponiblePedido,
 } from "./lib/operaciones";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
 import { useUsuarioActual } from "./lib/useAuth";
@@ -77,6 +78,42 @@ function BadgeLinea({ estado }) {
     COMPRADO_DIRECTO: { label: "Comprado directo", cls: "bg-violet-100 text-violet-700" },
   }[estado] || { label: estado, cls: "bg-slate-100 text-slate-500" };
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.cls}`}>{cfg.label}</span>;
+}
+
+// Indicador informativo de saldo disponible vs. lo pendiente de la línea —
+// no bloquea "Despachar" ni cambia el pick automático, solo avisa si otras
+// líneas (de cualquier pedido) ya comprometieron el stock libre.
+const ESTILOS_SALDO = {
+  verde: { cls: "bg-emerald-100 text-emerald-700", icon: "✓" },
+  ambar: { cls: "bg-amber-100 text-amber-700",     icon: "!" },
+  rojo:  { cls: "bg-red-100 text-red-600",         icon: "✕" },
+};
+
+function BadgeSaldoLinea({ saldoLibre, pendienteLinea }) {
+  if (saldoLibre == null) return null; // aún no llegó el primer polling
+  const estado = estadoSaldoLinea(saldoLibre, pendienteLinea);
+  const s = ESTILOS_SALDO[estado];
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${s.cls}`}>
+      {s.icon} Saldo {cantidadFmt(Math.max(0, saldoLibre))}
+    </span>
+  );
+}
+
+// Texto explicativo para ámbar/rojo — solo se muestra colapsado (expandido,
+// el pick automático ya trae el detalle vía "Total asignado: X / Y pendiente").
+function textoSaldoLinea(saldoLibre, pendienteLinea) {
+  if (saldoLibre == null) return null;
+  const estado = estadoSaldoLinea(saldoLibre, pendienteLinea);
+  if (estado === "verde") return null;
+  if (estado === "ambar") {
+    return `Alcanza para ${cantidadFmt(saldoLibre)} de ${cantidadFmt(pendienteLinea)}.`;
+  }
+  // saldo_libre <= 0 == comprometido - stock_total (el RPC solo devuelve el
+  // neto, no el desglose) — el valor absoluto es cuánto más allá del stock
+  // físico ya está comprometido por otras líneas.
+  const comprometidas = Math.abs(Number(saldoLibre) || 0);
+  return `Sin stock libre (${cantidadFmt(comprometidas)} ya comprometidas en otras líneas).`;
 }
 
 /* ── Lista de pedidos ──────────────────────────────────────────────────── */
@@ -311,7 +348,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
 }
 
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
-function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar }) {
+function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLibre }) {
   const usuarioActual = useUsuarioActual();
   const [abierto, setAbierto] = useState(false);
   const [asignaciones, setAsignaciones] = useState([]);
@@ -414,10 +451,17 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar }) {
         </div>
         <span className="text-sm font-mono text-slate-600">{cantidadFmt(linea.cantidad_base)} {linea.producto?.unidad_base}</span>
         <BadgeLinea estado={linea.estado} />
+        {puedeDespachar && (
+          <BadgeSaldoLinea saldoLibre={saldoLibre} pendienteLinea={pendiente} />
+        )}
         {linea.estado === "PENDIENTE" && (
           <span className="text-xs text-amber-600">pend. {cantidadFmt(pendiente)}</span>
         )}
       </button>
+
+      {!abierto && puedeDespachar && textoSaldoLinea(saldoLibre, pendiente) && (
+        <p className="px-4 pb-3 text-xs text-slate-400">{textoSaldoLinea(saldoLibre, pendiente)}</p>
+      )}
 
       {abierto && (
         <div className="border-t border-slate-100 px-4 py-3 space-y-3">
@@ -557,6 +601,7 @@ function DetallePedido({ pedidoId, onBack }) {
   const [eventosPorLinea, setEventosPorLinea] = useState({});
   const [habilitadas, setHabilitadas] = useState(new Set());
   const [cargando, setCargando] = useState(true);
+  const [saldoPorProducto, setSaldoPorProducto] = useState(new Map());
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -588,6 +633,47 @@ function DetallePedido({ pedidoId, onBack }) {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // Saldo disponible (informativo, no bloquea "Despachar" ni el pick
+  // automático): una sola llamada batch acá, no un polling por línea —
+  // recalcula cada 18s para que dos operarios despachando pedidos
+  // distintos en simultáneo no vean ambos verde sobre el mismo stock.
+  const productoIdsActivos = useMemo(() => {
+    return lineas
+      .filter((l) => l.estado === "POR_DESPACHAR" || l.estado === "PENDIENTE")
+      .map((l) => l.producto_id);
+  }, [lineas]);
+
+  useEffect(() => {
+    if (productoIdsActivos.length === 0) return;
+    let activo = true;
+
+    async function refrescar() {
+      const mapa = await saldoDisponiblePedido(productoIdsActivos);
+      if (activo) setSaldoPorProducto(mapa);
+    }
+
+    refrescar(); // fetch inmediato, no esperar el primer intervalo
+
+    let intervalId = setInterval(refrescar, 18000);
+
+    function onVisibility() {
+      if (document.hidden) {
+        clearInterval(intervalId);
+      } else {
+        refrescar();
+        intervalId = setInterval(refrescar, 18000);
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      activo = false;
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productoIdsActivos.join(",")]);
+
   if (cargando || !pedido) return (
     <div className="max-w-2xl mx-auto pt-8 text-center text-slate-400">
       <Loader size={16} className="mx-auto animate-spin" />
@@ -615,6 +701,7 @@ function DetallePedido({ pedidoId, onBack }) {
             habilitado={habilitadas.has(l.id)}
             categoria={pedido.categoria}
             onRefrescar={cargar}
+            saldoLibre={saldoPorProducto.get(l.producto_id)}
           />
         ))}
       </div>
