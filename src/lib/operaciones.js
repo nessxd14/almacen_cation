@@ -415,3 +415,21 @@ export async function comprarDirecto({ lineaId, nota, costo = null, usuario }) {
   });
   return { resultado: data, error };
 }
+
+/* ── clasifica saldo_libre vs lo pendiente de una línea -> 'verde'|'ambar'|'rojo' */
+export function estadoSaldoLinea(saldoLibre, pendienteLinea) {
+  const saldo = Number(saldoLibre) || 0;
+  const pendiente = Number(pendienteLinea) || 0;
+  if (saldo >= pendiente) return 'verde';
+  if (saldo > 0) return 'ambar';
+  return 'rojo';
+}
+
+/* ── saldo disponible batch para un array de producto_id -> Map<producto_id, saldo_libre> */
+export async function saldoDisponiblePedido(productoIds) {
+  const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
+  if (ids.length === 0) return new Map();
+  const { data, error } = await supabase.rpc('saldo_disponible_pedido', { p_producto_ids: ids });
+  if (error || !data) return new Map();
+  return new Map(data.map((r) => [r.producto_id, Number(r.saldo_libre)]));
+}
