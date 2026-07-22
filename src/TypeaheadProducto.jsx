@@ -153,10 +153,10 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
                   <button key={v.producto_id}
                     onMouseEnter={() => setActiveIndex(idx)}
                     onClick={() => seleccionar(v)}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50
+                    className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50
                       ${idx === activeIndex ? "bg-slate-100" : ""}`}>
-                    <span className="flex-1 font-medium">{texto}</span>
-                    {v.sku_interno && <span className="text-xs text-slate-400">{v.sku_interno}</span>}
+                    <span title={texto} className="flex-1 min-w-0 font-medium line-clamp-2">{texto}</span>
+                    {v.sku_interno && <span className="text-xs text-slate-400 shrink-0">{v.sku_interno}</span>}
                   </button>
                 );
               })}

@@ -106,6 +106,21 @@ function normalizarNombreAtributo(name) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+// Fase 4b: la marca ya se guarda aparte en producto.marca (viene de
+// p.vendor) y el frontend la muestra como subtítulo — si el título de
+// Shopify la repite al final, queda duplicada en `nombre`. Se recorta solo
+// cuando el final de p.title calza EXACTO con p.vendor (case-insensitive,
+// trim); si no hay match exacto no se fuerza ningún recorte, se deja el
+// título tal cual y se reporta para revisión manual (ver rep.marcaSinRecortar).
+function recortarMarcaDelTitulo(titulo, vendor) {
+  if (!titulo || !vendor) return { texto: titulo, recortado: false };
+  const t = titulo.trim();
+  const v = vendor.trim();
+  if (!v || !t.toLowerCase().endsWith(v.toLowerCase())) return { texto: t, recortado: false };
+  const recortado = t.slice(0, t.length - v.length).trim();
+  return recortado ? { texto: recortado, recortado: true } : { texto: t, recortado: false };
+}
+
 // GID "gid://shopify/ProductVariant/123" -> "123" (los webhooks usan numérico).
 function idNumerico(gid) {
   if (!gid) return null;
@@ -225,6 +240,7 @@ function transformar(productos) {
     identBarra: 0, identFabrica: 0,
     skuColision: 0, sinCodigo: 0, sinPrecio: 0, sinVendor: 0,
     atributos: new Set(), valores: 0,
+    marcaSinRecortar: new Set(),
   };
 
   const familias = [];   // { key(handle), nombre, shopify_product_id, productos:[...] }
@@ -253,7 +269,9 @@ function transformar(productos) {
       if (precio === null || precio === 0) rep.sinPrecio++;
 
       const vt = v.title && v.title !== 'Default Title' ? ` - ${v.title}` : '';
-      const nombre = `${p.title}${vt}`.slice(0, 250);
+      const { texto: tituloBase, recortado } = recortarMarcaDelTitulo(p.title, marca);
+      if (marca && !recortado) rep.marcaSinRecortar.add(p.title);
+      const nombre = `${tituloBase}${vt}`.slice(0, 250);
 
       const atributos = [];
       for (const opt of v.selectedOptions || []) {
@@ -427,6 +445,10 @@ function imprimirReporte(rep) {
   console.log(`  Sin código escaneable:       ${rep.sinCodigo}  (se cuentan por nombre)`);
   console.log(`  Sin precio (0 o vacío):      ${rep.sinPrecio}`);
   console.log(`  Sin vendor en Shopify:       ${rep.sinVendor}`);
+  console.log(`  Marca no recortada de título (revisar a mano): ${rep.marcaSinRecortar.size}`);
+  if (rep.marcaSinRecortar.size) {
+    for (const t of rep.marcaSinRecortar) console.log(`    - "${t}"`);
+  }
   console.log('==========================================\n');
 }
 
