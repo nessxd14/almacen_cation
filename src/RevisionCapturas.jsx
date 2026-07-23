@@ -8,15 +8,19 @@
  * salvo al aprobar/rechazar un campo puntual — nada se dispara por el solo
  * hecho de mirarla.
  *
- * Decisiones pendientes de confirmar con Ness (ver brief sección 4):
- *   - Imagen principal desde la sesión: no implementado (bucket privado,
- *     depende de cómo se sirva `producto.imagen_url`).
- *
  * `empaque` (addendum_empaque_revision_capturas.md): código de barra de la
  * caja/empaque mayor, distinto del `codigo_barra` de la unidad individual.
  * Mismo destino que codigo_fabrica/codigo_barra (`identificador`), solo
  * cambia `tipo`. La migración que suma 'empaque' a identificador.tipo ya
  * está aplicada.
+ *
+ * Imagen principal (addendum_imagen_principal.md): "Usar como imagen
+ * principal" descarga la foto del bucket privado `capturas_producto`, la
+ * sube al bucket público `producto_imagenes` (path determinístico
+ * `producto_{id}.jpg`, upsert) y guarda la URL pública en
+ * `producto.imagen_url`. Acción independiente del estado de los
+ * producto_dato_propuesto — no requiere que la sesión tenga campos
+ * pendientes ni resueltos. Solo disponible si sesion.producto_id no es NULL.
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import { supabase } from "./supabaseClient";
@@ -25,7 +29,7 @@ import TypeaheadProducto from "./TypeaheadProducto";
 import { useUsuarioActual } from "./lib/useAuth";
 import {
   Images, Link, PlusCircle, CheckCircle, XCircle, AlertCircle, AlertTriangle,
-  Loader, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImageOff,
+  Loader, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImageOff, Star,
 } from "lucide-react";
 
 const CAMPO_LABELS = {
@@ -64,6 +68,8 @@ export default function RevisionCapturas() {
   const [guardandoTodos, setGuardandoTodos] = useState(false);
   const [edits, setEdits] = useState({}); // datoId -> valor editado
   const [galeriaIdx, setGaleriaIdx] = useState(0);
+  const [promoviendoFotoId, setPromoviendoFotoId] = useState(null);
+  const [confirmandoImagen, setConfirmandoImagen] = useState(null); // { sesionId, fotoId } | null
 
   // huérfanos: modo de resolución activo por sesión
   const [modoHuerfano, setModoHuerfano] = useState({}); // sesionId -> 'vincular' | 'nuevo'
@@ -86,7 +92,7 @@ export default function RevisionCapturas() {
       .from("producto_captura_sesion")
       .select(`
         id, producto_id, origen, creado_en,
-        producto(id, nombre, marca, shopify_variant_id),
+        producto(id, nombre, marca, shopify_variant_id, imagen_url),
         producto_captura_foto(id, foto_ref, orden),
         producto_dato_propuesto(id, campo, valor_propuesto, valor_corregido, confianza, estado, revisado_por, revisado_en)
       `)
@@ -167,6 +173,42 @@ export default function RevisionCapturas() {
     showFlash(`Producto "${prod.nombre}" creado y vinculado`);
     resetHuerfanoForm();
     cargar();
+  }
+
+  // ── usar foto como imagen principal del producto ──
+  function clickImagenPrincipal(sesion, foto) {
+    if (!sesion.producto_id) return;
+    if (sesion.producto?.imagen_url) {
+      setConfirmandoImagen({ sesionId: sesion.id, fotoId: foto.id });
+    } else {
+      promoverImagenPrincipal(sesion, foto);
+    }
+  }
+
+  async function promoverImagenPrincipal(sesion, foto) {
+    setConfirmandoImagen(null);
+    setPromoviendoFotoId(foto.id);
+    try {
+      const { data: blob, error: errDown } = await supabase.storage
+        .from("capturas_producto").download(foto.foto_ref);
+      if (errDown) throw errDown;
+
+      const path = `producto_${sesion.producto_id}.jpg`;
+      const { error: errUp } = await supabase.storage
+        .from("producto_imagenes").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      if (errUp) throw errUp;
+
+      const { data: { publicUrl } } = supabase.storage.from("producto_imagenes").getPublicUrl(path);
+      const { error: errProd } = await supabase.from("producto").update({ imagen_url: publicUrl }).eq("id", sesion.producto_id);
+      if (errProd) throw errProd;
+
+      showFlash("Imagen principal actualizada");
+      cargar();
+    } catch (e) {
+      showFlash("Error al promover la imagen: " + e.message, "error");
+    } finally {
+      setPromoviendoFotoId(null);
+    }
   }
 
   // ── aprobar / rechazar campo por campo ──
@@ -337,6 +379,40 @@ export default function RevisionCapturas() {
                         </>
                       )}
                     </div>
+
+                    {!esHuerfano && (() => {
+                      const fotoActual = sesion.producto_captura_foto[galeriaIdx];
+                      const confirmandoEsta = confirmandoImagen?.sesionId === sesion.id && confirmandoImagen?.fotoId === fotoActual.id;
+                      const ocupadaEsta = promoviendoFotoId === fotoActual.id;
+                      return (
+                        <div className="mt-2">
+                          {confirmandoEsta ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-2">
+                              <p>
+                                Este producto ya tiene una imagen principal cargada — se va a reemplazar.
+                                {sesion.producto?.shopify_variant_id && " No afecta a Shopify, y bootstrap_catalogo.mjs no toca imagen_url, así que no se revierte sola."}
+                              </p>
+                              <div className="flex gap-2">
+                                <button onClick={() => promoverImagenPrincipal(sesion, fotoActual)}
+                                  className="rounded-lg bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-500">
+                                  Sí, reemplazar
+                                </button>
+                                <button onClick={() => setConfirmandoImagen(null)}
+                                  className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-100">
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button onClick={() => clickImagenPrincipal(sesion, fotoActual)} disabled={ocupadaEsta}
+                              className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50">
+                              {ocupadaEsta ? <Loader size={13} className="animate-spin" /> : <Star size={13} />}
+                              {ocupadaEsta ? "Promoviendo…" : "Usar como imagen principal"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
