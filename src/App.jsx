@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse, History, ShoppingBag, Loader, LogOut } from "lucide-react";
+import { ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse, History, ShoppingBag, Images, Loader, LogOut } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
 import ReconciliacionApp  from "./ReconciliacionApp";
 import PromocionHuerfanos from "./PromocionHuerfanos";
+import RevisionCapturas   from "./RevisionCapturas";
 import OperacionesApp     from "./OperacionesApp";
 import CatalogoApp        from "./CatalogoApp";
 import InventarioApp      from "./InventarioApp";
@@ -21,13 +22,15 @@ const TABS = [
   { id: "conteo",     label: "Conteo",       icon: ClipboardList,   Comp: ConteoApp },
   { id: "concilia",   label: "Conciliación", icon: Scale,           Comp: ReconciliacionApp },
   { id: "huerfanos",  label: "Huérfanos",    icon: ArrowUpFromLine, Comp: PromocionHuerfanos },
+  { id: "revision",   label: "Revisión",     icon: Images,          Comp: RevisionCapturas },
   { id: "oper",       label: "Operaciones",  icon: Boxes,           Comp: OperacionesApp },
   { id: "admin",      label: "Admin",        icon: Settings,        Comp: AdminApp },
 ];
 
 // Tabs administrativos, ocultos para rol 'operario' — confirmado por Ness,
-// no ampliar esta lista sin volver a confirmar.
-const TABS_SOLO_ADMIN = new Set(["admin", "concilia", "huerfanos"]);
+// no ampliar esta lista sin volver a confirmar. ("revision" agregado por
+// brief_formulario_revision_capturas.md, que pide admin-only explícito.)
+const TABS_SOLO_ADMIN = new Set(["admin", "concilia", "huerfanos", "revision"]);
 
 export default function App() {
   const { cargando, usuario, signOut } = useAuth();
