@@ -456,7 +456,9 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                     <Barcode size={14} className="text-slate-400" />
                     <span className="font-mono text-sm text-slate-800">{id.valor}</span>
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium
-                      ${id.tipo === "barra" ? "bg-blue-100 text-blue-700" : "bg-violet-100 text-violet-700"}`}>
+                      ${id.tipo === "barra" ? "bg-blue-100 text-blue-700"
+                        : id.tipo === "empaque" ? "bg-amber-100 text-amber-700"
+                        : "bg-violet-100 text-violet-700"}`}>
                       {id.tipo}
                     </span>
                     <span className="text-xs text-slate-400">{id.presentacion_nombre}</span>

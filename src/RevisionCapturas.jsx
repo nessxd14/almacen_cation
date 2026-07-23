@@ -9,10 +9,14 @@
  * hecho de mirarla.
  *
  * Decisiones pendientes de confirmar con Ness (ver brief sección 4):
- *   - `empaque`: se puede aprobar/rechazar el dato propuesto, pero no
- *     escribe a ninguna tabla todavía (no se sabe si es atributo o columna).
  *   - Imagen principal desde la sesión: no implementado (bucket privado,
  *     depende de cómo se sirva `producto.imagen_url`).
+ *
+ * `empaque` (addendum_empaque_revision_capturas.md): código de barra de la
+ * caja/empaque mayor, distinto del `codigo_barra` de la unidad individual.
+ * Mismo destino que codigo_fabrica/codigo_barra (`identificador`), solo
+ * cambia `tipo`. La migración que suma 'empaque' a identificador.tipo ya
+ * está aplicada.
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import { supabase } from "./supabaseClient";
@@ -27,9 +31,18 @@ import {
 const CAMPO_LABELS = {
   codigo_fabrica: "Código de fábrica",
   codigo_barra: "Código de barra",
-  empaque: "Empaque",
+  empaque: "Código de empaque",
   marca_sugerida: "Marca sugerida",
   nombre_sugerido: "Nombre sugerido",
+};
+
+// Campos que van a identificador — mapeo campo -> tipo. codigo_fabrica y
+// codigo_barra ya se resolvían así; empaque entra con el mismo camino de
+// escritura (ver addendum_empaque_revision_capturas.md).
+const CAMPO_A_TIPO_IDENTIFICADOR = {
+  codigo_fabrica: "fabrica",
+  codigo_barra: "barra",
+  empaque: "empaque",
 };
 
 function badgeConfianza(c) {
@@ -165,12 +178,12 @@ export default function RevisionCapturas() {
     if (!valor) throw new Error("El valor no puede quedar vacío");
     const valorCorregido = valor !== dato.valor_propuesto ? valor : null;
 
-    if (dato.campo === "codigo_fabrica" || dato.campo === "codigo_barra") {
+    const tipoIdentificador = CAMPO_A_TIPO_IDENTIFICADOR[dato.campo];
+    if (tipoIdentificador) {
       const presId = await presentacionBaseId(sesion.producto_id);
       if (!presId) throw new Error("El producto no tiene presentación base");
-      const tipo = dato.campo === "codigo_fabrica" ? "fabrica" : "barra";
       const { error } = await supabase.from("identificador")
-        .insert({ presentacion_id: presId, valor, tipo, origen: "fabricante" });
+        .insert({ presentacion_id: presId, valor, tipo: tipoIdentificador, origen: "fabricante" });
       if (error) throw error;
     } else if (dato.campo === "marca_sugerida") {
       const { error } = await supabase.from("producto").update({ marca: valor }).eq("id", sesion.producto_id);
@@ -179,7 +192,6 @@ export default function RevisionCapturas() {
       const { error } = await supabase.from("producto").update({ nombre: valor }).eq("id", sesion.producto_id);
       if (error) throw error;
     }
-    // 'empaque': sin destino todavía (decisión pendiente) — solo se marca aprobado abajo.
 
     const { error: errDato } = await supabase.from("producto_dato_propuesto").update({
       estado: "aprobado",
