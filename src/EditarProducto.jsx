@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import {
   X, Save, Camera, Plus, Trash2, Pencil, Barcode, Tag, Check, AlertCircle,
-  Lock, Store, Users, Building2, ChevronLeft, ChevronRight, Package2
+  Lock, Store, Users, Building2, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
+import { comprimirYCodificar } from "./lib/capturaFoto";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,11 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [nuevaPresentNombre, setNuevaPresentNombre] = useState("");
   const [nuevoFactorPresentacion, setNuevoFactorPresentacion] = useState("");
   const [guardandoPresentacion, setGuardandoPresentacion] = useState(false);
+
+  // Completar con fotos (ingest-foto-producto, origen='app')
+  const [fotosSeleccionadas, setFotosSeleccionadas] = useState([]);
+  const [enviandoFotos, setEnviandoFotos] = useState(false);
+  const [resultadoFotos, setResultadoFotos] = useState(null); // { tipo: "ok" | "error", msg }
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -252,6 +258,72 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     agregarIdentificador(codigo);
   }
 
+  // ── Completar con fotos ──
+  const previewsFotos = useMemo(
+    () => fotosSeleccionadas.map(f => URL.createObjectURL(f)),
+    [fotosSeleccionadas]
+  );
+  useEffect(() => () => { previewsFotos.forEach(u => URL.revokeObjectURL(u)); }, [previewsFotos]);
+
+  function seleccionarFotos(e) {
+    const elegidas = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (elegidas.length === 0) return;
+    setFotosSeleccionadas(prev => [...prev, ...elegidas].slice(0, 4));
+    setResultadoFotos(null);
+  }
+
+  function quitarFoto(idx) {
+    setFotosSeleccionadas(prev => prev.filter((_, i) => i !== idx));
+    setResultadoFotos(null);
+  }
+
+  async function enviarFotos() {
+    if (fotosSeleccionadas.length === 0) return;
+    setEnviandoFotos(true);
+    setResultadoFotos(null);
+    const cantidad = fotosSeleccionadas.length;
+    try {
+      const fotosBase64 = await Promise.all(fotosSeleccionadas.map(f => comprimirYCodificar(f)));
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ingest-foto-producto`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || ""}`,
+        },
+        body: JSON.stringify({ producto_id: producto.id, fotos_base64: fotosBase64, origen: "app" }),
+      });
+      // La función devuelve JSON solo en 200/502; 400/401/500 son texto plano.
+      const crudo = await res.text();
+      let json = {};
+      try { json = crudo ? JSON.parse(crudo) : {}; } catch { json = { error: crudo }; }
+
+      if (res.status === 502) {
+        // Sesión y fotos ya se guardaron en Storage antes del intento de extracción —
+        // no hace falta (ni se puede todavía) reintentar mandando las mismas fotos.
+        setResultadoFotos({
+          tipo: "error",
+          msg: `Las fotos se guardaron, pero la IA no pudo leerlas (${json.error || "error desconocido"}). No se perdieron — no hace falta volver a mandarlas.`,
+        });
+        setFotosSeleccionadas([]);
+      } else if (!res.ok) {
+        setResultadoFotos({ tipo: "error", msg: json.error || `Error al enviar las fotos (HTTP ${res.status})` });
+      } else {
+        const n = json.propuestas?.length ?? 0;
+        setResultadoFotos({
+          tipo: "ok",
+          msg: `${cantidad} foto${cantidad === 1 ? "" : "s"} enviada${cantidad === 1 ? "" : "s"}, ${n} campo${n === 1 ? "" : "s"} propuesto${n === 1 ? "" : "s"} para revisión.`,
+        });
+        setFotosSeleccionadas([]);
+      }
+    } catch (e) {
+      setResultadoFotos({ tipo: "error", msg: "Error de red al enviar las fotos: " + e.message });
+    } finally {
+      setEnviandoFotos(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[55] flex justify-end bg-black/40" onClick={onClose}>
       {toast && <Toast msg={toast.msg} tipo={toast.tipo} onClose={() => setToast(null)} />}
@@ -302,6 +374,58 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
             <Save size={15} /> {guardando ? "Guardando…" : "Guardar cambios"}
           </button>
+
+          {/* ── Completar con fotos ── */}
+          <section className="border-t border-slate-100 pt-5">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Completar con fotos
+            </h3>
+            <p className="mb-3 text-xs text-slate-400">
+              Subí 1 a 4 fotos del producto — la IA propone código de fábrica, código de barra,
+              empaque, marca y nombre para revisar después en la pantalla "Revisión".
+            </p>
+
+            {previewsFotos.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {previewsFotos.map((url, i) => (
+                  <div key={i} className="relative h-16 w-16">
+                    <img src={url} alt="" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                    <button onClick={() => quitarFoto(i)} disabled={enviandoFotos}
+                      className="absolute -right-1.5 -top-1.5 rounded-full border border-slate-300 bg-white p-0.5 text-slate-500 hover:text-red-600 disabled:opacity-50">
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm
+              ${fotosSeleccionadas.length >= 4 || enviandoFotos
+                ? "cursor-not-allowed border-slate-200 text-slate-300"
+                : "cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
+              <ImagePlus size={15} />
+              {fotosSeleccionadas.length === 0 ? "Elegir o sacar fotos" : `Agregar más (${fotosSeleccionadas.length}/4)`}
+              <input type="file" accept="image/*" capture="environment" multiple
+                className="hidden" disabled={fotosSeleccionadas.length >= 4 || enviandoFotos}
+                onChange={seleccionarFotos} />
+            </label>
+
+            {fotosSeleccionadas.length > 0 && (
+              <button onClick={enviarFotos} disabled={enviandoFotos}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                {enviandoFotos
+                  ? <><Loader size={15} className="animate-spin" /> Analizando fotos…</>
+                  : <><ImagePlus size={15} /> Enviar {fotosSeleccionadas.length} foto{fotosSeleccionadas.length === 1 ? "" : "s"}</>}
+              </button>
+            )}
+
+            {resultadoFotos && (
+              <div className={`mt-2 rounded-lg px-3 py-2 text-xs
+                ${resultadoFotos.tipo === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                {resultadoFotos.msg}
+              </div>
+            )}
+          </section>
 
           {/* ── Presentaciones ── */}
           <section className="border-t border-slate-100 pt-5">
