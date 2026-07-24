@@ -25,7 +25,7 @@ import { useUsuarioActual } from "./lib/useAuth";
 import {
   ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine,
-  ShoppingBag, Clock, Boxes,
+  ShoppingBag, Clock, Boxes, Printer,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -49,6 +49,12 @@ function fechaFmt(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
+// Fecha completa para el reporte de impresión — el papel no tiene el
+// límite de espacio de una card en pantalla, no hace falta abreviar.
+function fechaFmtLarga(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 function mmss(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(total / 60);
@@ -70,13 +76,16 @@ function BadgePedido({ estado }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${estilos[estado] || "bg-slate-100 text-slate-500"}`}>{estado}</span>;
 }
 
+// Compartido con el reporte de impresión (DetallePedido) — misma etiqueta,
+// ahí sin el color de fondo (el papel no necesita el badge, solo el texto).
+const ESTADOS_LINEA = {
+  POR_DESPACHAR:    { label: "Por despachar", cls: "bg-slate-100 text-slate-600" },
+  DESPACHADA:       { label: "Despachada",    cls: "bg-emerald-100 text-emerald-700" },
+  PENDIENTE:        { label: "Pendiente",     cls: "bg-amber-100 text-amber-700" },
+  COMPRADO_DIRECTO: { label: "Comprado directo", cls: "bg-violet-100 text-violet-700" },
+};
 function BadgeLinea({ estado }) {
-  const cfg = {
-    POR_DESPACHAR:    { label: "Por despachar", cls: "bg-slate-100 text-slate-600" },
-    DESPACHADA:       { label: "Despachada",    cls: "bg-emerald-100 text-emerald-700" },
-    PENDIENTE:        { label: "Pendiente",     cls: "bg-amber-100 text-amber-700" },
-    COMPRADO_DIRECTO: { label: "Comprado directo", cls: "bg-violet-100 text-violet-700" },
-  }[estado] || { label: estado, cls: "bg-slate-100 text-slate-500" };
+  const cfg = ESTADOS_LINEA[estado] || { label: estado, cls: "bg-slate-100 text-slate-500" };
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
 
@@ -319,7 +328,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
             {lineas.map((l) => (
               <div key={l.producto_id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-800">{l.nombre}</p>
+                  <p title={l.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{l.nombre}</p>
                   {l.sku_interno && <p className="text-xs text-slate-400">{l.sku_interno}</p>}
                   {textoAproxBulto(l.cantidad_base, bultoPorProducto[l.producto_id]) && (
                     <p className="text-xs text-slate-400">{textoAproxBulto(l.cantidad_base, bultoPorProducto[l.producto_id])}</p>
@@ -446,7 +455,7 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
         className="flex w-full items-center gap-3 px-4 py-3 text-left">
         {abierto ? <ChevronUp size={16} className="text-slate-400 shrink-0" /> : <ChevronDown size={16} className="text-slate-400 shrink-0" />}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-slate-800">{linea.producto?.nombre}</p>
+          <p title={linea.producto?.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{linea.producto?.nombre}</p>
           {linea.producto?.sku_interno && <p className="text-xs text-slate-400">{linea.producto.sku_interno}</p>}
         </div>
         <span className="text-sm font-mono text-slate-600">{cantidadFmt(linea.cantidad_base)} {linea.producto?.unidad_base}</span>
@@ -594,6 +603,68 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
   );
 }
 
+/* ── Reporte de impresión (solo visible en @media print, ver print:hidden
+   más abajo) — tabla propia en vez de aplicar print: sobre FilaLinea, que
+   es un editor interactivo de pick (selects, inputs) mal adaptado a hoja
+   impresa. Texto de producto sin truncar ni clamp: en papel no hay el
+   límite de espacio de una card en pantalla. */
+function ReporteImpresionPedido({ pedido, lineas }) {
+  return (
+    <div className="hidden print:block">
+      <h1 className="text-2xl font-bold text-slate-900">Pedido #{pedido.id}</h1>
+      <div className="mt-1 space-y-0.5 text-sm text-slate-700">
+        <p><span className="font-medium">Categoría:</span> {pedido.categoria === "MAYOR" ? "Mayor" : "Tienda directa"}</p>
+        {pedido.referencia && <p><span className="font-medium">Referencia:</span> {pedido.referencia}</p>}
+        <p><span className="font-medium">Estado:</span> {pedido.estado}</p>
+        <p><span className="font-medium">Fecha de creación:</span> {fechaFmtLarga(pedido.creado_en)}</p>
+      </div>
+
+      <table className="mt-6 w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b-2 border-slate-800 text-left">
+            <th className="py-2 pr-3 font-semibold text-slate-800">Producto</th>
+            <th className="py-2 pr-3 font-semibold text-slate-800">Cantidad</th>
+            <th className="py-2 pr-3 font-semibold text-slate-800">Estado</th>
+            <th className="py-2 font-semibold text-slate-800">Detalle</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lineas.map((l) => {
+            const pendiente = Math.max(Number(l.cantidad_base) - Number(l.cantidad_despachada), 0);
+            return (
+              <tr key={l.id} className="break-inside-avoid border-b border-slate-300 align-top">
+                <td className="py-2 pr-3">
+                  <p className="font-medium text-slate-900">{l.producto?.nombre}</p>
+                  {l.producto?.sku_interno && <p className="text-xs text-slate-500">{l.producto.sku_interno}</p>}
+                </td>
+                <td className="whitespace-nowrap py-2 pr-3">
+                  {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}
+                  {l.estado === "PENDIENTE" && (
+                    <p className="text-xs text-slate-500">
+                      {cantidadFmt(l.cantidad_despachada)} despachado, {cantidadFmt(pendiente)} pendiente
+                    </p>
+                  )}
+                </td>
+                <td className="py-2 pr-3">{(ESTADOS_LINEA[l.estado] || {}).label || l.estado}</td>
+                <td className="py-2">
+                  {l.estado === "COMPRADO_DIRECTO" && (
+                    <>
+                      {l.compra_directa_nota}
+                      {l.compra_directa_costo != null && (
+                        <span className="block text-xs text-slate-500">Costo: {l.compra_directa_costo}</span>
+                      )}
+                    </>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ── Detalle de pedido (formulario grande de despacho) ───────────────────── */
 function DetallePedido({ pedidoId, onBack }) {
   const [pedido, setPedido] = useState(null);
@@ -681,30 +752,38 @@ function DetallePedido({ pedidoId, onBack }) {
   );
 
   return (
-    <div className="max-w-2xl mx-auto pt-4 px-4 space-y-4 pb-8">
-      <div className="flex items-center gap-2">
-        <button onClick={onBack} className="text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
-        <h1 className="text-lg font-semibold text-slate-800">Pedido #{pedido.id}</h1>
-        <BadgePedido estado={pedido.estado} />
-      </div>
-      <p className="text-sm text-slate-500">
-        {pedido.categoria === "MAYOR" ? "Mayor" : "Tienda directa"}
-        {pedido.referencia && ` · ${pedido.referencia}`} · {fechaFmt(pedido.creado_en)}
-      </p>
+    <div className="max-w-2xl mx-auto pt-4 px-4 pb-8">
+      <div className="print:hidden space-y-4">
+        <div className="flex items-center gap-2">
+          <button onClick={onBack} className="text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
+          <h1 className="text-lg font-semibold text-slate-800">Pedido #{pedido.id}</h1>
+          <BadgePedido estado={pedido.estado} />
+          <button onClick={() => window.print()}
+            className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            <Printer size={15} /> Imprimir
+          </button>
+        </div>
+        <p className="text-sm text-slate-500">
+          {pedido.categoria === "MAYOR" ? "Mayor" : "Tienda directa"}
+          {pedido.referencia && ` · ${pedido.referencia}`} · {fechaFmt(pedido.creado_en)}
+        </p>
 
-      <div className="space-y-2">
-        {lineas.map((l) => (
-          <FilaLinea
-            key={l.id}
-            linea={l}
-            eventos={eventosPorLinea[l.id]}
-            habilitado={habilitadas.has(l.id)}
-            categoria={pedido.categoria}
-            onRefrescar={cargar}
-            saldoLibre={saldoPorProducto.get(l.producto_id)}
-          />
-        ))}
+        <div className="space-y-2">
+          {lineas.map((l) => (
+            <FilaLinea
+              key={l.id}
+              linea={l}
+              eventos={eventosPorLinea[l.id]}
+              habilitado={habilitadas.has(l.id)}
+              categoria={pedido.categoria}
+              onRefrescar={cargar}
+              saldoLibre={saldoPorProducto.get(l.producto_id)}
+            />
+          ))}
+        </div>
       </div>
+
+      <ReporteImpresionPedido pedido={pedido} lineas={lineas} />
     </div>
   );
 }
