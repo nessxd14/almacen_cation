@@ -189,18 +189,23 @@ export default function RevisionCapturas() {
     setConfirmandoImagen(null);
     setPromoviendoFotoId(foto.id);
     try {
-      const { data: blob, error: errDown } = await supabase.storage
-        .from("capturas_producto").download(foto.foto_ref);
-      if (errDown) throw errDown;
-
-      const path = `producto_${sesion.producto_id}.jpg`;
-      const { error: errUp } = await supabase.storage
-        .from("producto_imagenes").upload(path, blob, { contentType: "image/jpeg", upsert: true });
-      if (errUp) throw errUp;
-
-      const { data: { publicUrl } } = supabase.storage.from("producto_imagenes").getPublicUrl(path);
-      const { error: errProd } = await supabase.from("producto").update({ imagen_url: publicUrl }).eq("id", sesion.producto_id);
-      if (errProd) throw errProd;
+      // La copia directa capturas_producto -> producto_imagenes desde el
+      // cliente falla con RLS de forma no explicada (ver
+      // addendum_imagen_principal_edge_function.md) — se resuelve
+      // server-side con service_role vía esta función.
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("https://zxoxougwgstrarwymlvd.supabase.co/functions/v1/promover-imagen-principal", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || ""}`,
+        },
+        body: JSON.stringify({ producto_id: sesion.producto_id, foto_ref: foto.foto_ref }),
+      });
+      if (!res.ok) {
+        const texto = await res.text();
+        throw new Error(texto || `HTTP ${res.status}`);
+      }
 
       showFlash("Imagen principal actualizada");
       cargar();
