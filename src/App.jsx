@@ -55,7 +55,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <nav className="flex items-center gap-1 border-b bg-white px-3 py-2 flex-wrap">
+      <nav className="print:hidden flex items-center gap-1 border-b bg-white px-3 py-2 flex-wrap">
         {tabsVisibles.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
