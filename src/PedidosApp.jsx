@@ -18,7 +18,7 @@ import TypeaheadProducto from "./TypeaheadProducto";
 import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones,
   crearPedido, despacharLinea, revertirEvento, comprarDirecto,
-  estadoSaldoLinea, saldoDisponiblePedido,
+  entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido,
 } from "./lib/operaciones";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
 import { useUsuarioActual } from "./lib/useAuth";
@@ -67,6 +67,28 @@ const CATEGORIAS = [
   { id: "TIENDA", label: "Tienda directa" },
 ];
 
+// Las 4 categorías comerciales (el POS crea MAYOR/TIENDA/INSTITUCIONAL/
+// MUNICIPAL; ArmadorPedido, que solo crea pedidos de stock sin datos
+// comerciales, sigue ofreciendo nada más MAYOR/TIENDA arriba).
+const CATEGORIA_LABELS = {
+  MAYOR:         "Mayoreo",
+  TIENDA:        "Tienda directa",
+  INSTITUCIONAL: "Institucional",
+  MUNICIPAL:     "Municipal",
+};
+function labelCategoria(categoria) {
+  return CATEGORIA_LABELS[categoria] || categoria;
+}
+
+const SUCURSAL_LABELS = { 1: "Almacén", 2: "Tienda" };
+function labelSucursal(id) {
+  return id != null ? (SUCURSAL_LABELS[id] || `Sucursal ${id}`) : null;
+}
+function fmtDinero(v) {
+  if (v == null) return "—";
+  return Number(v).toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function BadgePedido({ estado }) {
   const estilos = {
     ABIERTO:    "bg-blue-100 text-blue-700",
@@ -83,6 +105,7 @@ const ESTADOS_LINEA = {
   DESPACHADA:       { label: "Despachada",    cls: "bg-emerald-100 text-emerald-700" },
   PENDIENTE:        { label: "Pendiente",     cls: "bg-amber-100 text-amber-700" },
   COMPRADO_DIRECTO: { label: "Comprado directo", cls: "bg-violet-100 text-violet-700" },
+  ESPECIAL:         { label: "Pendiente de entrega", cls: "bg-amber-100 text-amber-700" },
 };
 function BadgeLinea({ estado }) {
   const cfg = ESTADOS_LINEA[estado] || { label: estado, cls: "bg-slate-100 text-slate-500" };
@@ -129,12 +152,13 @@ function textoSaldoLinea(saldoLibre, pendienteLinea) {
 function ListaPedidos({ onSeleccionar, onNuevo }) {
   const [pedidos, setPedidos] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [filtroCategoria, setFiltroCategoria] = useState("TODAS");
 
   const cargar = useCallback(async () => {
     setCargando(true);
     const { data } = await supabase
       .from("pedido")
-      .select("id, categoria, referencia, estado, creado_en")
+      .select("id, categoria, referencia, estado, creado_en, cliente:cliente_id ( nombre )")
       .order("creado_en", { ascending: false })
       .limit(200);
     setPedidos(data || []);
@@ -142,6 +166,10 @@ function ListaPedidos({ onSeleccionar, onNuevo }) {
   }, []);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  const pedidosFiltrados = filtroCategoria === "TODAS"
+    ? pedidos
+    : pedidos.filter((p) => p.categoria === filtroCategoria);
 
   return (
     <div className="max-w-3xl mx-auto pt-4 px-4 space-y-4">
@@ -155,21 +183,34 @@ function ListaPedidos({ onSeleccionar, onNuevo }) {
         </button>
       </div>
 
+      <div className="flex flex-wrap gap-1.5">
+        <button onClick={() => setFiltroCategoria("TODAS")}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${filtroCategoria === "TODAS" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+          Todas
+        </button>
+        {Object.entries(CATEGORIA_LABELS).map(([id, label]) => (
+          <button key={id} onClick={() => setFiltroCategoria(id)}
+            className={`rounded-full px-3 py-1 text-xs font-medium ${filtroCategoria === id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {cargando ? (
         <div className="py-16 text-center text-slate-400">Cargando pedidos…</div>
-      ) : pedidos.length === 0 ? (
+      ) : pedidosFiltrados.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 py-16 text-center">
           <ShoppingBag size={32} className="mx-auto mb-3 text-slate-300" />
           <p className="text-sm text-slate-400">Sin pedidos todavía.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          {pedidos.map((p) => (
+          {pedidosFiltrados.map((p) => (
             <button key={p.id} onClick={() => onSeleccionar(p.id)}
               className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50">
               <span className="font-mono text-xs text-slate-400">#{p.id}</span>
-              <span className="text-sm font-medium text-slate-800">{p.categoria === "MAYOR" ? "Mayor" : "Tienda directa"}</span>
-              <span className="flex-1 truncate text-sm text-slate-500">{p.referencia || "—"}</span>
+              <span className="text-sm font-medium text-slate-800">{labelCategoria(p.categoria)}</span>
+              <span className="flex-1 truncate text-sm text-slate-500">{p.cliente?.nombre || p.referencia || "—"}</span>
               <span className="text-xs text-slate-400">{fechaFmt(p.creado_en)}</span>
               <BadgePedido estado={p.estado} />
             </button>
@@ -383,9 +424,9 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
     let activo = true;
     setCargandoPick(true);
     Promise.all([
-      calcularPick({ productoId: linea.producto_id, cantidadBase: pendiente }),
+      calcularPick({ productoId: linea.producto_id, cantidadBase: pendiente, sucursalPreferidaId: linea.sucursal_origen_id }),
       desglosePresentaciones({ productoId: linea.producto_id, cantidadBase: pendiente }),
-      ubicacionesParaOperacion({ productoId: linea.producto_id, modo: "SALIDA" }),
+      ubicacionesParaOperacion({ productoId: linea.producto_id, modo: "SALIDA", sucursalPreferidaId: linea.sucursal_origen_id }),
     ]).then(([pick, desg, ubs]) => {
       if (!activo) return;
       setAsignaciones(pick.asignaciones);
@@ -457,6 +498,9 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
         <div className="min-w-0 flex-1">
           <p title={linea.producto?.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{linea.producto?.nombre}</p>
           {linea.producto?.sku_interno && <p className="text-xs text-slate-400">{linea.producto.sku_interno}</p>}
+          {linea.sucursal_origen_id != null && (
+            <p className="text-xs text-slate-400">Origen: {labelSucursal(linea.sucursal_origen_id)}</p>
+          )}
         </div>
         <span className="text-sm font-mono text-slate-600">{cantidadFmt(linea.cantidad_base)} {linea.producto?.unidad_base}</span>
         <BadgeLinea estado={linea.estado} />
@@ -478,6 +522,14 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
             <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
               <AlertTriangle size={12} /> {flash.msg}
             </div>
+          )}
+
+          {linea.precio_unitario != null && (
+            <p className="text-xs text-slate-500">
+              Precio unitario: {fmtDinero(linea.precio_unitario)}
+              {linea.descuento_pct ? ` · Descuento: ${linea.descuento_pct}%` : ""}
+              {linea.subtotal != null ? ` · Subtotal: ${fmtDinero(linea.subtotal)}` : ""}
+            </p>
           )}
 
           {linea.estado === "COMPRADO_DIRECTO" && (
@@ -603,17 +655,65 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
   );
 }
 
+/* ── Fila de ítem especial/personalizado — no pasa por FilaLinea (no hay
+   pick ni Kardex): solo "marcar entregado" cierra la línea. */
+function FilaEspecial({ linea, onRefrescar }) {
+  const usuarioActual = useUsuarioActual();
+  const [entregando, setEntregando] = useState(false);
+  const [flash, setFlash] = useState(null);
+
+  const showFlash = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 3000); };
+
+  async function marcarEntregado() {
+    if (!window.confirm("¿Confirmar entrega de este ítem especial? Esta acción cierra la línea.")) return;
+    setEntregando(true);
+    const { error } = await entregarPersonalizado({ lineaId: linea.id, usuario: usuarioActual.nombre });
+    setEntregando(false);
+    if (error) { showFlash("Error: " + error.message); return; }
+    onRefrescar();
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 space-y-2">
+      {flash && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+          <AlertTriangle size={12} /> {flash}
+        </div>
+      )}
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-slate-800">{linea.descripcion || linea.producto?.nombre || "Ítem especial"}</p>
+          {linea.nota && <p className="text-xs text-slate-500">{linea.nota}</p>}
+        </div>
+        <span className="text-sm font-mono text-slate-600">{cantidadFmt(linea.cantidad_base)} {linea.producto?.unidad_base || ""}</span>
+        <BadgeLinea estado={linea.estado} />
+      </div>
+      {linea.precio_unitario != null && (
+        <p className="text-xs text-slate-500">Precio unitario: {fmtDinero(linea.precio_unitario)}</p>
+      )}
+      {linea.estado === "ESPECIAL" && (
+        <button onClick={marcarEntregado} disabled={entregando}
+          className="flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-50">
+          {entregando && <Loader size={14} className="animate-spin" />}
+          {entregando ? "Guardando…" : "Marcar entregado"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ── Reporte de impresión (solo visible en @media print, ver print:hidden
    más abajo) — tabla propia en vez de aplicar print: sobre FilaLinea, que
    es un editor interactivo de pick (selects, inputs) mal adaptado a hoja
    impresa. Texto de producto sin truncar ni clamp: en papel no hay el
    límite de espacio de una card en pantalla. */
-function ReporteImpresionPedido({ pedido, lineas }) {
+function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales }) {
   return (
     <div className="hidden print:block">
       <h1 className="text-2xl font-bold text-slate-900">Pedido #{pedido.id}</h1>
       <div className="mt-1 space-y-0.5 text-sm text-slate-700">
-        <p><span className="font-medium">Categoría:</span> {pedido.categoria === "MAYOR" ? "Mayor" : "Tienda directa"}</p>
+        <p><span className="font-medium">Categoría:</span> {labelCategoria(pedido.categoria)}</p>
+        {pedido.cliente?.nombre && <p><span className="font-medium">Cliente:</span> {pedido.cliente.nombre}</p>}
         {pedido.referencia && <p><span className="font-medium">Referencia:</span> {pedido.referencia}</p>}
         <p><span className="font-medium">Estado:</span> {pedido.estado}</p>
         <p><span className="font-medium">Fecha de creación:</span> {fechaFmtLarga(pedido.creado_en)}</p>
@@ -624,12 +724,16 @@ function ReporteImpresionPedido({ pedido, lineas }) {
           <tr className="border-b-2 border-slate-800 text-left">
             <th className="py-2 pr-3 font-semibold text-slate-800">Producto</th>
             <th className="py-2 pr-3 font-semibold text-slate-800">Cantidad</th>
+            <th className="py-2 pr-3 font-semibold text-slate-800">Origen</th>
+            <th className="py-2 pr-3 font-semibold text-slate-800">Precio unit.</th>
+            <th className="py-2 pr-3 font-semibold text-slate-800">Desc.</th>
+            <th className="py-2 pr-3 font-semibold text-slate-800">Subtotal</th>
             <th className="py-2 pr-3 font-semibold text-slate-800">Estado</th>
             <th className="py-2 font-semibold text-slate-800">Detalle</th>
           </tr>
         </thead>
         <tbody>
-          {lineas.map((l) => {
+          {lineasCatalogo.map((l) => {
             const pendiente = Math.max(Number(l.cantidad_base) - Number(l.cantidad_despachada), 0);
             return (
               <tr key={l.id} className="break-inside-avoid border-b border-slate-300 align-top">
@@ -645,6 +749,10 @@ function ReporteImpresionPedido({ pedido, lineas }) {
                     </p>
                   )}
                 </td>
+                <td className="py-2 pr-3">{labelSucursal(l.sucursal_origen_id) || "—"}</td>
+                <td className="py-2 pr-3">{l.precio_unitario != null ? fmtDinero(l.precio_unitario) : "—"}</td>
+                <td className="py-2 pr-3">{l.descuento_pct ? `${l.descuento_pct}%` : "—"}</td>
+                <td className="py-2 pr-3">{l.subtotal != null ? fmtDinero(l.subtotal) : "—"}</td>
                 <td className="py-2 pr-3">{(ESTADOS_LINEA[l.estado] || {}).label || l.estado}</td>
                 <td className="py-2">
                   {l.estado === "COMPRADO_DIRECTO" && (
@@ -661,6 +769,42 @@ function ReporteImpresionPedido({ pedido, lineas }) {
           })}
         </tbody>
       </table>
+
+      {lineasEspeciales.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold text-slate-900">Ítems especiales / a pedido</h2>
+          <table className="mt-2 w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b-2 border-slate-800 text-left">
+                <th className="py-2 pr-3 font-semibold text-slate-800">Descripción</th>
+                <th className="py-2 pr-3 font-semibold text-slate-800">Cantidad</th>
+                <th className="py-2 pr-3 font-semibold text-slate-800">Precio unit.</th>
+                <th className="py-2 pr-3 font-semibold text-slate-800">Estado</th>
+                <th className="py-2 font-semibold text-slate-800">Nota</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineasEspeciales.map((l) => (
+                <tr key={l.id} className="break-inside-avoid border-b border-slate-300 align-top">
+                  <td className="py-2 pr-3 font-medium text-slate-900">{l.descripcion || l.producto?.nombre}</td>
+                  <td className="py-2 pr-3">{cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base || ""}</td>
+                  <td className="py-2 pr-3">{l.precio_unitario != null ? fmtDinero(l.precio_unitario) : "—"}</td>
+                  <td className="py-2 pr-3">{(ESTADOS_LINEA[l.estado] || {}).label || l.estado}</td>
+                  <td className="py-2">{l.nota}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {pedido.total != null && (
+        <div className="mt-4 ml-auto w-64 space-y-0.5 text-sm text-slate-700">
+          <p className="flex justify-between"><span>Subtotal</span> <span>{fmtDinero(pedido.subtotal)}</span></p>
+          <p className="flex justify-between"><span>Descuento general</span> <span>{fmtDinero(pedido.descuento_general)}</span></p>
+          <p className="flex justify-between border-t border-slate-800 pt-1 font-semibold text-slate-900"><span>Total</span> <span>{fmtDinero(pedido.total)}</span></p>
+        </div>
+      )}
     </div>
   );
 }
@@ -677,7 +821,9 @@ function DetallePedido({ pedidoId, onBack }) {
   const cargar = useCallback(async () => {
     setCargando(true);
     const [{ data: p }, { data: ls }] = await Promise.all([
-      supabase.from("pedido").select("*").eq("id", pedidoId).single(),
+      supabase.from("pedido")
+        .select("*, cliente:cliente_id ( nombre, tipo_precio )")
+        .eq("id", pedidoId).single(),
       supabase.from("pedido_linea")
         .select("*, producto:producto_id(id, nombre, sku_interno, unidad_base)")
         .eq("pedido_id", pedidoId)
@@ -751,6 +897,9 @@ function DetallePedido({ pedidoId, onBack }) {
     </div>
   );
 
+  const lineasCatalogo = lineas.filter((l) => !l.es_personalizado);
+  const lineasEspeciales = lineas.filter((l) => l.es_personalizado);
+
   return (
     <div className="max-w-2xl mx-auto pt-4 px-4 pb-8">
       <div className="print:hidden space-y-4">
@@ -764,12 +913,21 @@ function DetallePedido({ pedidoId, onBack }) {
           </button>
         </div>
         <p className="text-sm text-slate-500">
-          {pedido.categoria === "MAYOR" ? "Mayor" : "Tienda directa"}
+          {labelCategoria(pedido.categoria)}
+          {pedido.cliente?.nombre && ` · ${pedido.cliente.nombre}`}
           {pedido.referencia && ` · ${pedido.referencia}`} · {fechaFmt(pedido.creado_en)}
         </p>
 
+        {pedido.total != null && (
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 space-y-0.5">
+            <p className="flex justify-between"><span>Subtotal</span> <span>{fmtDinero(pedido.subtotal)}</span></p>
+            <p className="flex justify-between"><span>Descuento general</span> <span>{fmtDinero(pedido.descuento_general)}</span></p>
+            <p className="flex justify-between border-t border-slate-200 pt-1 font-semibold text-slate-900"><span>Total</span> <span>{fmtDinero(pedido.total)}</span></p>
+          </div>
+        )}
+
         <div className="space-y-2">
-          {lineas.map((l) => (
+          {lineasCatalogo.map((l) => (
             <FilaLinea
               key={l.id}
               linea={l}
@@ -781,9 +939,18 @@ function DetallePedido({ pedidoId, onBack }) {
             />
           ))}
         </div>
+
+        {lineasEspeciales.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold text-slate-600">Ítems especiales / a pedido</h2>
+            {lineasEspeciales.map((l) => (
+              <FilaEspecial key={l.id} linea={l} onRefrescar={cargar} />
+            ))}
+          </div>
+        )}
       </div>
 
-      <ReporteImpresionPedido pedido={pedido} lineas={lineas} />
+      <ReporteImpresionPedido pedido={pedido} lineasCatalogo={lineasCatalogo} lineasEspeciales={lineasEspeciales} />
     </div>
   );
 }
