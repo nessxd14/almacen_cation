@@ -143,20 +143,24 @@ export async function buscarAgrupado(q) {
  * modo: "ENTRADA" | "SALIDA" | "AJUSTE" | "TRASLADO_ORIGEN" | "TRASLADO_DESTINO"
  * -> { ubicaciones: [{id, label, cantidad_base?, es_principal?}], sinAsignacion }
  */
-export async function ubicacionesParaOperacion({ productoId, modo }) {
+export async function ubicacionesParaOperacion({ productoId, modo, sucursalPreferidaId }) {
   if (!productoId) return { ubicaciones: [], sinAsignacion: false };
   const pid = Number(productoId);
 
   if (modo === "SALIDA" || modo === "TRASLADO_ORIGEN") {
     const { data } = await supabase
       .from("stock_actual")
-      .select("cantidad_base, ubicacion:ubicacion_id(id, codigo_zona, estante, nivel, compartimiento)")
+      .select("cantidad_base, ubicacion:ubicacion_id(id, codigo_zona, estante, nivel, compartimiento, sucursal_id)")
       .eq("producto_id", pid)
       .gt("cantidad_base", 0)
       .order("cantidad_base", { ascending: false });
-    const ubicaciones = (data || [])
+    let ubicaciones = (data || [])
       .filter((r) => r.ubicacion)
-      .map((r) => ({ id: r.ubicacion.id, label: labelUbicacion(r.ubicacion), cantidad_base: r.cantidad_base }));
+      .map((r) => ({ id: r.ubicacion.id, label: labelUbicacion(r.ubicacion), cantidad_base: r.cantidad_base, sucursal_id: r.ubicacion.sucursal_id }));
+    if (sucursalPreferidaId != null) {
+      const pref = Number(sucursalPreferidaId);
+      ubicaciones = [...ubicaciones].sort((a, b) => (b.sucursal_id === pref) - (a.sucursal_id === pref));
+    }
     return { ubicaciones, sinAsignacion: false };
   }
 
@@ -320,8 +324,8 @@ export async function asegurarAsignacion(productoId, ubicacionId) {
  * -> { asignaciones: [{ubicacion_id, cantidad_base}], faltante }
  * faltante > 0 => la línea quedará parcialmente pendiente.
  */
-export async function calcularPick({ productoId, cantidadBase }) {
-  const { ubicaciones } = await ubicacionesParaOperacion({ productoId, modo: "SALIDA" });
+export async function calcularPick({ productoId, cantidadBase, sucursalPreferidaId }) {
+  const { ubicaciones } = await ubicacionesParaOperacion({ productoId, modo: "SALIDA", sucursalPreferidaId });
   let restante = Number(cantidadBase);
   const asignaciones = [];
 
@@ -423,6 +427,15 @@ export function estadoSaldoLinea(saldoLibre, pendienteLinea) {
   if (saldo >= pendiente) return 'verde';
   if (saldo > 0) return 'ambar';
   return 'rojo';
+}
+
+/* ── entregar un ítem personalizado (ESPECIAL -> COMPRADO_DIRECTO) ───── */
+export async function entregarPersonalizado({ lineaId, usuario }) {
+  const { data, error } = await supabase.rpc("entregar_personalizado", {
+    p_linea_id: Number(lineaId),
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
 }
 
 /* ── saldo disponible batch para un array de producto_id -> Map<producto_id, saldo_libre> */
