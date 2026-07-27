@@ -52,9 +52,12 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
   const showFlash = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 5000); };
   const esPendiente = solicitud.estado === "SOLICITADO";
 
+  // Las cantidades editables viajan en la unidad que se muestra (presentación
+  // si la línea la tiene, si no unidad base) — se convierten a cantidad_base
+  // recién al armar el payload, la conversión es de UI.
   useEffect(() => {
     if (!abierto) return;
-    setCantidades(Object.fromEntries(lineas.map((l) => [l.id, l.cantidad_base])));
+    setCantidades(Object.fromEntries(lineas.map((l) => [l.id, l.presentacion_id ? l.cantidad_presentacion : l.cantidad_base])));
     if (!esPendiente) return;
     let activo = true;
     setCargandoStock(true);
@@ -68,8 +71,13 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
     setCantidades((prev) => ({ ...prev, [lineaId]: valor }));
   }
 
+  function cantidadBaseDe(l) {
+    const factor = l.presentacion_id ? Number(l.presentacion?.factor_unidad_base || 1) : 1;
+    return (Number(cantidades[l.id]) || 0) * factor;
+  }
+
   async function confirmarDespacho() {
-    const lineasPayload = lineas.map((l) => ({ linea_id: l.id, cantidad_base: Number(cantidades[l.id]) || 0 }));
+    const lineasPayload = lineas.map((l) => ({ linea_id: l.id, cantidad_base: cantidadBaseDe(l) }));
     if (lineasPayload.some((l) => l.cantidad_base < 0)) { showFlash("Cantidad inválida"); return; }
     setDespachando(true);
     const { error } = await despacharTraslado({ solicitudId: solicitud.id, lineas: lineasPayload, usuario: usuarioActual.nombre });
@@ -124,7 +132,9 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
           <div className="space-y-2">
             {lineas.map((l) => {
               const stock = stockAlmacen.get(l.producto_id);
-              const noAlcanza = esPendiente && stock != null && Number(cantidades[l.id]) > stock;
+              const cantidadBaseIngresada = cantidadBaseDe(l);
+              const noAlcanza = esPendiente && stock != null && cantidadBaseIngresada > stock;
+              const unidadEditable = l.presentacion_id ? l.presentacion?.nombre : l.producto?.unidad_base;
               return (
                 <div key={l.id} className="rounded-lg border border-slate-200 px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -132,28 +142,36 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
                       <p className="text-sm font-medium text-slate-800">{l.producto?.nombre}</p>
                       {l.producto?.sku_interno && <p className="text-xs text-slate-400">{l.producto.sku_interno}</p>}
                       <CodigosLinea codigos={codigosPorProducto?.get(l.producto_id)} marca={l.producto?.marca} />
-                      {l.presentacion?.nombre && (
-                        <p className="text-xs text-slate-400">{l.presentacion.nombre}</p>
+                      {l.presentacion_id && l.presentacion && (
+                        <p className="text-xs text-slate-400">
+                          Pedido: {cantidadFmt(l.cantidad_presentacion)} {l.presentacion.nombre}
+                          <span className="block">= {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}</span>
+                        </p>
                       )}
                     </div>
                     {esPendiente ? (
-                      <input type="number" min="0" step="any" value={cantidades[l.id] ?? l.cantidad_base}
+                      <input type="number" min="0" step="any" value={cantidades[l.id] ?? ""}
                         onChange={(e) => actualizarCantidad(l.id, e.target.value)}
                         className="w-24 rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
                     ) : (
                       <span className="text-sm font-mono text-slate-600">{cantidadFmt(l.cantidad_despachada)}</span>
                     )}
-                    <span className="text-xs text-slate-400">{l.producto?.unidad_base}</span>
+                    <span className="text-xs text-slate-400">{esPendiente ? unidadEditable : l.producto?.unidad_base}</span>
                   </div>
                   {esPendiente && (
-                    <p className={`mt-1 text-xs ${noAlcanza ? "text-red-600" : "text-slate-400"}`}>
-                      {cargandoStock ? "Consultando stock…" : stock != null
-                        ? `Stock en ${labelSucursal(solicitud.sucursal_origen_id)}: ${cantidadFmt(stock)}${noAlcanza ? " — no alcanza" : ""}`
-                        : null}
-                    </p>
+                    <>
+                      {l.presentacion_id && (
+                        <p className="mt-1 text-xs text-slate-400">= {cantidadFmt(cantidadBaseIngresada)} {l.producto?.unidad_base}</p>
+                      )}
+                      <p className={`mt-1 text-xs ${noAlcanza ? "text-red-600" : "text-slate-400"}`}>
+                        {cargandoStock ? "Consultando stock…" : stock != null
+                          ? `Stock en ${labelSucursal(solicitud.sucursal_origen_id)}: ${cantidadFmt(stock)}${noAlcanza ? " — no alcanza" : ""}`
+                          : null}
+                      </p>
+                    </>
                   )}
-                  {!esPendiente && (
-                    <p className="mt-1 text-xs text-slate-400">Pedido: {cantidadFmt(l.cantidad_base)}</p>
+                  {!esPendiente && !l.presentacion_id && (
+                    <p className="mt-1 text-xs text-slate-400">Pedido: {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}</p>
                   )}
                 </div>
               );

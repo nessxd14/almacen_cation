@@ -35,17 +35,15 @@ function cantidadFmt(v) {
   const n = Number(v || 0);
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 }
-// Texto informativo "≈ N paquetes de M" a partir de una cantidad en unidad
-// base y la presentación de bulto del producto (si tiene una) — no editable,
-// no afecta lo que se envía al backend (que siempre viaja en unidad base).
-function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
-  if (!presentacionBulto || !cantidadBaseStr) return null;
-  const n = Number(cantidadBaseStr);
-  const factor = Number(presentacionBulto.factor_unidad_base);
-  if (!n || n <= 0 || !factor) return null;
-  const contenedor = (presentacionBulto.nombre.split(" ")[0] || "paquete").toLowerCase();
-  const paquetes = n / factor;
-  return `≈ ${cantidadFmt(paquetes)} ${contenedor}${paquetes === 1 ? "" : "s"} de ${cantidadFmt(factor)}`;
+// Texto de cantidad de una línea de pedido: si tiene presentación (elegida
+// en el WMS o en el POS), muestra "3 Caja (24 und) · 72 unidad" — el mismo
+// idioma que usó quien armó el pedido. Si no, cae al "72 unidad" de siempre.
+function textoCantidadLinea(l) {
+  const unidad = l.producto?.unidad_base || "";
+  if (l.presentacion_id && l.presentacion) {
+    return `${cantidadFmt(l.cantidad_presentacion)} ${l.presentacion.nombre} · ${cantidadFmt(l.cantidad_base)} ${unidad}`;
+  }
+  return `${cantidadFmt(l.cantidad_base)} ${unidad}`;
 }
 function fechaFmt(iso) {
   if (!iso) return "—";
@@ -223,37 +221,52 @@ function ListaPedidos({ onSeleccionar, onNuevo }) {
   );
 }
 
+// Canal de precio sugerido para cada categoría de pedido del WMS (stock,
+// sin cliente) — mismas columnas que usa el POS.
+const CANAL_PRECIO_POR_CATEGORIA = { MAYOR: "precio_mayoreo", TIENDA: "precio_base" };
+
 /* ── Armador de pedido ─────────────────────────────────────────────────── */
 function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   const usuarioActual = useUsuarioActual();
   const [categoria, setCategoria] = useState("");
   const [referencia, setReferencia] = useState("");
-  const [lineas, setLineas] = useState(lineasIniciales || []);
+  const [lineas, setLineas] = useState(
+    (lineasIniciales || []).map((l) => ({
+      producto_id: l.producto_id, nombre: l.nombre, sku_interno: l.sku_interno, unidad_base: l.unidad_base,
+      cantidad: String(l.cantidad_base ?? 1),
+      presentaciones: [], presentacionId: null, precios: null, precioUnitario: "", precioTocado: false,
+    }))
+  );
   const [query, setQuery] = useState("");
   const [showScanner, setShowScanner] = useState(false);
   const [flash, setFlash] = useState(null);
   const [creando, setCreando] = useState(false);
-  // producto_id -> {nombre, factor_unidad_base} | null — presentación de
-  // bulto de cada línea, solo para el texto informativo (Parte B).
-  const [bultoPorProducto, setBultoPorProducto] = useState({});
 
-  // Líneas que ya vienen precargadas (borrador desde Catálogo) no pasan por
-  // agregarProducto — se resuelve su presentación de bulto acá, una vez.
+  // Líneas precargadas (borrador desde Catálogo) no pasan por agregarProducto
+  // — se resuelven acá, una sola vez.
   useEffect(() => {
     const ids = (lineasIniciales || []).map((l) => l.producto_id);
     if (ids.length === 0) return;
-    supabase.from("presentacion")
-      .select("producto_id, nombre, factor_unidad_base")
-      .in("producto_id", ids)
-      .eq("es_base", false)
-      .then(({ data }) => {
-        setBultoPorProducto((prev) => {
-          const next = { ...prev };
-          for (const id of ids) if (!(id in next)) next[id] = null;
-          for (const row of data || []) next[row.producto_id] = row;
-          return next;
-        });
-      });
+    (async () => {
+      const [{ data: pres }, { data: prods }] = await Promise.all([
+        supabase.from("presentacion")
+          .select("id, producto_id, nombre, factor_unidad_base, es_base")
+          .in("producto_id", ids).eq("activo", true)
+          .order("es_base", { ascending: false }),
+        supabase.from("producto").select("id, precio_base, precio_mayoreo").in("id", ids),
+      ]);
+      const presPorProducto = new Map();
+      for (const p of pres || []) {
+        if (!presPorProducto.has(p.producto_id)) presPorProducto.set(p.producto_id, []);
+        presPorProducto.get(p.producto_id).push(p);
+      }
+      const preciosPorProducto = new Map((prods || []).map((p) => [p.id, p]));
+      setLineas((prev) => prev.map((l) => {
+        const lista = presPorProducto.get(l.producto_id) || [];
+        const base = lista.find((x) => x.es_base) || lista[0];
+        return { ...l, presentaciones: lista, presentacionId: base?.id ?? null, precios: preciosPorProducto.get(l.producto_id) || null };
+      }));
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -263,21 +276,27 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
     setLineas((prev) => {
       const existente = prev.find((l) => l.producto_id === p.id);
       if (existente) {
-        return prev.map((l) => l.producto_id === p.id ? { ...l, cantidad_base: Number(l.cantidad_base) + 1 } : l);
+        return prev.map((l) => l.producto_id === p.id ? { ...l, cantidad: String(Number(l.cantidad) + 1) } : l);
       }
-      return [...prev, { producto_id: p.id, nombre: p.nombre, sku_interno: p.sku_interno, unidad_base: p.unidad_base, cantidad_base: 1 }];
+      return [...prev, {
+        producto_id: p.id, nombre: p.nombre, sku_interno: p.sku_interno, unidad_base: p.unidad_base,
+        cantidad: "1", presentaciones: [], presentacionId: null, precios: null, precioUnitario: "", precioTocado: false,
+      }];
     });
-    if (!(p.id in bultoPorProducto)) {
-      const { data } = await supabase
-        .from("presentacion")
-        .select("nombre, factor_unidad_base")
-        .eq("producto_id", p.id)
-        .eq("es_base", false)
-        .limit(1)
-        .maybeSingle();
-      setBultoPorProducto((prev) => ({ ...prev, [p.id]: data || null }));
-    }
-  }, [bultoPorProducto]);
+
+    const [{ data: pres }, { data: prod }] = await Promise.all([
+      supabase.from("presentacion")
+        .select("id, nombre, factor_unidad_base, es_base")
+        .eq("producto_id", p.id).eq("activo", true)
+        .order("es_base", { ascending: false }),
+      supabase.from("producto").select("precio_base, precio_mayoreo").eq("id", p.id).single(),
+    ]);
+    const lista = pres || [];
+    const base = lista.find((x) => x.es_base) || lista[0];
+    setLineas((prev) => prev.map((l) => l.producto_id === p.id
+      ? { ...l, presentaciones: lista, presentacionId: l.presentacionId ?? (base?.id ?? null), precios: prod || null }
+      : l));
+  }, []);
 
   const handleScan = useCallback(async (codigo) => {
     setShowScanner(false);
@@ -293,17 +312,40 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   }, [agregarProducto]);
 
   function actualizarCantidad(productoId, valor) {
-    setLineas((prev) => prev.map((l) => l.producto_id === productoId ? { ...l, cantidad_base: valor } : l));
+    setLineas((prev) => prev.map((l) => l.producto_id === productoId ? { ...l, cantidad: valor } : l));
+  }
+  function actualizarPresentacion(productoId, presentacionId) {
+    setLineas((prev) => prev.map((l) => l.producto_id === productoId ? { ...l, presentacionId } : l));
+  }
+  function actualizarPrecio(productoId, valor) {
+    setLineas((prev) => prev.map((l) => l.producto_id === productoId ? { ...l, precioUnitario: valor, precioTocado: true } : l));
   }
   function quitarLinea(productoId) {
     setLineas((prev) => prev.filter((l) => l.producto_id !== productoId));
   }
 
+  // Precio sugerido = precio del canal × factor de la presentación elegida
+  // (misma fórmula que el POS) — se recalcula cuando cambia la presentación
+  // o la categoría, salvo que el usuario ya haya tocado el campo a mano.
+  useEffect(() => {
+    const canal = CANAL_PRECIO_POR_CATEGORIA[categoria];
+    if (!canal) return;
+    setLineas((prev) => prev.map((l) => {
+      if (l.precioTocado || !l.precios) return l;
+      const pres = l.presentaciones.find((p) => p.id === l.presentacionId);
+      const factor = pres ? Number(pres.factor_unidad_base) : 1;
+      const base = l.precios[canal];
+      if (base == null) return l;
+      return { ...l, precioUnitario: String(Math.round(Number(base) * factor * 100) / 100) };
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoria, lineas.map((l) => `${l.producto_id}:${l.presentacionId}`).join(",")]);
+
   async function crear() {
     if (!categoria) { showFlash("Selecciona la categoría del pedido"); return; }
     if (lineas.length === 0) { showFlash("Agrega al menos un producto"); return; }
     for (const l of lineas) {
-      if (!l.cantidad_base || Number(l.cantidad_base) <= 0) {
+      if (!l.cantidad || Number(l.cantidad) <= 0) {
         showFlash(`Cantidad inválida para ${l.nombre}`); return;
       }
     }
@@ -312,7 +354,17 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
     const { id, error } = await crearPedido({
       categoria,
       referencia: referencia.trim() || null,
-      lineas: lineas.map((l) => ({ producto_id: l.producto_id, cantidad_base: Number(l.cantidad_base) })),
+      lineas: lineas.map((l) => {
+        const pres = l.presentaciones.find((p) => p.id === l.presentacionId);
+        const linea = {
+          producto_id: l.producto_id,
+          ...(pres && !pres.es_base
+            ? { presentacion_id: pres.id, cantidad_presentacion: Number(l.cantidad) }
+            : { cantidad_base: Number(l.cantidad) }),
+        };
+        if (l.precioUnitario !== "" && l.precioUnitario != null) linea.precio_unitario = Number(l.precioUnitario);
+        return linea;
+      }),
       usuario: usuarioActual.nombre,
     });
     setCreando(false);
@@ -368,24 +420,52 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
 
         {lineas.length > 0 && (
           <div className="space-y-2">
-            {lineas.map((l) => (
-              <div key={l.producto_id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <p title={l.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{l.nombre}</p>
-                  {l.sku_interno && <p className="text-xs text-slate-400">{l.sku_interno}</p>}
-                  {textoAproxBulto(l.cantidad_base, bultoPorProducto[l.producto_id]) && (
-                    <p className="text-xs text-slate-400">{textoAproxBulto(l.cantidad_base, bultoPorProducto[l.producto_id])}</p>
+            {lineas.map((l) => {
+              const presElegida = l.presentaciones.find((p) => p.id === l.presentacionId);
+              const esBulto = presElegida && !presElegida.es_base;
+              const mostrarSelector = l.presentaciones.length > 1;
+              const cantidadBaseEquivalente = esBulto ? Number(l.cantidad || 0) * Number(presElegida.factor_unidad_base) : null;
+              return (
+                <div key={l.producto_id} className="space-y-1.5 rounded-lg border border-slate-200 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p title={l.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{l.nombre}</p>
+                      {l.sku_interno && <p className="text-xs text-slate-400">{l.sku_interno}</p>}
+                    </div>
+                    <input type="number" min="0.001" step="any" value={l.cantidad}
+                      onChange={(e) => actualizarCantidad(l.producto_id, e.target.value)}
+                      className="w-20 rounded-lg border px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    {mostrarSelector ? (
+                      <select value={l.presentacionId ?? ""} onChange={(e) => actualizarPresentacion(l.producto_id, Number(e.target.value))}
+                        className="rounded-lg border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300">
+                        {l.presentaciones.map((p) => (
+                          <option key={p.id} value={p.id}>{p.nombre}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-slate-400">{l.unidad_base}</span>
+                    )}
+                    <button onClick={() => quitarLinea(l.producto_id)} className="text-slate-300 hover:text-red-500">
+                      <X size={16} />
+                    </button>
+                  </div>
+                  {esBulto && (
+                    <p className="text-xs text-slate-400">
+                      {cantidadFmt(l.cantidad)} {presElegida.nombre} = {cantidadFmt(cantidadBaseEquivalente)} {l.unidad_base}
+                    </p>
+                  )}
+                  {categoria && l.precios != null && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">Precio unitario</span>
+                      <input type="number" min="0" step="0.01" value={l.precioUnitario}
+                        onChange={(e) => actualizarPrecio(l.producto_id, e.target.value)}
+                        placeholder="Opcional"
+                        className="w-24 rounded-lg border px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    </div>
                   )}
                 </div>
-                <input type="number" min="0.001" step="any" value={l.cantidad_base}
-                  onChange={(e) => actualizarCantidad(l.producto_id, e.target.value)}
-                  className="w-20 rounded-lg border px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
-                <span className="text-xs text-slate-400">{l.unidad_base}</span>
-                <button onClick={() => quitarLinea(l.producto_id)} className="text-slate-300 hover:text-red-500">
-                  <X size={16} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -505,7 +585,7 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
             <p className="text-xs text-slate-400">Origen: {labelSucursal(linea.sucursal_origen_id)}</p>
           )}
         </div>
-        <span className="text-sm font-mono text-slate-600">{cantidadFmt(linea.cantidad_base)} {linea.producto?.unidad_base}</span>
+        <span className="text-sm font-mono text-slate-600">{textoCantidadLinea(linea)}</span>
         <BadgeLinea estado={linea.estado} />
         {puedeDespachar && (
           <BadgeSaldoLinea saldoLibre={saldoLibre} pendienteLinea={pendiente} />
@@ -689,7 +769,7 @@ function FilaEspecial({ linea, onRefrescar }) {
           <CodigosLinea esPersonalizado />
           {linea.nota && <p className="text-xs text-slate-500">{linea.nota}</p>}
         </div>
-        <span className="text-sm font-mono text-slate-600">{cantidadFmt(linea.cantidad_base)} {linea.producto?.unidad_base || ""}</span>
+        <span className="text-sm font-mono text-slate-600">{textoCantidadLinea(linea)}</span>
         <BadgeLinea estado={linea.estado} />
       </div>
       {linea.precio_unitario != null && (
@@ -747,7 +827,7 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
                   <CodigosLinea codigos={codigosPorProducto?.get(l.producto_id)} marca={l.producto?.marca} />
                 </td>
                 <td className="whitespace-nowrap py-2 pr-3">
-                  {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}
+                  {textoCantidadLinea(l)}
                   {l.estado === "PENDIENTE" && (
                     <p className="text-xs text-slate-500">
                       {cantidadFmt(l.cantidad_despachada)} despachado, {cantidadFmt(pendiente)} pendiente
@@ -795,7 +875,7 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
                     <p className="font-medium text-slate-900">{l.descripcion || l.producto?.nombre}</p>
                     <CodigosLinea esPersonalizado />
                   </td>
-                  <td className="py-2 pr-3">{cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base || ""}</td>
+                  <td className="py-2 pr-3">{textoCantidadLinea(l)}</td>
                   <td className="py-2 pr-3">{l.precio_unitario != null ? fmtDinero(l.precio_unitario) : "—"}</td>
                   <td className="py-2 pr-3">{(ESTADOS_LINEA[l.estado] || {}).label || l.estado}</td>
                   <td className="py-2">{l.nota}</td>
@@ -834,7 +914,7 @@ function DetallePedido({ pedidoId, onBack }) {
         .select("*, cliente:cliente_id ( nombre, tipo_precio )")
         .eq("id", pedidoId).single(),
       supabase.from("pedido_linea")
-        .select("*, producto:producto_id(id, nombre, sku_interno, unidad_base, marca)")
+        .select("*, producto:producto_id(id, nombre, sku_interno, unidad_base, marca), presentacion:presentacion_id(nombre, factor_unidad_base)")
         .eq("pedido_id", pedidoId)
         .order("id"),
     ]);
