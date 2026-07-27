@@ -1,25 +1,36 @@
 /**
  * NuevoProducto.jsx — Brief WMS (unidades base): alta de productos ahora que
- * Shopify salió del circuito.
+ * Shopify salió del circuito. Ronda 2: múltiples presentaciones extra,
+ * código por presentación, y ficha técnica opcional.
  *
  * Invariantes de diseño (no negociables, ver brief):
  * - unidad_base fija en 'unidad', no editable — el tamaño de bulto vive en
  *   `presentacion`, nunca en unidad_base.
  * - Siempre se crea la presentación base ('Unidad', factor 1, es_base) —
- *   sin ella fallan registrar_venta/registrar_entrada.
+ *   sin ella fallan registrar_venta/registrar_entrada. No se puede editar
+ *   ni borrar acá.
+ * - Cada presentación extra: factor entero > 1, sin factores repetidos
+ *   entre sí en el mismo producto.
+ * - Código de la base va con tipo 'barra'; código de cada bulto, 'empaque'.
  * - Los 4 precios solo viajan en el payload si el usuario es admin (el
  *   trigger precio_solo_admin solo cubre UPDATE, no INSERT).
  * - La entrada inicial se registra por RPC (registrar_entrada), nunca por
  *   INSERT directo a stock_actual — el Kardex es append-only.
+ * - ficha_md/ficha_actualizada_en no pasan por el trigger de precios —
+ *   cualquier usuario logueado puede cargar la ficha.
  */
 
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import { ejecutarOperacion, asegurarAsignacion, labelUbicacion } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
+import EscanerCodigo from "./EscanerCodigo";
 import {
-  X, Save, Loader, AlertCircle, Package2, Barcode, Store, Users, Building2, Landmark, Boxes,
+  X, Save, Loader, AlertCircle, Package2, Barcode, Camera, Plus, Trash2,
+  Store, Users, Building2, Landmark, Boxes, FileText,
 } from "lucide-react";
+
+const uuid = () => crypto.randomUUID ? crypto.randomUUID() : "tmp-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 
 // Deshace lo que ya se haya insertado si un paso posterior falla — en el
 // orden inverso de creación (identificador -> presentacion -> producto),
@@ -41,12 +52,10 @@ export default function NuevoProducto({ onClose, onCreado }) {
   const [marca, setMarca] = useState("");
   const [skuInterno, setSkuInterno] = useState("");
 
-  const [mostrarBulto, setMostrarBulto] = useState(false);
-  const [bultoNombre, setBultoNombre] = useState("");
-  const [bultoFactor, setBultoFactor] = useState("");
-
-  const [codigoBarra, setCodigoBarra] = useState("");
-  const [codigoFabrica, setCodigoFabrica] = useState("");
+  const [codigoBase, setCodigoBase] = useState("");
+  // Presentaciones extra (bulto): [{ key, nombre, factor, codigo }]
+  const [presentacionesExtra, setPresentacionesExtra] = useState([]);
+  const [scanTarget, setScanTarget] = useState(null); // "base" | key de una fila extra
 
   const [precios, setPrecios] = useState({
     precio_base: "", precio_mayoreo: "", precio_institucion: "", precio_municipal: "",
@@ -56,6 +65,9 @@ export default function NuevoProducto({ onClose, onCreado }) {
   const [ubicaciones, setUbicaciones] = useState([]);
   const [ubicacionId, setUbicacionId] = useState("");
   const [cantidadInicial, setCantidadInicial] = useState("");
+
+  const [mostrarFicha, setMostrarFicha] = useState(false);
+  const [fichaMd, setFichaMd] = useState("");
 
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
@@ -71,14 +83,40 @@ export default function NuevoProducto({ onClose, onCreado }) {
       });
   }, [mostrarEntrada, ubicaciones.length]);
 
+  function agregarPresentacionExtra() {
+    setPresentacionesExtra((prev) => [...prev, { key: uuid(), nombre: "", factor: "", codigo: "" }]);
+  }
+  function actualizarPresentacionExtra(key, campo, valor) {
+    setPresentacionesExtra((prev) => prev.map((p) => p.key === key ? { ...p, [campo]: valor } : p));
+  }
+  function quitarPresentacionExtra(key) {
+    setPresentacionesExtra((prev) => prev.filter((p) => p.key !== key));
+  }
+
+  function onScan(codigo) {
+    const target = scanTarget;
+    setScanTarget(null);
+    if (!target) return;
+    if (target === "base") setCodigoBase(codigo);
+    else actualizarPresentacionExtra(target, "codigo", codigo);
+  }
+
   async function crear() {
     setError(null);
     if (!nombre.trim()) { setError("El nombre es obligatorio"); return; }
-    if (mostrarBulto) {
-      const factor = Number(bultoFactor);
-      if (!bultoNombre.trim()) { setError("El nombre de la presentación de bulto es obligatorio"); return; }
-      if (!Number.isInteger(factor) || factor <= 1) { setError("El factor de bulto debe ser un entero mayor a 1"); return; }
+
+    for (const p of presentacionesExtra) {
+      if (!p.nombre.trim()) { setError("Todas las presentaciones extra necesitan un nombre"); return; }
+      const factor = Number(p.factor);
+      if (!Number.isInteger(factor) || factor <= 1) {
+        setError(`Factor inválido en "${p.nombre}" — debe ser un entero mayor a 1`); return;
+      }
     }
+    const factores = presentacionesExtra.map((p) => Number(p.factor));
+    if (new Set(factores).size !== factores.length) {
+      setError("No puede haber dos presentaciones con el mismo factor"); return;
+    }
+
     if (mostrarEntrada) {
       if (!ubicacionId) { setError("Elegí una ubicación para la entrada inicial"); return; }
       if (!cantidadInicial || Number(cantidadInicial) <= 0) { setError("Cantidad inicial inválida"); return; }
@@ -98,6 +136,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
         precio_institucion: precios.precio_institucion === "" ? null : Number(precios.precio_institucion),
         precio_municipal: precios.precio_municipal === "" ? null : Number(precios.precio_municipal),
       } : {}),
+      ...(mostrarFicha && fichaMd.trim() ? { ficha_md: fichaMd.trim(), ficha_actualizada_en: new Date().toISOString() } : {}),
     };
 
     const { data: prod, error: errProd } = await supabase
@@ -120,25 +159,28 @@ export default function NuevoProducto({ onClose, onCreado }) {
       return;
     }
     const presentacionesCreadas = [presBase.id];
+    const idsPresExtra = [];
 
-    if (mostrarBulto) {
-      const { error: errBulto } = await supabase.from("presentacion").insert({
-        producto_id: productoId,
-        nombre: bultoNombre.trim(),
-        factor_unidad_base: Number(bultoFactor),
-        es_base: false,
-      });
-      if (errBulto) {
+    for (const p of presentacionesExtra) {
+      const { data: presRow, error: errPres } = await supabase
+        .from("presentacion")
+        .insert({ producto_id: productoId, nombre: p.nombre.trim(), factor_unidad_base: Number(p.factor), es_base: false })
+        .select("id").single();
+      if (errPres) {
         await rollback(productoId, presentacionesCreadas);
         setGuardando(false);
-        setError("Error al crear la presentación de bulto: " + errBulto.message);
+        setError(`Error al crear la presentación "${p.nombre}": ` + errPres.message);
         return;
       }
+      presentacionesCreadas.push(presRow.id);
+      idsPresExtra.push(presRow.id);
     }
 
     const codigos = [];
-    if (codigoBarra.trim()) codigos.push({ presentacion_id: presBase.id, valor: codigoBarra.trim(), tipo: "barra", origen: "interno", es_principal: true });
-    if (codigoFabrica.trim()) codigos.push({ presentacion_id: presBase.id, valor: codigoFabrica.trim(), tipo: "fabrica", origen: "interno", es_principal: false });
+    if (codigoBase.trim()) codigos.push({ presentacion_id: presBase.id, valor: codigoBase.trim(), tipo: "barra", origen: "interno", es_principal: false });
+    presentacionesExtra.forEach((p, i) => {
+      if (p.codigo.trim()) codigos.push({ presentacion_id: idsPresExtra[i], valor: p.codigo.trim(), tipo: "empaque", origen: "interno", es_principal: false });
+    });
     if (codigos.length > 0) {
       const { error: errCod } = await supabase.from("identificador").insert(codigos);
       if (errCod) {
@@ -173,6 +215,8 @@ export default function NuevoProducto({ onClose, onCreado }) {
 
   return (
     <div className="fixed inset-0 z-[55] flex justify-end bg-black/40" onClick={onClose}>
+      {scanTarget && <EscanerCodigo onDetect={onScan} onClose={() => setScanTarget(null)} />}
+
       <div className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
           <h2 className="text-base font-semibold text-slate-900">Nuevo producto</h2>
@@ -211,47 +255,65 @@ export default function NuevoProducto({ onClose, onCreado }) {
             </div>
           </section>
 
-          {/* ── Presentación de bulto ── */}
+          {/* ── Presentaciones ── */}
           <section className="border-t border-slate-100 pt-5">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Presentación de bulto</h3>
-            <p className="mb-3 text-xs text-slate-400">Opcional — además de la presentación base ("Unidad", ×1) que siempre se crea.</p>
-            {!mostrarBulto ? (
-              <button onClick={() => setMostrarBulto(true)}
-                className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700">
-                <Package2 size={14} /> Agregar presentación de bulto
-              </button>
-            ) : (
-              <div className="space-y-2 rounded-lg bg-slate-50 p-3">
-                <input value={bultoNombre} onChange={e => setBultoNombre(e.target.value)}
-                  placeholder='Ej. "Caja (24 und)"'
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
-                <input type="number" min="2" step="1" value={bultoFactor} onChange={e => setBultoFactor(e.target.value)}
-                  placeholder="Factor (unidades por bulto, entero > 1)"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
-                <button onClick={() => { setMostrarBulto(false); setBultoNombre(""); setBultoFactor(""); }}
-                  className="text-xs text-slate-500 underline">Quitar</button>
-              </div>
-            )}
-          </section>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Presentaciones</h3>
+            <p className="mb-3 text-xs text-slate-400">La base ("Unidad", ×1) siempre se crea. Agregá las de bulto que necesites (Paquete, Caja…).</p>
 
-          {/* ── Códigos (presentación base) ── */}
-          <section className="border-t border-slate-100 pt-5">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Códigos</h3>
-            <p className="mb-3 text-xs text-slate-400">Opcionales, se guardan en la presentación base.</p>
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Barcode size={14} className="shrink-0 text-slate-400" />
-                <input value={codigoBarra} onChange={e => setCodigoBarra(e.target.value)}
-                  placeholder="Código de barras"
-                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
+              {/* Base — fija, no editable */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Package2 size={14} className="shrink-0 text-slate-400" />
+                  <span className="flex-1 text-sm font-medium text-slate-700">Unidad</span>
+                  <span className="text-xs text-slate-400">×1</span>
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500">base</span>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Barcode size={13} className="shrink-0 text-slate-400" />
+                  <input value={codigoBase} onChange={e => setCodigoBase(e.target.value)}
+                    placeholder="Código de barras (opcional)"
+                    className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none" />
+                  <button onClick={() => setScanTarget("base")} title="Escanear"
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-slate-600 hover:bg-slate-100">
+                    <Camera size={14} />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Barcode size={14} className="shrink-0 text-slate-400" />
-                <input value={codigoFabrica} onChange={e => setCodigoFabrica(e.target.value)}
-                  placeholder="Código de fábrica"
-                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
-              </div>
+
+              {/* Extra — dinámicas */}
+              {presentacionesExtra.map((p) => (
+                <div key={p.key} className="rounded-lg border border-slate-200 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <input value={p.nombre} onChange={e => actualizarPresentacionExtra(p.key, "nombre", e.target.value)}
+                      placeholder='Ej. "Caja (24 und)"'
+                      className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none" />
+                    <input type="number" min="2" step="1" value={p.factor}
+                      onChange={e => actualizarPresentacionExtra(p.key, "factor", e.target.value)}
+                      placeholder="Factor"
+                      className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-right focus:border-slate-500 focus:outline-none" />
+                    <button onClick={() => quitarPresentacionExtra(p.key)} className="text-slate-300 hover:text-red-500">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Barcode size={13} className="shrink-0 text-slate-400" />
+                    <input value={p.codigo} onChange={e => actualizarPresentacionExtra(p.key, "codigo", e.target.value)}
+                      placeholder="Código de empaque (opcional)"
+                      className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none" />
+                    <button onClick={() => setScanTarget(p.key)} title="Escanear"
+                      className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-slate-600 hover:bg-slate-100">
+                      <Camera size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
+
+            <button onClick={agregarPresentacionExtra}
+              className="mt-2 flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700">
+              <Plus size={14} /> Agregar presentación
+            </button>
           </section>
 
           {/* ── Precios (solo admin) ── */}
@@ -296,6 +358,26 @@ export default function NuevoProducto({ onClose, onCreado }) {
                   placeholder="Cantidad (unidad base)"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
                 <button onClick={() => { setMostrarEntrada(false); setCantidadInicial(""); }}
+                  className="text-xs text-slate-500 underline">Quitar</button>
+              </div>
+            )}
+          </section>
+
+          {/* ── Ficha técnica ── */}
+          <section className="border-t border-slate-100 pt-5">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Ficha técnica</h3>
+            <p className="mb-3 text-xs text-slate-400">Opcional — Markdown pegado tal cual.</p>
+            {!mostrarFicha ? (
+              <button onClick={() => setMostrarFicha(true)}
+                className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700">
+                <FileText size={14} /> Agregar ficha técnica
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <textarea value={fichaMd} onChange={e => setFichaMd(e.target.value)}
+                  rows={12} placeholder="Pegá acá el Markdown de la ficha técnica…"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs focus:border-slate-500 focus:outline-none" />
+                <button onClick={() => { setMostrarFicha(false); setFichaMd(""); }}
                   className="text-xs text-slate-500 underline">Quitar</button>
               </div>
             )}

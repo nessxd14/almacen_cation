@@ -19,7 +19,7 @@ import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones,
   crearPedido, despacharLinea, revertirEvento, comprarDirecto,
   entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido,
-  codigosGrisPorProducto,
+  codigosGrisPorProducto, stockPorSucursalProducto,
 } from "./lib/operaciones";
 import CodigosLinea from "./CodigosLinea";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
@@ -235,6 +235,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       producto_id: l.producto_id, nombre: l.nombre, sku_interno: l.sku_interno, unidad_base: l.unidad_base,
       cantidad: String(l.cantidad_base ?? 1),
       presentaciones: [], presentacionId: null, precios: null, precioUnitario: "", precioTocado: false,
+      stockPorSucursal: null,
     }))
   );
   const [query, setQuery] = useState("");
@@ -266,6 +267,12 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
         const base = lista.find((x) => x.es_base) || lista[0];
         return { ...l, presentaciones: lista, presentacionId: base?.id ?? null, precios: preciosPorProducto.get(l.producto_id) || null };
       }));
+      // Stock por sucursal: una consulta por producto (no bulk), en paralelo.
+      for (const id of ids) {
+        stockPorSucursalProducto(id).then((mapa) => {
+          setLineas((prev) => prev.map((l) => l.producto_id === id ? { ...l, stockPorSucursal: mapa } : l));
+        });
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -281,20 +288,22 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       return [...prev, {
         producto_id: p.id, nombre: p.nombre, sku_interno: p.sku_interno, unidad_base: p.unidad_base,
         cantidad: "1", presentaciones: [], presentacionId: null, precios: null, precioUnitario: "", precioTocado: false,
+        stockPorSucursal: null,
       }];
     });
 
-    const [{ data: pres }, { data: prod }] = await Promise.all([
+    const [{ data: pres }, { data: prod }, stockMapa] = await Promise.all([
       supabase.from("presentacion")
         .select("id, nombre, factor_unidad_base, es_base")
         .eq("producto_id", p.id).eq("activo", true)
         .order("es_base", { ascending: false }),
       supabase.from("producto").select("precio_base, precio_mayoreo").eq("id", p.id).single(),
+      stockPorSucursalProducto(p.id),
     ]);
     const lista = pres || [];
     const base = lista.find((x) => x.es_base) || lista[0];
     setLineas((prev) => prev.map((l) => l.producto_id === p.id
-      ? { ...l, presentaciones: lista, presentacionId: l.presentacionId ?? (base?.id ?? null), precios: prod || null }
+      ? { ...l, presentaciones: lista, presentacionId: l.presentacionId ?? (base?.id ?? null), precios: prod || null, stockPorSucursal: stockMapa }
       : l));
   }, []);
 
@@ -424,7 +433,13 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
               const presElegida = l.presentaciones.find((p) => p.id === l.presentacionId);
               const esBulto = presElegida && !presElegida.es_base;
               const mostrarSelector = l.presentaciones.length > 1;
-              const cantidadBaseEquivalente = esBulto ? Number(l.cantidad || 0) * Number(presElegida.factor_unidad_base) : null;
+              const factorElegido = presElegida ? Number(presElegida.factor_unidad_base) : 1;
+              const cantidadBaseEquivalente = esBulto ? Number(l.cantidad || 0) * factorElegido : null;
+              const disponibleTotal = l.stockPorSucursal
+                ? [...l.stockPorSucursal.values()].reduce((s, v) => s + v, 0)
+                : null;
+              const cantidadBaseIngresada = Number(l.cantidad || 0) * factorElegido;
+              const superaDisponible = disponibleTotal != null && cantidadBaseIngresada > disponibleTotal;
               return (
                 <div key={l.producto_id} className="space-y-1.5 rounded-lg border border-slate-200 px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -452,6 +467,20 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
                   {esBulto && (
                     <p className="text-xs text-slate-400">
                       {cantidadFmt(l.cantidad)} {presElegida.nombre} = {cantidadFmt(cantidadBaseEquivalente)} {l.unidad_base}
+                    </p>
+                  )}
+                  {l.stockPorSucursal && (
+                    <p className="text-xs text-slate-400">
+                      {labelSucursal(1)} {cantidadFmt(l.stockPorSucursal.get(1) || 0)} · {labelSucursal(2)} {cantidadFmt(l.stockPorSucursal.get(2) || 0)}
+                      {" → "}{cantidadFmt(disponibleTotal)} {l.unidad_base} disponibles
+                      {esBulto && ` · ${cantidadFmt(disponibleTotal / factorElegido)} ${presElegida.nombre}`}
+                    </p>
+                  )}
+                  {superaDisponible && (
+                    <p className="flex items-center gap-1 text-xs text-amber-600">
+                      <AlertTriangle size={11} />
+                      Pedís {cantidadFmt(cantidadBaseIngresada)} {l.unidad_base} y hay {cantidadFmt(disponibleTotal)} {l.unidad_base}
+                      {" — quedarán "}{cantidadFmt(cantidadBaseIngresada - disponibleTotal)} {l.unidad_base} pendientes.
                     </p>
                   )}
                   {categoria && l.precios != null && (

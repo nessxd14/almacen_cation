@@ -3,7 +3,7 @@ import { supabase } from "./supabaseClient";
 import {
   Search, LayoutGrid, List, Package, X, Tag, MapPin, Barcode,
   Link2, Link2Off, ImageOff, Filter, ChevronRight, ChevronDown, Boxes, History, Pencil, ScanLine,
-  ShoppingCart, CheckCircle, AlertTriangle, Loader, PackagePlus, Plus,
+  ShoppingCart, CheckCircle, AlertTriangle, Loader, PackagePlus, Plus, FileText,
 } from "lucide-react";
 import { HistorialMovimientos } from "./HistorialApp";
 import EditarProducto, { CarruselPrecios } from "./EditarProducto";
@@ -140,6 +140,12 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
         .from("stock_actual")
         .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento, sucursal:sucursal_id(tipo))")
         .eq("producto_id", producto.id);
+      // Ficha técnica — texto pesado, no viene en el producto de la grilla.
+      const { data: ficha } = await supabase
+        .from("producto")
+        .select("ficha_md")
+        .eq("id", producto.id)
+        .single();
 
       if (activo) {
         setDetalle({
@@ -147,6 +153,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
           ubicaciones: ubics || [],
           presentaciones: pres || [],
           stock: stock || [],
+          fichaMd: ficha?.ficha_md || null,
         });
         setCargando(false);
       }
@@ -343,6 +350,17 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                       </span>
                     ))}
                   </div>
+                </section>
+              )}
+
+              {/* Ficha técnica — Markdown pegado, sin sumar dependencia de
+                  renderizado todavía: texto plano en <pre> (ver addendum). */}
+              {detalle.fichaMd && (
+                <section>
+                  <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <FileText size={12} /> Ficha técnica
+                  </h3>
+                  <pre className="whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">{detalle.fichaMd}</pre>
                 </section>
               )}
             </div>

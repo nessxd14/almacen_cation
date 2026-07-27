@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import {
-  X, Save, Camera, Plus, Trash2, Pencil, Barcode, Tag, Check, AlertCircle,
-  Lock, Store, Users, Building2, Landmark, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader
+  X, Save, Camera, Plus, Trash2, Pencil, Barcode, Check, AlertCircle,
+  Lock, Store, Users, Building2, Landmark, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader, FileText,
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
 import { comprimirYCodificar } from "./lib/capturaFoto";
@@ -46,13 +46,16 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
 
   const [presentaciones, setPresentaciones] = useState([]);
   const [identificadores, setIdentificadores] = useState([]);
-  const [presentacionBaseId, setPresentacionBaseId] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
   // Presentaciones no-base: cuáles ya tienen movimientos en el Kardex (no se
   // pueden borrar, solo desactivar) — se calcula al cargar, no por click.
   const [presentacionesConMovimientos, setPresentacionesConMovimientos] = useState(new Set());
+  // Presentaciones no-base referenciadas por un pedido o traslado todavía
+  // abierto — bloquean tanto eliminar como desactivar (una línea sin poder
+  // despacharse a mitad de un pedido pendiente es peor que no chequear).
+  const [presentacionesConDocumentosAbiertos, setPresentacionesConDocumentosAbiertos] = useState(new Set());
   const [editandoPresentacionId, setEditandoPresentacionId] = useState(null);
   const [editNombre, setEditNombre] = useState("");
   const [editFactor, setEditFactor] = useState("");
@@ -61,17 +64,22 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [confirmandoPresentacion, setConfirmandoPresentacion] = useState(null);
   const [procesandoPresentacionId, setProcesandoPresentacionId] = useState(null);
 
-  // Alta de identificador
-  const [nuevoCodigo, setNuevoCodigo] = useState("");
-  const [nuevoTipo, setNuevoTipo] = useState("barra");
-  const [escaneando, setEscaneando] = useState(false);
-  const [presDestino, setPresDestino] = useState("");
+  // Código por fila de presentación (base -> tipo 'barra', bulto -> 'empaque')
+  const [codigoPorPresentacion, setCodigoPorPresentacion] = useState({});
+  const [scanTarget, setScanTarget] = useState(null); // presentacion_id que está esperando el escaneo
 
   // Alta de presentación
   const [mostrarNuevaPresentacion, setMostrarNuevaPresentacion] = useState(false);
   const [nuevaPresentNombre, setNuevaPresentNombre] = useState("");
   const [nuevoFactorPresentacion, setNuevoFactorPresentacion] = useState("");
   const [guardandoPresentacion, setGuardandoPresentacion] = useState(false);
+
+  // Ficha técnica (producto.ficha_md / ficha_actualizada_en) — no viene en
+  // el `producto` de la grilla (es texto pesado), se resuelve en cargar().
+  const [mostrarFicha, setMostrarFicha] = useState(!!producto.ficha_md);
+  const [fichaMd, setFichaMd] = useState("");
+  const [fichaActualizadaEn, setFichaActualizadaEn] = useState(null);
+  const [guardandoFicha, setGuardandoFicha] = useState(false);
 
   // Completar con fotos (ingest-foto-producto, origen='app')
   const [fotosSeleccionadas, setFotosSeleccionadas] = useState([]);
@@ -80,16 +88,20 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const { data: pres } = await supabase
-      .from("presentacion")
-      .select("id, nombre, factor_unidad_base, es_base, activo, identificador(id, valor, tipo, es_principal)")
-      .eq("producto_id", producto.id)
-      .order("es_base", { ascending: false });
+    const [{ data: pres }, { data: prodFicha }] = await Promise.all([
+      supabase
+        .from("presentacion")
+        .select("id, nombre, factor_unidad_base, es_base, activo, identificador(id, valor, tipo, es_principal)")
+        .eq("producto_id", producto.id)
+        .order("es_base", { ascending: false }),
+      supabase.from("producto").select("ficha_md, ficha_actualizada_en").eq("id", producto.id).single(),
+    ]);
     const lista = pres || [];
     setPresentaciones(lista);
-    const base = lista.find(p => p.es_base);
-    setPresentacionBaseId(base?.id || null);
-    setPresDestino(String(base?.id || ""));
+
+    setFichaMd(prodFicha?.ficha_md || "");
+    setFichaActualizadaEn(prodFicha?.ficha_actualizada_en || null);
+    if (prodFicha?.ficha_md) setMostrarFicha(true);
 
     // Chequeo de movimientos por presentación no-base (nunca la tabla
     // completa: acotado a las pocas presentaciones de este producto) — la
@@ -104,6 +116,25 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
       if (count > 0) conMovimientos.add(id);
     }));
     setPresentacionesConMovimientos(conMovimientos);
+
+    // Documentos abiertos que referencian una presentación no-base: líneas
+    // de pedido todavía por despachar/pendientes, o de una solicitud de
+    // traslado todavía solicitada/en tránsito. Desactivar una presentación
+    // en medio de eso deja la línea sin poder despacharse.
+    const abiertos = new Set();
+    if (idsNoBase.length > 0) {
+      const [{ data: lineasPedido }, { data: lineasTraslado }] = await Promise.all([
+        supabase.from("pedido_linea").select("presentacion_id")
+          .in("presentacion_id", idsNoBase).in("estado", ["POR_DESPACHAR", "PENDIENTE"]),
+        supabase.from("solicitud_traslado_linea").select("presentacion_id, solicitud:solicitud_id(estado)")
+          .in("presentacion_id", idsNoBase),
+      ]);
+      for (const r of lineasPedido || []) abiertos.add(r.presentacion_id);
+      for (const r of lineasTraslado || []) {
+        if (r.solicitud && ["SOLICITADO", "EN_TRANSITO"].includes(r.solicitud.estado)) abiertos.add(r.presentacion_id);
+      }
+    }
+    setPresentacionesConDocumentosAbiertos(abiertos);
 
     // Aplanar identificadores con su presentación
     const ids = [];
@@ -148,15 +179,31 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     onGuardado?.();
   }
 
+  // ── Guardar ficha técnica (independiente — no pasa por el trigger de
+  // precios, cualquier usuario logueado puede cargarla) ──
+  async function guardarFicha() {
+    setGuardandoFicha(true);
+    const fichaActualizada = fichaMd.trim() ? new Date().toISOString() : null;
+    const { error } = await supabase.from("producto")
+      .update({ ficha_md: fichaMd.trim() || null, ficha_actualizada_en: fichaActualizada })
+      .eq("id", producto.id);
+    setGuardandoFicha(false);
+    if (error) { show("Error al guardar la ficha: " + error.message, "err"); return; }
+    setFichaActualizadaEn(fichaActualizada);
+    show("Ficha técnica guardada");
+  }
+
   // ── Agregar presentación (siempre es_base = false — la base ya existe
   // desde el bootstrap y no se toca acá) ──
   async function agregarPresentacion() {
     const nombre = nuevaPresentNombre.trim();
     if (!nombre) { show("El nombre de la presentación es obligatorio", "err"); return; }
     const factor = Number(nuevoFactorPresentacion);
-    if (!nuevoFactorPresentacion || !factor || factor <= 0) { show("Factor inválido", "err"); return; }
+    if (!Number.isInteger(factor) || factor <= 1) { show("El factor debe ser un entero mayor a 1", "err"); return; }
     const dup = presentaciones.some(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase());
     if (dup) { show("Ya existe una presentación con ese nombre", "err"); return; }
+    const dupFactor = presentaciones.some(p => Number(p.factor_unidad_base) === factor);
+    if (dupFactor) { show("Ya existe una presentación con ese factor", "err"); return; }
 
     setGuardandoPresentacion(true);
     const { error } = await supabase.from("presentacion").insert({
@@ -193,9 +240,11 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     const nombre = editNombre.trim();
     if (!nombre) { show("El nombre de la presentación es obligatorio", "err"); return; }
     const factor = Number(editFactor);
-    if (!editFactor || !factor || factor <= 0) { show("Factor inválido", "err"); return; }
+    if (!Number.isInteger(factor) || factor <= 1) { show("El factor debe ser un entero mayor a 1", "err"); return; }
     const dup = presentaciones.some(p => p.id !== id && p.nombre.trim().toLowerCase() === nombre.toLowerCase());
     if (dup) { show("Ya existe una presentación con ese nombre", "err"); return; }
+    const dupFactor = presentaciones.some(p => p.id !== id && Number(p.factor_unidad_base) === factor);
+    if (dupFactor) { show("Ya existe una presentación con ese factor", "err"); return; }
 
     setGuardandoEdicionPresentacion(true);
     const { error } = await supabase
@@ -216,6 +265,11 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   // calculado desde cargar(), así que el botón muestra la acción correcta
   // sin volver a chequear al momento del click.
   async function confirmarAccionPresentacion(p) {
+    if (presentacionesConDocumentosAbiertos.has(p.id)) {
+      show("No se puede: tiene pedidos o traslados abiertos usando esta presentación", "err");
+      setConfirmandoPresentacion(null);
+      return;
+    }
     const tieneMovimientos = presentacionesConMovimientos.has(p.id);
     setProcesandoPresentacionId(p.id);
     const { error } = tieneMovimientos
@@ -231,27 +285,26 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     cargar();
   }
 
-  // ── Agregar identificador ──
-  async function agregarIdentificador(valorParam) {
-    const valor = (valorParam ?? nuevoCodigo).trim();
+  // ── Código por presentación: cada fila (base o bulto) tiene su propio
+  // campo — tipo se decide por la fila, no por selector ──
+  async function agregarCodigoPresentacion(pres) {
+    const valor = (codigoPorPresentacion[pres.id] || "").trim();
     if (!valor) { show("Escribí o escaneá un código", "err"); return; }
-    const presId = Number(presDestino || presentacionBaseId);
-    if (!presId) { show("No hay presentación base", "err"); return; }
+    const tipo = pres.es_base ? "barra" : "empaque";
 
-    // Evitar duplicado exacto en la misma presentación
-    const dup = identificadores.some(i => i.valor === valor && i.presentacion_id === presId && i.tipo === nuevoTipo);
+    const dup = identificadores.some(i => i.valor === valor && i.presentacion_id === pres.id && i.tipo === tipo);
     if (dup) { show("Ese código ya está cargado en esa presentación", "err"); return; }
 
     const { error } = await supabase.from("identificador").insert({
-      presentacion_id: presId,
+      presentacion_id: pres.id,
       valor,
-      tipo: nuevoTipo,
+      tipo,
       origen: "interno",
       es_principal: false,
     });
     if (error) { show("Error al agregar el código", "err"); return; }
     show("Código agregado");
-    setNuevoCodigo("");
+    setCodigoPorPresentacion(prev => ({ ...prev, [pres.id]: "" }));
     cargar();
   }
 
@@ -263,9 +316,10 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   }
 
   function onScan(codigo) {
-    setEscaneando(false);
-    setNuevoCodigo(codigo);
-    agregarIdentificador(codigo);
+    const presId = scanTarget;
+    setScanTarget(null);
+    if (!presId) return;
+    setCodigoPorPresentacion(prev => ({ ...prev, [presId]: codigo }));
   }
 
   // ── Completar con fotos ──
@@ -337,7 +391,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   return (
     <div className="fixed inset-0 z-[55] flex justify-end bg-black/40" onClick={onClose}>
       {toast && <Toast msg={toast.msg} tipo={toast.tipo} onClose={() => setToast(null)} />}
-      {escaneando && <EscanerCodigo onDetect={onScan} onClose={() => setEscaneando(false)} />}
+      {scanTarget != null && <EscanerCodigo onDetect={onScan} onClose={() => setScanTarget(null)} />}
 
       <div className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
         {/* Header */}
@@ -488,7 +542,9 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                   }
 
                   const tieneMovimientos = presentacionesConMovimientos.has(p.id);
+                  const tieneDocumentosAbiertos = presentacionesConDocumentosAbiertos.has(p.id);
                   const confirmando = confirmandoPresentacion?.id === p.id ? confirmandoPresentacion.tipo : null;
+                  const codigosDeEsta = identificadores.filter(i => i.presentacion_id === p.id);
 
                   return (
                     <div key={p.id} className={`rounded-lg border px-3 py-2 ${p.activo === false ? "border-slate-100 opacity-50" : "border-slate-200"}`}>
@@ -517,13 +573,50 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                           </>
                         )}
                       </div>
+
+                      {/* Código propio de la fila — barra en la base, empaque en el bulto */}
+                      <div className="mt-2 flex items-center gap-2">
+                        <Barcode size={12} className="shrink-0 text-slate-400" />
+                        <input value={codigoPorPresentacion[p.id] || ""}
+                          onChange={e => setCodigoPorPresentacion(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          onKeyDown={e => e.key === "Enter" && agregarCodigoPresentacion(p)}
+                          placeholder={p.es_base ? "Código de barras" : "Código de empaque"}
+                          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none" />
+                        <button onClick={() => setScanTarget(p.id)} title="Escanear"
+                          className="shrink-0 rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-slate-600 hover:bg-slate-100">
+                          <Camera size={12} />
+                        </button>
+                        <button onClick={() => agregarCodigoPresentacion(p)} title="Agregar"
+                          className="shrink-0 rounded-lg bg-slate-900 px-1.5 py-1 text-white hover:bg-slate-700">
+                          <Plus size={12} />
+                        </button>
+                      </div>
+                      {codigosDeEsta.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {codigosDeEsta.map(id => (
+                            <span key={id.id} className="flex items-center gap-1 rounded bg-slate-50 px-1.5 py-0.5 text-xs text-slate-500">
+                              <span className="font-mono">{id.valor}</span>
+                              <span className="text-slate-300">({id.tipo})</span>
+                              <button onClick={() => quitarIdentificador(id.id)} className="text-slate-300 hover:text-red-500">
+                                <X size={10} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {tieneDocumentosAbiertos && !p.es_base && (
+                        <p className="mt-2 text-xs text-amber-600">
+                          Tiene pedidos o traslados abiertos — no se puede desactivar hasta que se cierren.
+                        </p>
+                      )}
                       {confirmando && (
                         <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
                           {confirmando === "desactivar"
                             ? "Esta presentación ya tiene movimientos en el Kardex, no se puede eliminar — se va a desactivar en su lugar."
                             : "¿Eliminar esta presentación? No se puede deshacer."}
                           <div className="mt-2 flex gap-2">
-                            <button onClick={() => confirmarAccionPresentacion(p)} disabled={procesandoPresentacionId === p.id}
+                            <button onClick={() => confirmarAccionPresentacion(p)} disabled={procesandoPresentacionId === p.id || tieneDocumentosAbiertos}
                               className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50">
                               {procesandoPresentacionId === p.id ? "Procesando…" : confirmando === "desactivar" ? "Desactivar" : "Eliminar"}
                             </button>
@@ -574,81 +667,40 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             )}
           </section>
 
-          {/* ── Identificadores ── */}
-          <section className="border-t border-slate-100 pt-5">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Códigos de identificación
-            </h3>
-            <p className="mb-3 text-xs text-slate-400">
-              Barras y códigos de fábrica para escanear el producto.
-            </p>
+          {!cargando && identificadores.length === 0 && (
+            <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-700">
+              <span className="flex items-center gap-2">
+                <AlertCircle size={15} /> Este producto no tiene código escaneable.
+              </span>
+              <span className="mt-1 block text-xs">Agregá uno en la presentación correspondiente, arriba.</span>
+            </div>
+          )}
 
-            {/* Lista actual */}
-            {cargando ? (
-              <p className="text-sm text-slate-400">Cargando…</p>
-            ) : identificadores.length === 0 ? (
-              <div className="mb-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-700">
-                <span className="flex items-center gap-2">
-                  <AlertCircle size={15} /> Este producto no tiene código escaneable.
-                </span>
-                <span className="mt-1 block text-xs">Agregá uno abajo para poder escanearlo en el conteo.</span>
-              </div>
+          {/* ── Ficha técnica ── */}
+          <section className="border-t border-slate-100 pt-5">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Ficha técnica</h3>
+            <p className="mb-3 text-xs text-slate-400">Opcional — Markdown pegado tal cual.</p>
+            {!mostrarFicha ? (
+              <button onClick={() => setMostrarFicha(true)}
+                className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700">
+                <FileText size={14} /> Agregar ficha técnica
+              </button>
             ) : (
-              <div className="mb-3 space-y-1.5">
-                {identificadores.map(id => (
-                  <div key={id.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
-                    <Barcode size={14} className="text-slate-400" />
-                    <span className="font-mono text-sm text-slate-800">{id.valor}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium
-                      ${id.tipo === "barra" ? "bg-blue-100 text-blue-700"
-                        : id.tipo === "empaque" ? "bg-amber-100 text-amber-700"
-                        : "bg-violet-100 text-violet-700"}`}>
-                      {id.tipo}
-                    </span>
-                    <span className="text-xs text-slate-400">{id.presentacion_nombre}</span>
-                    <button onClick={() => quitarIdentificador(id.id)}
-                      className="ml-auto text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
-                  </div>
-                ))}
+              <div className="space-y-1.5">
+                <textarea value={fichaMd} onChange={e => setFichaMd(e.target.value)}
+                  rows={12} placeholder="Pegá acá el Markdown de la ficha técnica…"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs focus:border-slate-500 focus:outline-none" />
+                {fichaActualizadaEn && (
+                  <p className="text-xs text-slate-400">
+                    Actualizada: {new Date(fichaActualizadaEn).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                )}
+                <button onClick={guardarFicha} disabled={guardandoFicha}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                  <Save size={13} /> {guardandoFicha ? "Guardando…" : "Guardar ficha"}
+                </button>
               </div>
             )}
-
-            {/* Alta */}
-            <div className="rounded-lg bg-slate-50 p-3">
-              <div className="mb-2 flex gap-2">
-                <input
-                  value={nuevoCodigo}
-                  onChange={e => setNuevoCodigo(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && agregarIdentificador()}
-                  placeholder="Escribí o escaneá el código"
-                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-                />
-                <button onClick={() => setEscaneando(true)}
-                  className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-                  title="Escanear con cámara">
-                  <Camera size={15} />
-                </button>
-              </div>
-              <div className="flex gap-2">
-                <select value={nuevoTipo} onChange={e => setNuevoTipo(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none">
-                  <option value="barra">Código de barras</option>
-                  <option value="fabrica">Código de fábrica</option>
-                </select>
-                {presentaciones.length > 1 && (
-                  <select value={presDestino} onChange={e => setPresDestino(e.target.value)}
-                    className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none">
-                    {presentaciones.map(p => (
-                      <option key={p.id} value={p.id}>{p.nombre}{p.es_base ? " (base)" : ""}</option>
-                    ))}
-                  </select>
-                )}
-                <button onClick={() => agregarIdentificador()}
-                  className="ml-auto flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
-                  <Plus size={14} /> Agregar
-                </button>
-              </div>
-            </div>
           </section>
         </div>
       </div>

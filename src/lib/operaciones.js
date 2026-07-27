@@ -475,6 +475,24 @@ export async function cerrarSolicitudTraslado({ solicitudId, estado, usuario, no
   return { resultado: data, error };
 }
 
+/* ── desglose de stock por sucursal de UN producto (consulta acotada al
+ * seleccionarlo, no bulk-preload) -> Map<sucursal_id, cantidad_base>
+ */
+export async function stockPorSucursalProducto(productoId) {
+  if (!productoId) return new Map();
+  const { data } = await supabase
+    .from("stock_actual")
+    .select("cantidad_base, ubicacion:ubicacion_id(sucursal_id)")
+    .eq("producto_id", Number(productoId));
+  const mapa = new Map();
+  for (const row of data || []) {
+    if (!row.ubicacion) continue;
+    const sid = row.ubicacion.sucursal_id;
+    mapa.set(sid, (mapa.get(sid) || 0) + Number(row.cantidad_base || 0));
+  }
+  return mapa;
+}
+
 /* ── stock actual por sucursal para un array de producto_id ───────────
  * -> Map<producto_id, cantidad_base total en la sucursal>
  */
