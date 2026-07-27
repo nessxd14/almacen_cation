@@ -3,10 +3,11 @@ import { supabase } from "./supabaseClient";
 import {
   Search, LayoutGrid, List, Package, X, Tag, MapPin, Barcode,
   Link2, Link2Off, ImageOff, Filter, ChevronRight, ChevronDown, Boxes, History, Pencil, ScanLine,
-  ShoppingCart, CheckCircle, AlertTriangle, Loader, PackagePlus,
+  ShoppingCart, CheckCircle, AlertTriangle, Loader, PackagePlus, Plus,
 } from "lucide-react";
 import { HistorialMovimientos } from "./HistorialApp";
 import EditarProducto, { CarruselPrecios } from "./EditarProducto";
+import NuevoProducto from "./NuevoProducto";
 import EscanerCodigo from "./EscanerCodigo";
 import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea, buscarAgrupado } from "./lib/operaciones";
 import { agregarAlBorrador } from "./lib/pedidoBorrador";
@@ -739,6 +740,7 @@ export default function CatalogoApp() {
   const [seleccionado, setSeleccionado] = useState(null);     // quick-view (grilla)
   const [detalleCompleto, setDetalleCompleto] = useState(null); // "ver detalle completo"
   const [vendiendo, setVendiendo] = useState(null);           // modal "vender ahora"
+  const [creando, setCreando] = useState(false);              // modal "nuevo producto"
   const [ventaFlash, setVentaFlash] = useState(null);
   const [total, setTotal] = useState(0);
   const [pagina, setPagina] = useState(0);
@@ -768,7 +770,7 @@ export default function CatalogoApp() {
     const [{ data: prod }, { data: stock }] = await Promise.all([
       supabase
         .from("producto")
-        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url")
+        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_municipal, shopify_variant_id, imagen_url")
         .eq("id", productosDistintos[0])
         .single(),
       supabase.from("v_producto_stock").select("stock_total").eq("producto_id", productosDistintos[0]).maybeSingle(),
@@ -798,7 +800,7 @@ export default function CatalogoApp() {
     const [{ data: detalles }, { data: stocks }] = await Promise.all([
       supabase
         .from("producto")
-        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url")
+        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_municipal, shopify_variant_id, imagen_url")
         .in("id", ids),
       supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
     ]);
@@ -862,7 +864,7 @@ export default function CatalogoApp() {
 
     let query = supabase
       .from("producto")
-      .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, shopify_variant_id, imagen_url", { count: "exact" })
+      .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_municipal, shopify_variant_id, imagen_url", { count: "exact" })
       .eq("activo", true);
 
     if (idsFiltro) query = query.in("id", idsFiltro);
@@ -921,9 +923,15 @@ export default function CatalogoApp() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-5">
-        <h1 className="text-lg font-semibold text-slate-800">Catálogo</h1>
-        <p className="text-sm text-slate-500">{total} productos activos</p>
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-800">Catálogo</h1>
+          <p className="text-sm text-slate-500">{total} productos activos</p>
+        </div>
+        <button onClick={() => setCreando(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700">
+          <Plus size={15} /> Nuevo producto
+        </button>
       </div>
 
       {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
@@ -1098,6 +1106,11 @@ export default function CatalogoApp() {
           onClose={() => setDetalleCompleto(null)}
           onActualizado={() => { cargar(busqueda, filtroValorId, pagina); }}
         />
+      )}
+
+      {creando && (
+        <NuevoProducto onClose={() => setCreando(false)}
+          onCreado={() => { setCreando(false); cargar(busqueda, filtroValorId, pagina); }} />
       )}
     </div>
   );

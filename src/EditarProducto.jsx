@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import {
   X, Save, Camera, Plus, Trash2, Pencil, Barcode, Tag, Check, AlertCircle,
-  Lock, Store, Users, Building2, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader
+  Lock, Store, Users, Building2, Landmark, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
 import { comprimirYCodificar } from "./lib/capturaFoto";
+import { useUsuarioActual } from "./lib/useAuth";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,8 @@ function Toast({ msg, tipo = "ok", onClose }) {
 // ─── Editor de producto ──────────────────────────────────────────────────────
 
 export default function EditarProducto({ producto, onClose, onGuardado }) {
+  const usuarioActual = useUsuarioActual();
+  const esAdmin = usuarioActual?.rol === "admin";
   const [toast, setToast] = useState(null);
   const show = (msg, tipo = "ok") => setToast({ msg, tipo });
 
@@ -38,6 +41,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     precio_base: producto.precio_base ?? "",          // Tienda/Retail
     precio_mayoreo: producto.precio_mayoreo ?? "",
     precio_institucion: producto.precio_institucion ?? "",
+    precio_municipal: producto.precio_municipal ?? "",
   });
 
   const [presentaciones, setPresentaciones] = useState([]);
@@ -123,15 +127,21 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
       marca: form.marca.trim() || null,
       unidad_base: form.unidad_base.trim() || "unidad",
       sku_interno: form.sku_interno.trim() || null,
-      precio_base: form.precio_base === "" ? null : Number(form.precio_base),
-      precio_mayoreo: form.precio_mayoreo === "" ? null : Number(form.precio_mayoreo),
-      precio_institucion: form.precio_institucion === "" ? null : Number(form.precio_institucion),
       actualizado_en: new Date().toISOString(),
+      ...(esAdmin ? {
+        precio_base: form.precio_base === "" ? null : Number(form.precio_base),
+        precio_mayoreo: form.precio_mayoreo === "" ? null : Number(form.precio_mayoreo),
+        precio_institucion: form.precio_institucion === "" ? null : Number(form.precio_institucion),
+        precio_municipal: form.precio_municipal === "" ? null : Number(form.precio_municipal),
+      } : {}),
     };
     const { error } = await supabase.from("producto").update(payload).eq("id", producto.id);
     setGuardando(false);
     if (error) {
-      show(error.message.includes("sku_interno") ? "Ese SKU ya existe en otro producto" : "Error al guardar", "err");
+      show(
+        error.message.includes("sku_interno") ? "Ese SKU ya existe en otro producto"
+        : error.message.includes("rol admin") ? "Los precios solo los puede cambiar un administrador"
+        : "Error al guardar", "err");
       return;
     }
     show("Cambios guardados");
@@ -357,17 +367,27 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
           {/* ── Precios ── */}
           <section>
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Precios</h3>
-            <div className="space-y-3">
-              <CampoPrecio
-                icono={Store} label="Tienda (Retail)" nota="Sincroniza con Shopify"
-                value={form.precio_base} onChange={v => setForm(f => ({ ...f, precio_base: v }))} />
-              <CampoPrecio
-                icono={Users} label="Mayoreo" nota="Interno"
-                value={form.precio_mayoreo} onChange={v => setForm(f => ({ ...f, precio_mayoreo: v }))} />
-              <CampoPrecio
-                icono={Building2} label="Instituciones" nota="Interno"
-                value={form.precio_institucion} onChange={v => setForm(f => ({ ...f, precio_institucion: v }))} />
-            </div>
+            {esAdmin ? (
+              <div className="space-y-3">
+                <CampoPrecio
+                  icono={Store} label="Tienda (Retail)" nota="Canal retail del POS"
+                  value={form.precio_base} onChange={v => setForm(f => ({ ...f, precio_base: v }))} />
+                <CampoPrecio
+                  icono={Users} label="Mayoreo" nota="Interno"
+                  value={form.precio_mayoreo} onChange={v => setForm(f => ({ ...f, precio_mayoreo: v }))} />
+                <CampoPrecio
+                  icono={Building2} label="Instituciones" nota="Interno"
+                  value={form.precio_institucion} onChange={v => setForm(f => ({ ...f, precio_institucion: v }))} />
+                <CampoPrecio
+                  icono={Landmark} label="Municipal" nota="Interno"
+                  value={form.precio_municipal} onChange={v => setForm(f => ({ ...f, precio_municipal: v }))} />
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                <Lock size={14} className="shrink-0 text-slate-400" />
+                Solo un administrador puede ver y cambiar los precios.
+              </div>
+            )}
           </section>
 
           <button onClick={guardarDatos} disabled={guardando}
@@ -677,9 +697,10 @@ function CampoPrecio({ icono: Icono, label, nota, value, onChange }) {
 
 export function CarruselPrecios({ producto }) {
   const precios = [
-    { label: "Tienda", valor: producto.precio_base, icono: Store, badge: "Shopify" },
+    { label: "Tienda", valor: producto.precio_base, icono: Store, badge: "Retail" },
     { label: "Mayoreo", valor: producto.precio_mayoreo, icono: Users, badge: "Interno" },
     { label: "Instituciones", valor: producto.precio_institucion, icono: Building2, badge: "Interno" },
+    { label: "Municipal", valor: producto.precio_municipal, icono: Landmark, badge: "Interno" },
   ];
   const [i, setI] = useState(0);
   const actual = precios[i];
