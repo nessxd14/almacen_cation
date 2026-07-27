@@ -446,3 +446,90 @@ export async function saldoDisponiblePedido(productoIds) {
   if (error || !data) return new Map();
   return new Map(data.map((r) => [r.producto_id, Number(r.saldo_libre)]));
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Brief F — Traslados entre sucursales
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* ── despachar (total o parcial) una solicitud de traslado ────────────
+ * lineas: [{linea_id, cantidad_base}] opcional, para parcial.
+ * -> { resultado: {estado, cantidad_despachada}, error }
+ */
+export async function despacharTraslado({ solicitudId, lineas, usuario }) {
+  const { data, error } = await supabase.rpc("despachar_traslado", {
+    p_solicitud_id: Number(solicitudId),
+    p_usuario: usuario,
+    p_lineas: lineas || null,
+  });
+  return { resultado: data, error };
+}
+
+/* ── cerrar una solicitud de traslado (RECHAZADO/CANCELADO, sin mover stock) ── */
+export async function cerrarSolicitudTraslado({ solicitudId, estado, usuario, nota }) {
+  const { data, error } = await supabase.rpc("cerrar_solicitud_traslado", {
+    p_solicitud_id: Number(solicitudId),
+    p_estado: estado,
+    p_usuario: usuario,
+    p_nota: nota || null,
+  });
+  return { resultado: data, error };
+}
+
+/* ── stock actual por sucursal para un array de producto_id ───────────
+ * -> Map<producto_id, cantidad_base total en la sucursal>
+ */
+export async function stockDisponibleSucursal(productoIds, sucursalId) {
+  const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
+  if (ids.length === 0 || !sucursalId) return new Map();
+  const { data } = await supabase
+    .from("stock_actual")
+    .select("producto_id, cantidad_base, ubicacion:ubicacion_id(sucursal_id)")
+    .in("producto_id", ids);
+  const mapa = new Map();
+  for (const row of data || []) {
+    if (!row.ubicacion || row.ubicacion.sucursal_id !== Number(sucursalId)) continue;
+    mapa.set(row.producto_id, (mapa.get(row.producto_id) || 0) + Number(row.cantidad_base || 0));
+  }
+  return mapa;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Códigos de producto en gris (barra · fábrica), compartido Pedidos/Traslados
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* ── códigos activos (barra, fabrica) de la presentación base de cada
+ * producto -> Map<producto_id, {barra?, fabrica?}>. La marca vive en
+ * producto.marca, no acá — el consumidor la combina para el render.
+ */
+export async function codigosGrisPorProducto(productoIds) {
+  const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
+  if (ids.length === 0) return new Map();
+
+  const { data: pres } = await supabase
+    .from("presentacion")
+    .select("id, producto_id")
+    .in("producto_id", ids)
+    .eq("es_base", true);
+  const presPorProducto = new Map((pres || []).map((p) => [p.producto_id, p.id]));
+  const presIds = [...presPorProducto.values()];
+  if (presIds.length === 0) return new Map();
+
+  const { data: ident } = await supabase
+    .from("identificador")
+    .select("presentacion_id, tipo, valor, activo")
+    .in("presentacion_id", presIds);
+  const codigosPorPres = new Map();
+  for (const row of ident || []) {
+    if (row.activo === false) continue;
+    const entry = codigosPorPres.get(row.presentacion_id) || {};
+    if (row.tipo === "barra" && entry.barra == null) entry.barra = row.valor;
+    if (row.tipo === "fabrica" && entry.fabrica == null) entry.fabrica = row.valor;
+    codigosPorPres.set(row.presentacion_id, entry);
+  }
+
+  const mapa = new Map();
+  for (const [productoId, presId] of presPorProducto) {
+    mapa.set(productoId, codigosPorPres.get(presId) || {});
+  }
+  return mapa;
+}

@@ -19,7 +19,9 @@ import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones,
   crearPedido, despacharLinea, revertirEvento, comprarDirecto,
   entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido,
+  codigosGrisPorProducto,
 } from "./lib/operaciones";
+import CodigosLinea from "./CodigosLinea";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
 import { useUsuarioActual } from "./lib/useAuth";
 import {
@@ -398,7 +400,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
 }
 
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
-function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLibre }) {
+function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLibre, codigos }) {
   const usuarioActual = useUsuarioActual();
   const [abierto, setAbierto] = useState(false);
   const [asignaciones, setAsignaciones] = useState([]);
@@ -498,6 +500,7 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
         <div className="min-w-0 flex-1">
           <p title={linea.producto?.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{linea.producto?.nombre}</p>
           {linea.producto?.sku_interno && <p className="text-xs text-slate-400">{linea.producto.sku_interno}</p>}
+          <CodigosLinea codigos={codigos} marca={linea.producto?.marca} />
           {linea.sucursal_origen_id != null && (
             <p className="text-xs text-slate-400">Origen: {labelSucursal(linea.sucursal_origen_id)}</p>
           )}
@@ -683,6 +686,7 @@ function FilaEspecial({ linea, onRefrescar }) {
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-800">{linea.descripcion || linea.producto?.nombre || "Ítem especial"}</p>
+          <CodigosLinea esPersonalizado />
           {linea.nota && <p className="text-xs text-slate-500">{linea.nota}</p>}
         </div>
         <span className="text-sm font-mono text-slate-600">{cantidadFmt(linea.cantidad_base)} {linea.producto?.unidad_base || ""}</span>
@@ -707,7 +711,7 @@ function FilaEspecial({ linea, onRefrescar }) {
    es un editor interactivo de pick (selects, inputs) mal adaptado a hoja
    impresa. Texto de producto sin truncar ni clamp: en papel no hay el
    límite de espacio de una card en pantalla. */
-function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales }) {
+function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codigosPorProducto }) {
   return (
     <div className="hidden print:block">
       <h1 className="text-2xl font-bold text-slate-900">Pedido #{pedido.id}</h1>
@@ -740,6 +744,7 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales }) {
                 <td className="py-2 pr-3">
                   <p className="font-medium text-slate-900">{l.producto?.nombre}</p>
                   {l.producto?.sku_interno && <p className="text-xs text-slate-500">{l.producto.sku_interno}</p>}
+                  <CodigosLinea codigos={codigosPorProducto?.get(l.producto_id)} marca={l.producto?.marca} />
                 </td>
                 <td className="whitespace-nowrap py-2 pr-3">
                   {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}
@@ -786,7 +791,10 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales }) {
             <tbody>
               {lineasEspeciales.map((l) => (
                 <tr key={l.id} className="break-inside-avoid border-b border-slate-300 align-top">
-                  <td className="py-2 pr-3 font-medium text-slate-900">{l.descripcion || l.producto?.nombre}</td>
+                  <td className="py-2 pr-3">
+                    <p className="font-medium text-slate-900">{l.descripcion || l.producto?.nombre}</p>
+                    <CodigosLinea esPersonalizado />
+                  </td>
                   <td className="py-2 pr-3">{cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base || ""}</td>
                   <td className="py-2 pr-3">{l.precio_unitario != null ? fmtDinero(l.precio_unitario) : "—"}</td>
                   <td className="py-2 pr-3">{(ESTADOS_LINEA[l.estado] || {}).label || l.estado}</td>
@@ -817,6 +825,7 @@ function DetallePedido({ pedidoId, onBack }) {
   const [habilitadas, setHabilitadas] = useState(new Set());
   const [cargando, setCargando] = useState(true);
   const [saldoPorProducto, setSaldoPorProducto] = useState(new Map());
+  const [codigosPorProducto, setCodigosPorProducto] = useState(new Map());
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -825,18 +834,20 @@ function DetallePedido({ pedidoId, onBack }) {
         .select("*, cliente:cliente_id ( nombre, tipo_precio )")
         .eq("id", pedidoId).single(),
       supabase.from("pedido_linea")
-        .select("*, producto:producto_id(id, nombre, sku_interno, unidad_base)")
+        .select("*, producto:producto_id(id, nombre, sku_interno, unidad_base, marca)")
         .eq("pedido_id", pedidoId)
         .order("id"),
     ]);
     const lineaIds = (ls || []).map((l) => l.id);
-    const [{ data: eventos }, { data: hab }] = await Promise.all([
+    const productoIdsCatalogo = (ls || []).filter((l) => !l.es_personalizado).map((l) => l.producto_id);
+    const [{ data: eventos }, { data: hab }, codigos] = await Promise.all([
       lineaIds.length
         ? supabase.from("pedido_despacho_evento").select("*").in("pedido_linea_id", lineaIds).order("id", { ascending: false })
         : Promise.resolve({ data: [] }),
       lineaIds.length
         ? supabase.from("v_pedido_linea_despachable").select("id").in("id", lineaIds)
         : Promise.resolve({ data: [] }),
+      codigosGrisPorProducto(productoIdsCatalogo),
     ]);
     const grupo = {};
     for (const e of eventos || []) (grupo[e.pedido_linea_id] ||= []).push(e);
@@ -845,6 +856,7 @@ function DetallePedido({ pedidoId, onBack }) {
     setLineas(ls || []);
     setEventosPorLinea(grupo);
     setHabilitadas(new Set((hab || []).map((h) => h.id)));
+    setCodigosPorProducto(codigos);
     setCargando(false);
   }, [pedidoId]);
 
@@ -936,6 +948,7 @@ function DetallePedido({ pedidoId, onBack }) {
               categoria={pedido.categoria}
               onRefrescar={cargar}
               saldoLibre={saldoPorProducto.get(l.producto_id)}
+              codigos={codigosPorProducto.get(l.producto_id)}
             />
           ))}
         </div>
@@ -950,7 +963,7 @@ function DetallePedido({ pedidoId, onBack }) {
         )}
       </div>
 
-      <ReporteImpresionPedido pedido={pedido} lineasCatalogo={lineasCatalogo} lineasEspeciales={lineasEspeciales} />
+      <ReporteImpresionPedido pedido={pedido} lineasCatalogo={lineasCatalogo} lineasEspeciales={lineasEspeciales} codigosPorProducto={codigosPorProducto} />
     </div>
   );
 }
