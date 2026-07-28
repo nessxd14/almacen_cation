@@ -43,18 +43,26 @@ function precioFmt(v) {
 // Resuelve producto_id que matchean un texto contra código de barra (tipo
 // 'barra', cualquier presentación) — el buscador cubre nombre/SKU/código.
 async function idsPorCodigo(texto) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("identificador")
     .select("presentacion:presentacion_id(producto_id)")
     .eq("tipo", "barra")
     .ilike("valor", `%${texto}%`)
     .limit(200);
+  if (error) throw error;
   return [...new Set((data || []).map((r) => r.presentacion?.producto_id).filter(Boolean))];
 }
 
-// Aplica marca/familia/texto a un query builder de `producto` — reusado
-// tanto por la paginación normal como por el fetch de ids en modo "sin precio".
-async function aplicarFiltros(query, { texto, marca, familia }) {
+// Aplica marca/familia/texto a un query builder de `producto`. A propósito
+// NO es async: un query builder de supabase-js es "thenable" (implementa
+// .then()), y una función async que hace `return query` con ese builder
+// hace que JS lo desenvuelva solo — el caller recibe el RESULTADO ya
+// ejecutado ({data,error,count}) en vez del builder, y la siguiente llamada
+// encadenada (.order()/.range()) revienta con "X is not a function" antes
+// de llegar a setCargando(false) — eso es lo que dejaba la pantalla
+// colgada en "Cargando…" con 0 productos. La parte async (buscar por
+// código) se resuelve ANTES y se pasa ya resuelta acá.
+function aplicarFiltros(query, { texto, marca, familia, idsCodigo }) {
   if (marca === "SIN_MARCA") query = query.or("marca.is.null,marca.eq.");
   else if (marca) query = query.eq("marca", marca);
 
@@ -62,9 +70,8 @@ async function aplicarFiltros(query, { texto, marca, familia }) {
   else if (familia) query = query.eq("familia_id", Number(familia));
 
   if (texto) {
-    const idsCodigo = await idsPorCodigo(texto);
     const orParts = [`nombre.ilike.%${texto}%`, `sku_interno.ilike.%${texto}%`];
-    if (idsCodigo.length) orParts.push(`id.in.(${idsCodigo.join(",")})`);
+    if (idsCodigo?.length) orParts.push(`id.in.(${idsCodigo.join(",")})`);
     query = query.or(orParts.join(","));
   }
   return query;
@@ -73,14 +80,16 @@ async function aplicarFiltros(query, { texto, marca, familia }) {
 // Trae TODAS las filas que matchean, paginando de a 1.000 — nunca se le
 // pide a PostgREST un rango que exceda su propio límite silencioso.
 async function fetchTodosLosIds(filtros, soloSinPrecio) {
+  const idsCodigo = filtros.texto ? await idsPorCodigo(filtros.texto) : [];
   let ids = [];
   let desde = 0;
   for (;;) {
     let q = supabase.from("producto").select("id").eq("activo", true);
     if (soloSinPrecio) q = q.or("precio_base.eq.0,precio_base.is.null");
-    q = await aplicarFiltros(q, filtros);
+    q = aplicarFiltros(q, { ...filtros, idsCodigo });
     q = q.range(desde, desde + 999);
-    const { data } = await q;
+    const { data, error } = await q;
+    if (error) throw error;
     ids = ids.concat((data || []).map((r) => r.id));
     if (!data || data.length < 1000) break;
     desde += 1000;
@@ -92,7 +101,8 @@ async function fetchStockTotalPorIds(ids) {
   const mapa = new Map();
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200);
-    const { data } = await supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", chunk);
+    const { data, error } = await supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", chunk);
+    if (error) throw error;
     for (const r of data || []) mapa.set(r.producto_id, Number(r.stock_total) || 0);
   }
   return mapa;
@@ -116,6 +126,7 @@ export default function PreciosApp() {
   const [filas, setFilas] = useState([]);
   const [total, setTotal] = useState(0);
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState(null);
   const [stockPorProducto, setStockPorProducto] = useState(new Map());
   const [codigosPorProducto, setCodigosPorProducto] = useState(new Map());
 
@@ -176,10 +187,14 @@ export default function PreciosApp() {
     if (!soloSinPrecio) { setIdsSinPrecio([]); return; }
     let activo = true;
     (async () => {
-      const ids = await fetchTodosLosIds(filtrosActuales, true);
-      const stockMap = await fetchStockTotalPorIds(ids);
-      ids.sort((a, b) => (stockMap.get(b) || 0) - (stockMap.get(a) || 0));
-      if (activo) setIdsSinPrecio(ids);
+      try {
+        const ids = await fetchTodosLosIds(filtrosActuales, true);
+        const stockMap = await fetchStockTotalPorIds(ids);
+        ids.sort((a, b) => (stockMap.get(b) || 0) - (stockMap.get(a) || 0));
+        if (activo) { setIdsSinPrecio(ids); setErrorCarga(null); }
+      } catch (err) {
+        if (activo) { setErrorCarga(err.message || "Error al calcular la lista sin precio"); setCargando(false); }
+      }
     })();
     return () => { activo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,42 +202,53 @@ export default function PreciosApp() {
 
   const cargarPagina = useCallback(async () => {
     setCargando(true);
+    setErrorCarga(null);
 
-    let filasPagina = [];
-    let totalFilas;
+    try {
+      let filasPagina = [];
+      let totalFilas;
 
-    if (soloSinPrecio) {
-      totalFilas = idsSinPrecio.length;
-      const pageIds = idsSinPrecio.slice(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE);
-      if (pageIds.length > 0) {
-        const { data } = await supabase.from("producto")
-          .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_municipal, familia_id")
-          .in("id", pageIds);
-        const porId = new Map((data || []).map((r) => [r.id, r]));
-        filasPagina = pageIds.map((id) => porId.get(id)).filter(Boolean);
+      if (soloSinPrecio) {
+        totalFilas = idsSinPrecio.length;
+        const pageIds = idsSinPrecio.slice(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE);
+        if (pageIds.length > 0) {
+          const { data, error } = await supabase.from("producto")
+            .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_municipal, familia_id")
+            .in("id", pageIds);
+          if (error) throw error;
+          const porId = new Map((data || []).map((r) => [r.id, r]));
+          filasPagina = pageIds.map((id) => porId.get(id)).filter(Boolean);
+        }
+      } else {
+        const idsCodigo = filtrosActuales.texto ? await idsPorCodigo(filtrosActuales.texto) : [];
+        let query = supabase.from("producto")
+          .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_municipal, familia_id", { count: "exact" })
+          .eq("activo", true);
+        query = aplicarFiltros(query, { ...filtrosActuales, idsCodigo });
+        query = query.order("nombre").range(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE - 1);
+        const { data, count, error } = await query;
+        if (error) throw error;
+        filasPagina = data || [];
+        totalFilas = count || 0;
       }
-    } else {
-      let query = supabase.from("producto")
-        .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_municipal, familia_id", { count: "exact" })
-        .eq("activo", true);
-      query = await aplicarFiltros(query, filtrosActuales);
-      query = query.order("nombre").range(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE - 1);
-      const { data, count } = await query;
-      filasPagina = data || [];
-      totalFilas = count || 0;
+
+      setFilas(filasPagina);
+      setTotal(totalFilas);
+
+      const ids = filasPagina.map((f) => f.id);
+      const [stockMapa, codigosMapa] = await Promise.all([
+        stockPorSucursalBatch(ids),
+        codigosGrisPorProducto(ids),
+      ]);
+      setStockPorProducto(stockMapa);
+      setCodigosPorProducto(codigosMapa);
+    } catch (err) {
+      setErrorCarga(err.message || "Error al cargar la tabla de precios");
+      setFilas([]);
+      setTotal(0);
+    } finally {
+      setCargando(false);
     }
-
-    setFilas(filasPagina);
-    setTotal(totalFilas);
-
-    const ids = filasPagina.map((f) => f.id);
-    const [stockMapa, codigosMapa] = await Promise.all([
-      stockPorSucursalBatch(ids),
-      codigosGrisPorProducto(ids),
-    ]);
-    setStockPorProducto(stockMapa);
-    setCodigosPorProducto(codigosMapa);
-    setCargando(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtrosKey, pagina, soloSinPrecio, idsSinPrecio]);
 
@@ -305,6 +331,13 @@ export default function PreciosApp() {
         </div>
       )}
 
+      {errorCarga && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <AlertTriangle size={14} className="shrink-0" />
+          No se pudo cargar la tabla: {errorCarga}
+        </div>
+      )}
+
       {/* Controles */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">
@@ -360,6 +393,8 @@ export default function PreciosApp() {
           <tbody>
             {cargando ? (
               <tr><td colSpan={8} className="py-16 text-center text-slate-400">Cargando…</td></tr>
+            ) : errorCarga ? (
+              <tr><td colSpan={8} className="py-16 text-center text-red-600">No se pudo cargar — ver mensaje arriba.</td></tr>
             ) : filas.length === 0 ? (
               <tr><td colSpan={8} className="py-16 text-center text-slate-400">Sin resultados.</td></tr>
             ) : (
