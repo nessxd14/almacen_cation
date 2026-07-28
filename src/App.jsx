@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse, History, ShoppingBag, Images, Loader, LogOut, Truck } from "lucide-react";
+import { ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse, History, ShoppingBag, Images, Loader, LogOut, Truck, DollarSign } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
 import ReconciliacionApp  from "./ReconciliacionApp";
@@ -12,12 +12,14 @@ import HistorialApp       from "./HistorialApp";
 import AdminApp           from "./AdminApp";
 import PedidosApp         from "./PedidosApp";
 import TrasladosApp       from "./TrasladosApp";
+import PreciosApp         from "./PreciosApp";
 import LoginScreen        from "./LoginScreen";
 import { useAuth } from "./lib/useAuth";
 
 const TABS = [
   { id: "catalogo",   label: "Catálogo",     icon: BookOpen,        Comp: CatalogoApp },
   { id: "inventario", label: "Inventario",   icon: Warehouse,       Comp: InventarioApp },
+  { id: "precios",    label: "Precios",      icon: DollarSign,      Comp: PreciosApp },
   { id: "pedidos",    label: "Pedidos",      icon: ShoppingBag,     Comp: PedidosApp },
   { id: "traslados",  label: "Traslados",    icon: Truck,           Comp: TrasladosApp },
   { id: "historial",  label: "Historial",    icon: History,         Comp: HistorialApp },

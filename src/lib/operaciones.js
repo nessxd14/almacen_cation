@@ -511,6 +511,27 @@ export async function stockDisponibleSucursal(productoIds, sucursalId) {
   return mapa;
 }
 
+/* ── stock por sucursal para un lote de producto_id (una página de tabla,
+ * no bulk-preload del catálogo entero) -> Map<producto_id, Map<sucursal_id, cantidad_base>>
+ */
+export async function stockPorSucursalBatch(productoIds) {
+  const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
+  if (ids.length === 0) return new Map();
+  const { data } = await supabase
+    .from("stock_actual")
+    .select("producto_id, cantidad_base, ubicacion:ubicacion_id(sucursal_id)")
+    .in("producto_id", ids);
+  const mapa = new Map();
+  for (const row of data || []) {
+    if (!row.ubicacion) continue;
+    if (!mapa.has(row.producto_id)) mapa.set(row.producto_id, new Map());
+    const porSucursal = mapa.get(row.producto_id);
+    const sid = row.ubicacion.sucursal_id;
+    porSucursal.set(sid, (porSucursal.get(sid) || 0) + Number(row.cantidad_base || 0));
+  }
+  return mapa;
+}
+
 /* ══════════════════════════════════════════════════════════════════════
  * Códigos de producto en gris (barra · fábrica), compartido Pedidos/Traslados
  * ══════════════════════════════════════════════════════════════════════ */
