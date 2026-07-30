@@ -15,6 +15,8 @@ import {
 } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
 import CodigosLinea from "./CodigosLinea";
+import { useBorrador, borradorKey } from "./lib/useBorrador";
+import BorradorBanner from "./BorradorBanner";
 import {
   Truck, ChevronDown, ChevronUp, Loader, AlertTriangle, X, ArrowRight,
 } from "lucide-react";
@@ -71,6 +73,22 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
     setCantidades((prev) => ({ ...prev, [lineaId]: valor }));
   }
 
+  // Brief H — useBorrador: el formulario de traslados es el más lento del
+  // sistema (el operario camina el almacén con el celular), así que es el que
+  // más pierde si la sesión se corta a mitad de despacho. `esDirty` compara
+  // contra las cantidades por defecto (las que trae la solicitud) — el efecto
+  // de arriba resetea `cantidades` a esos valores cada vez que se abre la
+  // tarjeta, DESPUÉS de que se monta este hook, así que sin este chequeo el
+  // hook confundiría "recién abrí la tarjeta" con "el usuario ya editó algo".
+  const cantidadesDefault = Object.fromEntries(lineas.map((l) => [l.id, l.presentacion_id ? l.cantidad_presentacion : l.cantidad_base]));
+  const esDirty = JSON.stringify(cantidades) !== JSON.stringify(cantidadesDefault);
+  const { borradorPendiente, descartar: descartarBorrador, limpiar: limpiarBorrador } = useBorrador(
+    borradorKey(`traslado:${solicitud.id}`, usuarioActual?.id ?? "anon"),
+    cantidades,
+    { activo: abierto && esPendiente && esDirty }
+  );
+  const retomarBorrador = () => { if (borradorPendiente) { setCantidades(borradorPendiente.datos); limpiarBorrador(); } };
+
   function cantidadBaseDe(l) {
     const factor = l.presentacion_id ? Number(l.presentacion?.factor_unidad_base || 1) : 1;
     return (Number(cantidades[l.id]) || 0) * factor;
@@ -83,6 +101,7 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
     const { error } = await despacharTraslado({ solicitudId: solicitud.id, lineas: lineasPayload, usuario: usuarioActual.nombre });
     setDespachando(false);
     if (error) { showFlash(error.message); return; }
+    limpiarBorrador();
     onRefrescar();
   }
 
@@ -119,6 +138,10 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
             <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
               <AlertTriangle size={12} /> {flash}
             </div>
+          )}
+
+          {borradorPendiente && (
+            <BorradorBanner guardadoEn={borradorPendiente.guardadoEn} onRetomar={retomarBorrador} onDescartar={descartarBorrador} />
           )}
 
           {(solicitud.referencia || solicitud.nota) && (

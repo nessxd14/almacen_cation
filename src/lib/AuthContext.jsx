@@ -18,7 +18,19 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    // Brief I: antes esto ponía `session` a lo que viniera en CUALQUIER evento,
+    // incluido null — un 401 de una consulta (JWT vencido, red caída) no pasa por
+    // acá directamente, pero si GoTrueClient emitía cualquier evento con sesión
+    // null que no fuera un logout real, esto igual expulsaba al login. Ahora solo
+    // se limpia la sesión en un SIGNED_OUT real (logout explícito, o refresco de
+    // token fallado de verdad — GoTrueClient también lo emite como SIGNED_OUT) o
+    // en INITIAL_SESSION sin sesión previa (arranque en frío, nunca hubo login:
+    // legítimo, no es una expulsión).
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === "SIGNED_OUT") { setSession(null); return; }
+      if (!s) { if (event === "INITIAL_SESSION") setSession(null); return; }
+      setSession(s);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
