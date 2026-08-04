@@ -20,6 +20,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import { stockPorSucursalBatch, codigosGrisPorProducto } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
+import { sanearFiltro } from "./lib/filtroTexto";
 import { Tag, Search, Filter, Boxes, Lock, AlertTriangle, Loader, DollarSign } from "lucide-react";
 
 const PAGE_SIZE = 50;
@@ -43,11 +44,13 @@ function precioFmt(v) {
 // Resuelve producto_id que matchean un texto contra código de barra (tipo
 // 'barra', cualquier presentación) — el buscador cubre nombre/SKU/código.
 async function idsPorCodigo(texto) {
+  const textoSano = sanearFiltro(texto);
+  if (!textoSano) return [];
   const { data, error } = await supabase
     .from("identificador")
     .select("presentacion:presentacion_id(producto_id)")
     .eq("tipo", "barra")
-    .ilike("valor", `%${texto}%`)
+    .ilike("valor", `%${textoSano}%`)
     .limit(200);
   if (error) throw error;
   return [...new Set((data || []).map((r) => r.presentacion?.producto_id).filter(Boolean))];
@@ -69,8 +72,9 @@ function aplicarFiltros(query, { texto, marca, familia, idsCodigo }) {
   if (familia === "SIN_FAMILIA") query = query.is("familia_id", null);
   else if (familia) query = query.eq("familia_id", Number(familia));
 
-  if (texto) {
-    const orParts = [`nombre.ilike.%${texto}%`, `sku_interno.ilike.%${texto}%`];
+  const textoSano = sanearFiltro(texto);
+  if (textoSano) {
+    const orParts = [`nombre.ilike.%${textoSano}%`, `sku_interno.ilike.%${textoSano}%`];
     if (idsCodigo?.length) orParts.push(`id.in.(${idsCodigo.join(",")})`);
     query = query.or(orParts.join(","));
   }

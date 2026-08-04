@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import { metaProducto } from "./lib/producto";
+import { sanearFiltro } from "./lib/filtroTexto";
 import {
   Boxes, Package, DollarSign, AlertTriangle, PackageX, Search,
   ArrowUpDown, MapPin, SlidersHorizontal, ImageOff, ScanLine
@@ -179,9 +180,11 @@ export default function InventarioApp() {
   const cargarFilas = useCallback(async () => {
     setCargando(true);
     let query = supabase.from("v_inventario_detalle").select("*");
-    if (busqueda.trim()) query = query.or(`producto_nombre.ilike.%${busqueda.trim()}%,sku_interno.ilike.%${busqueda.trim()}%,marca.ilike.%${busqueda.trim()}%`);
+    const textoBusqueda = sanearFiltro(busqueda);
+    if (textoBusqueda) query = query.or(`producto_nombre.ilike.%${textoBusqueda}%,sku_interno.ilike.%${textoBusqueda}%,marca.ilike.%${textoBusqueda}%`);
     query = query.order(orden.campo, { ascending: orden.asc });
-    const { data } = await query.limit(1000);
+    const { data, error } = await query.limit(1000);
+    if (error) console.error("cargarFilas (inventario) falló:", error);
     const lista = data || [];
     setFilas(lista);
 

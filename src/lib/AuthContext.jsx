@@ -50,6 +50,7 @@ export function AuthProvider({ children }) {
         email: session.user.email,
         nombre: perfil?.nombre || session.user.email,
         rol: perfil?.rol || "operario",
+        activo: perfil?.activo !== false,
       }
     : null;
 

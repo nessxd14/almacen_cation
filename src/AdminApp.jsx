@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
+import { sanearFiltro } from "./lib/filtroTexto";
 import EscanerCodigo from "./EscanerCodigo";
 import {
   MapPin, Package, Plus, Pencil, Trash2, Check, X,
@@ -640,15 +641,17 @@ function TabAsignaciones() {
   }, []);
 
   async function buscarProductos(q) {
-    if (!q.trim()) { setProductos([]); return; }
+    const texto = sanearFiltro(q);
+    if (!texto) { setProductos([]); return; }
     setBuscando(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("producto")
       .select("id, nombre, sku_interno")
-      .or(`nombre.ilike.%${q}%,sku_interno.ilike.%${q}%`)
+      .or(`nombre.ilike.%${texto}%,sku_interno.ilike.%${texto}%`)
       .eq("activo", true)
       .order("nombre")
       .limit(20);
+    if (error) console.error("buscarProductos falló:", error);
     setProductos(data || []);
     setBuscando(false);
   }
