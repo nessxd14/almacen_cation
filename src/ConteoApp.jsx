@@ -25,7 +25,7 @@ import { useUsuarioActual } from "./lib/useAuth";
 import { metaProducto } from "./lib/producto";
 import {
   Camera, Search, MapPin, CheckCircle, AlertCircle,
-  Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader,
+  Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader, ImageOff,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -165,28 +165,32 @@ export default function ConteoApp() {
   useEffect(() => {
     if (!isOnline || !store) return;
     const run = async () => {
-      const pending = (await store.getAll("conteos")).filter((l) => l._sync !== "ok");
+      const pending = (await store.getAll("conteos")).filter((l) => !["ok", "ok_sin_foto"].includes(l._sync));
       for (const line of pending) {
         const { _sync, _foto_blob, ...payload } = line;
-        try {
-          // offline-first: la foto se sube aquí, en el sync (no en la captura).
-          if (_foto_blob) {
+        // offline-first: la foto se sube aquí, en el sync (no en la captura).
+        // La fila del conteo se guarda siempre; la foto es best-effort — un
+        // bucket caído no puede costar un conteo físico.
+        let fotoOk = true;
+        if (_foto_blob) {
+          try {
             await subirFotoConteo({
               sesionId: payload.sesion_id,
               clienteUuid: payload.cliente_uuid,
               archivo: _foto_blob,
             });
+          } catch (e) {
+            fotoOk = false;
+            console.error("subirFotoConteo falló:", e);
           }
-          const { error } = await supabase
-            .from("conteo_fisico_inicial")
-            .upsert(payload, { onConflict: "cliente_uuid" });
-          if (!error) {
-            await store.put("conteos", { ...line, _sync: "ok" });
-            setLines((prev) => prev.map((l) => l.cliente_uuid === line.cliente_uuid ? { ...l, _sync: "ok" } : l));
-          }
-        } catch {
-          // sigue pending; el próximo tick reintenta foto + fila
         }
+        const { error } = await supabase
+          .from("conteo_fisico_inicial")
+          .upsert(payload, { onConflict: "cliente_uuid" });
+        if (error) { console.error("upsert conteo falló:", error); continue; }
+        const estado = fotoOk ? "ok" : "ok_sin_foto";
+        await store.put("conteos", { ...line, _sync: estado, _foto_blob: fotoOk ? undefined : _foto_blob });
+        setLines((prev) => prev.map((l) => l.cliente_uuid === line.cliente_uuid ? { ...l, _sync: estado } : l));
       }
     };
     run();
@@ -543,9 +547,12 @@ export default function ConteoApp() {
                 : <p className="font-medium">{pres?.producto?.nombre} · {pres?.nombre}</p>}
               <p className="text-slate-500">Cant: {l.cantidad}</p>
             </div>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium
-              ${l._sync === "ok" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-              {l._sync === "ok" ? "Sync ✓" : "Pendiente"}
+            <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium
+              ${l._sync === "ok" ? "bg-green-100 text-green-700"
+                : l._sync === "ok_sin_foto" ? "bg-slate-200 text-slate-600"
+                : "bg-amber-100 text-amber-700"}`}>
+              {l._sync === "ok_sin_foto" && <ImageOff size={12} />}
+              {l._sync === "ok" ? "Sync ✓" : l._sync === "ok_sin_foto" ? "Sync sin foto" : "Pendiente"}
             </span>
           </div>
         );

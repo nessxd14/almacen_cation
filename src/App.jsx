@@ -50,6 +50,18 @@ export default function App() {
 
   if (!usuario) return <LoginScreen />;
 
+  if (usuario.activo === false) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-4 text-center">
+        <p className="text-lg font-medium text-slate-700">Usuario inactivo — contactá a un administrador</p>
+        <button onClick={signOut}
+          className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
+          <LogOut size={16} /> Cerrar sesión
+        </button>
+      </div>
+    );
+  }
+
   const tabsVisibles = usuario.rol === "admin"
     ? TABS
     : TABS.filter((t) => !TABS_SOLO_ADMIN.has(t.id));

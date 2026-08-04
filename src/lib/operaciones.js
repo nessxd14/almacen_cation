@@ -23,6 +23,7 @@
  */
 
 import { supabase } from "../supabaseClient";
+import { sanearFiltro } from "./filtroTexto";
 
 const uuid = () =>
   crypto.randomUUID ? crypto.randomUUID() : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -34,15 +35,16 @@ export const labelUbicacion = (u) =>
 
 /* ── búsqueda typeahead de producto (nombre / sku) ────────────────────── */
 export async function buscarProductos(q) {
-  const texto = (q || "").trim();
+  const texto = sanearFiltro(q);
   if (!texto) return [];
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("producto")
     .select("id, nombre, sku_interno, unidad_base")
     .or(`nombre.ilike.%${texto}%,sku_interno.ilike.%${texto}%`)
     .eq("activo", true)
     .order("nombre")
     .limit(20);
+  if (error) { console.error("buscarProductos falló:", error); return []; }
   return data || [];
 }
 
@@ -61,24 +63,26 @@ export async function buscarProductos(q) {
  * consumidor decide si resalta o filtra.
  */
 export async function buscarAgrupado(q) {
-  const texto = (q || "").trim();
+  const texto = sanearFiltro(q);
   if (!texto) return [];
 
   // 1. Productos que matchean directo por nombre/SKU/marca (para saber a
   //    qué familias pertenecen y qué productos sueltos entran).
-  const { data: directos } = await supabase
+  const { data: directos, error: errDirectos } = await supabase
     .from("producto")
     .select("id, familia_id")
     .eq("activo", true)
     .or(`nombre.ilike.%${texto}%,sku_interno.ilike.%${texto}%,marca.ilike.%${texto}%`)
     .limit(200);
+  if (errDirectos) console.error("buscarAgrupado (directos) falló:", errDirectos);
 
   // 2. Familias que matchean por su propio nombre.
-  const { data: familiasMatch } = await supabase
+  const { data: familiasMatch, error: errFamilias } = await supabase
     .from("familia")
     .select("id")
     .ilike("nombre", `%${texto}%`)
     .limit(200);
+  if (errFamilias) console.error("buscarAgrupado (familias) falló:", errFamilias);
 
   const familiaIds = new Set();
   for (const p of directos || []) if (p.familia_id != null) familiaIds.add(p.familia_id);
@@ -96,7 +100,7 @@ export async function buscarAgrupado(q) {
   if (familiaIds.size > 0) orParts.push(`familia_id.in.(${[...familiaIds].join(",")})`);
   if (productoIdsSueltos.length > 0) orParts.push(`id.in.(${productoIdsSueltos.join(",")})`);
 
-  const { data: variantes } = await supabase
+  const { data: variantes, error: errVariantes } = await supabase
     .from("producto")
     .select(`
       id, nombre, sku_interno, familia_id, imagen_url,
@@ -106,6 +110,7 @@ export async function buscarAgrupado(q) {
     .eq("activo", true)
     .or(orParts.join(","))
     .limit(200);
+  if (errVariantes) console.error("buscarAgrupado (variantes) falló:", errVariantes);
 
   // Agrupar en JS por familia_id (o por producto_id si no tiene familia).
   const grupos = new Map();

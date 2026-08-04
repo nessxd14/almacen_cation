@@ -513,8 +513,14 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
     });
     if (errorPedido) { setEjecutando(false); showFlash("Error: " + errorPedido.message, "error"); return; }
 
-    const { data: lineaRow } = await supabase
+    const { data: lineaRow, error: errorLinea } = await supabase
       .from("pedido_linea").select("id").eq("pedido_id", pedidoId).limit(1).single();
+
+    if (errorLinea || !lineaRow) {
+      setEjecutando(false);
+      showFlash(`El pedido #${pedidoId} se creó pero no se pudo despachar. Resolvelo desde Pedidos.`, "error");
+      return;
+    }
 
     const { asignaciones, faltante } = await calcularPick({ productoId: producto.id, cantidadBase });
 
@@ -532,7 +538,7 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!ejecutando) onClose(); }}>
       <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-900">Vender ahora</h2>
