@@ -357,6 +357,24 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       if (!l.cantidad || Number(l.cantidad) <= 0) {
         showFlash(`Cantidad inválida para ${l.nombre}`); return;
       }
+      if (l.precioUnitario !== "" && l.precioUnitario != null) {
+        const precio = Number(l.precioUnitario);
+        if (Number.isNaN(precio) || precio < 0) {
+          showFlash(`Precio inválido para ${l.nombre}`); return;
+        }
+      }
+    }
+
+    const lineasSinPrecio = lineas.filter((l) => {
+      const precio = l.precioUnitario !== "" && l.precioUnitario != null ? Number(l.precioUnitario) : 0;
+      return !precio;
+    });
+    if (lineasSinPrecio.length > 0) {
+      const nombres = lineasSinPrecio.map((l) => l.nombre).join(", ");
+      const continuar = window.confirm(
+        `Estas líneas quedarían a Bs 0: ${nombres}. ¿Crear el pedido igual?`
+      );
+      if (!continuar) return;
     }
 
     setCreando(true);

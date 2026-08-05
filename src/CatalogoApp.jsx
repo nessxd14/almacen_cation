@@ -459,6 +459,7 @@ function VenderAhoraModal({ producto, onClose, onVendido }) {
     supabase.from("presentacion")
       .select("id, nombre, factor_unidad_base, es_base")
       .eq("producto_id", producto.id)
+      .eq("activo", true)
       .order("es_base", { ascending: false })
       .then(({ data }) => {
         if (!activo) return;
@@ -775,6 +776,7 @@ export default function CatalogoApp() {
 
   const [showScanner, setShowScanner] = useState(false);
   const debounceRef = useRef(null);
+  const cargarTokenRef = useRef(0);
 
   // Resuelve un código (cámara o scanner físico + Enter en el buscador) y
   // abre directo el quick-view del producto — no pasa por la búsqueda de
@@ -844,6 +846,7 @@ export default function CatalogoApp() {
   };
 
   const cargar = useCallback(async (q, valorId, pag) => {
+    const miToken = ++cargarTokenRef.current;
     setCargando(true);
     const texto = q.trim();
 
@@ -865,6 +868,7 @@ export default function CatalogoApp() {
       const gruposCompletos = await enriquecerVariantes(gruposCrudos);
       const totalVariantes = gruposCompletos.reduce((s, g) => s + g.variantes.length, 0);
 
+      if (cargarTokenRef.current !== miToken) return; // respuesta obsoleta, la pisó una búsqueda más nueva
       setGrupos(gruposCompletos);
       setTotal(totalVariantes);
       setBuscando(true);
@@ -882,6 +886,7 @@ export default function CatalogoApp() {
         .eq("atributo_valor_id", valorId);
       idsFiltro = (data || []).map(r => r.producto_id);
       if (idsFiltro.length === 0) {
+        if (cargarTokenRef.current !== miToken) return;
         setGrupos([]); setTotal(0); setBuscando(false); setCargando(false); return;
       }
     }
@@ -921,27 +926,30 @@ export default function CatalogoApp() {
       }]));
     }
 
+    if (cargarTokenRef.current !== miToken) return; // respuesta obsoleta, la pisó una búsqueda/página más nueva
     setGrupos(agruparPorFamiliaLocal(lista, mapaFamilia));
     setTotal(count || 0);
     setBuscando(false);
     setCargando(false);
   }, []);
 
-  // Buscar con debounce / resetear página al cambiar filtros
+  // Resetear a la página 0 cuando cambian los filtros de búsqueda (no dispara
+  // carga por sí solo: el efecto de abajo reacciona a `pagina` igual).
+  useEffect(() => {
+    setPagina(0);
+  }, [busqueda, filtroValorId]);
+
+  // Único efecto que dispara la carga — reacciona a búsqueda, filtro y
+  // página. Debounced siempre (300ms), así los tres cambios (búsqueda,
+  // filtro, el reset de página de arriba) colapsan en una sola consulta en
+  // vez de dos disparándose en paralelo.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      setPagina(0);
-      cargar(busqueda, filtroValorId, 0);
+      cargar(busqueda, filtroValorId, pagina);
     }, 300);
     return () => clearTimeout(debounceRef.current);
-  }, [busqueda, filtroValorId, cargar]);
-
-  // Cambio de página
-  useEffect(() => {
-    cargar(busqueda, filtroValorId, pagina);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagina]);
+  }, [busqueda, filtroValorId, pagina, cargar]);
 
   const totalPaginas = Math.ceil(total / PAGINA);
 

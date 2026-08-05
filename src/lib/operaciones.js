@@ -360,6 +360,7 @@ export async function desglosePresentaciones({ productoId, ubicacionId, cantidad
     .from("presentacion")
     .select("id, nombre, factor_unidad_base, es_base")
     .eq("producto_id", Number(productoId))
+    .eq("activo", true)
     .order("factor_unidad_base", { ascending: false });
 
   const presentaciones = data || [];
