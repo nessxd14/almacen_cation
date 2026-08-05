@@ -4,8 +4,9 @@
  * código por presentación, y ficha técnica opcional.
  *
  * Invariantes de diseño (no negociables, ver brief):
- * - unidad_base fija en 'unidad', no editable — el tamaño de bulto vive en
- *   `presentacion`, nunca en unidad_base.
+ * - unidad_base es editable (texto libre, "unidad" por defecto) para dar de
+ *   alta productos que se venden por metro/kilo — el tamaño de BULTO sigue
+ *   viviendo siempre en `presentacion`, nunca en unidad_base.
  * - Siempre se crea la presentación base ('Unidad', factor 1, es_base) —
  *   sin ella fallan registrar_venta/registrar_entrada. No se puede editar
  *   ni borrar acá.
@@ -32,6 +33,20 @@ import {
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : "tmp-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 
+// Dígito verificador EAN-13 — ataja el bug conocido de lectores que
+// extraen un código de 13 dígitos con el último dígito corrupto (ej.
+// OpenClaw: lee 6197208186473 cuando el código real es 6972081864731).
+// Códigos que no tienen 13 dígitos (SKUs internos, códigos de empaque
+// cortos, etc.) no son EAN-13 y no se validan acá.
+function esEAN13Valido(codigo) {
+  if (!/^\d{13}$/.test(codigo)) return true;
+  const digitos = codigo.split("").map(Number);
+  let suma = 0;
+  for (let i = 0; i < 12; i++) suma += digitos[i] * (i % 2 === 0 ? 1 : 3);
+  const verificador = (10 - (suma % 10)) % 10;
+  return verificador === digitos[12];
+}
+
 // Deshace lo que ya se haya insertado si un paso posterior falla — en el
 // orden inverso de creación (identificador -> presentacion -> producto),
 // porque las FK no tienen ON DELETE CASCADE hacia producto/presentacion.
@@ -51,6 +66,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
   const [nombre, setNombre] = useState("");
   const [marca, setMarca] = useState("");
   const [skuInterno, setSkuInterno] = useState("");
+  const [unidadBase, setUnidadBase] = useState("unidad");
 
   const [codigoBase, setCodigoBase] = useState("");
   // Presentaciones extra (bulto): [{ key, nombre, factor, codigo }]
@@ -122,13 +138,39 @@ export default function NuevoProducto({ onClose, onCreado }) {
       if (!cantidadInicial || Number(cantidadInicial) <= 0) { setError("Cantidad inicial inválida"); return; }
     }
 
+    const codigosAValidar = [
+      codigoBase.trim() && { valor: codigoBase.trim(), label: "el código base" },
+      ...presentacionesExtra.map((p) => p.codigo.trim() && { valor: p.codigo.trim(), label: `el código de "${p.nombre}"` }),
+    ].filter(Boolean);
+
+    for (const c of codigosAValidar) {
+      if (!esEAN13Valido(c.valor)) {
+        setError(`El dígito verificador de ${c.label} (${c.valor}) no coincide — revisá que el escaneo no haya quedado corrupto`);
+        return;
+      }
+    }
+
+    if (codigosAValidar.length > 0) {
+      const { data: existentes } = await supabase
+        .from("identificador")
+        .select("valor")
+        .in("valor", codigosAValidar.map((c) => c.valor));
+      if (existentes?.length) {
+        const repetidos = [...new Set(existentes.map((e) => e.valor))].join(", ");
+        const continuar = window.confirm(
+          `Este código ya existe en otro producto: ${repetidos}. Los códigos ambiguos hacen que el escáner no sepa qué producto agregar. ¿Crear igual?`
+        );
+        if (!continuar) return;
+      }
+    }
+
     setGuardando(true);
 
     const payloadProducto = {
       nombre: nombre.trim(),
       marca: marca.trim() || null,
       sku_interno: skuInterno.trim() || null,
-      unidad_base: "unidad",
+      unidad_base: unidadBase.trim() || "unidad",
       activo: true,
       ...(esAdmin ? {
         precio_base: precios.precio_base === "" ? null : Number(precios.precio_base),
@@ -251,7 +293,12 @@ export default function NuevoProducto({ onClose, onCreado }) {
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
                 </div>
               </div>
-              <p className="text-xs text-slate-400">Unidad base: <span className="font-medium text-slate-600">unidad</span> — fija, el tamaño de bulto se define abajo.</p>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Unidad base</label>
+                <input value={unidadBase} onChange={e => setUnidadBase(e.target.value)} placeholder="unidad, metro, kilo…"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
+                <p className="mt-1 text-xs text-slate-400">El tamaño de bulto (Caja, Paquete…) se define abajo en Presentaciones, no acá.</p>
+              </div>
             </div>
           </section>
 
