@@ -14,6 +14,7 @@ import {
   codigosGrisPorProducto,
 } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
+import { useSucursal } from "./lib/useSucursal";
 import CodigosLinea from "./CodigosLinea";
 import {
   Truck, ChevronDown, ChevronUp, Loader, AlertTriangle, X, ArrowRight,
@@ -29,8 +30,6 @@ function fechaFmt(iso) {
 }
 
 const MOTIVO_LABELS = { VENTA_DIRECTA: "Venta directa", REPOSICION: "Reposición" };
-const SUCURSAL_LABELS = { 1: "Almacén Central", 2: "Tienda" };
-const labelSucursal = (id) => SUCURSAL_LABELS[id] || `Sucursal ${id}`;
 
 const TABS = [
   { id: "SOLICITADO", label: "Pendientes" },
@@ -39,6 +38,7 @@ const TABS = [
 
 function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
   const usuarioActual = useUsuarioActual();
+  const { nombreSucursal } = useSucursal();
   const [abierto, setAbierto] = useState(false);
   const [cantidades, setCantidades] = useState({});
   const [stockAlmacen, setStockAlmacen] = useState(new Map());
@@ -106,7 +106,7 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
             Traslado #{solicitud.id} · {MOTIVO_LABELS[solicitud.motivo] || solicitud.motivo}
           </p>
           <p className="text-xs text-slate-400 flex items-center gap-1">
-            {labelSucursal(solicitud.sucursal_origen_id)} <ArrowRight size={11} /> {labelSucursal(solicitud.sucursal_destino_id)}
+            {nombreSucursal(solicitud.sucursal_origen_id)} <ArrowRight size={11} /> {nombreSucursal(solicitud.sucursal_destino_id)}
             {" · "}{solicitud.solicitado_por} · {fechaFmt(solicitud.solicitado_en)}
           </p>
         </div>
@@ -165,7 +165,7 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
                       )}
                       <p className={`mt-1 text-xs ${noAlcanza ? "text-red-600" : "text-slate-400"}`}>
                         {cargandoStock ? "Consultando stock…" : stock != null
-                          ? `Stock en ${labelSucursal(solicitud.sucursal_origen_id)}: ${cantidadFmt(stock)}${noAlcanza ? " — no alcanza" : ""}`
+                          ? `Stock en ${nombreSucursal(solicitud.sucursal_origen_id)}: ${cantidadFmt(stock)}${noAlcanza ? " — no alcanza" : ""}`
                           : null}
                       </p>
                     </>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import { metaProducto } from "./lib/producto";
+import { useSucursal } from "./lib/useSucursal";
 import {
   ArrowDownToLine, ArrowUpFromLine, Sliders, ArrowLeftRight, PackagePlus,
   Search, Calendar, User, FileText, MapPin, Filter, History as HistoryIcon, ScanLine
@@ -109,6 +110,7 @@ function FilaMovimiento({ mov, mostrarProducto }) {
 // Si no -> historial global con buscador (modo tab).
 
 export function HistorialMovimientos({ productoId = null, compacto = false }) {
+  const { sucursalActivaId } = useSucursal();
   const [movs, setMovs] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
@@ -133,6 +135,10 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
   }, []);
 
   const cargar = useCallback(async () => {
+    // El panel por producto (dentro de Catálogo) muestra su historial
+    // completo a propósito, incluso entre sucursales — el tab global sí
+    // se filtra por sucursal activa, es la pantalla que hoy es ciega a ella.
+    if (!productoId && !sucursalActivaId) return;
     setCargando(true);
     let query = supabase
       .from("kardex_transacciones")
@@ -140,13 +146,14 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
         id, producto_id, cantidad, tipo_movimiento, referencia, motivo,
         fecha_efectiva, creado_por, creado_en, traslado_grupo_id,
         producto:producto_id(nombre, sku_interno, marca),
-        ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento)
+        ubicacion:ubicacion_id!inner(codigo_zona, estante, nivel, compartimiento, sucursal_id)
       `)
       .order("creado_en", { ascending: false })
       .limit(500);
 
     if (productoId) query = query.eq("producto_id", productoId);
     if (filtroTipo) query = query.eq("tipo_movimiento", filtroTipo);
+    if (!productoId) query = query.eq("ubicacion.sucursal_id", sucursalActivaId);
 
     const { data } = await query;
     let lista = data || [];
@@ -176,7 +183,7 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
 
     setMovs(lista);
     setCargando(false);
-  }, [productoId, filtroTipo, busqueda]);
+  }, [productoId, filtroTipo, busqueda, sucursalActivaId]);
 
   useEffect(() => {
     const t = setTimeout(cargar, busqueda ? 300 : 0);
@@ -281,11 +288,14 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
 // ─── Wrapper para usar como tab independiente ────────────────────────────────
 
 export default function HistorialApp() {
+  const { sucursalActivaId, nombreSucursal } = useSucursal();
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-5">
         <h1 className="text-lg font-semibold text-slate-800">Historial de movimientos</h1>
-        <p className="text-sm text-slate-500">Registro completo del Kardex — entradas, salidas, ajustes y traslados</p>
+        <p className="text-sm text-slate-500">
+          Registro del Kardex en {nombreSucursal(sucursalActivaId) || "…"} — entradas, salidas, ajustes y traslados
+        </p>
       </div>
       <HistorialMovimientos />
     </div>

@@ -20,6 +20,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import { stockPorSucursalBatch, codigosGrisPorProducto } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
+import { useSucursal } from "./lib/useSucursal";
 import { sanearFiltro } from "./lib/filtroTexto";
 import { Tag, Search, Filter, Boxes, Lock, AlertTriangle, Loader, DollarSign } from "lucide-react";
 
@@ -31,8 +32,6 @@ const COLUMNAS_PRECIO = [
   { campo: "precio_institucion", label: "Instituciones" },
   { campo: "precio_municipal", label: "Municipal" },
 ];
-const SUCURSAL_LABELS = { 1: "Almacén", 2: "Tienda" };
-
 function cantidadFmt(v) {
   const n = Number(v || 0);
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
@@ -115,6 +114,7 @@ async function fetchStockTotalPorIds(ids) {
 export default function PreciosApp() {
   const usuarioActual = useUsuarioActual();
   const esAdmin = usuarioActual?.rol === "admin";
+  const { sucursales, nombreSucursal } = useSucursal();
 
   const [busquedaInput, setBusquedaInput] = useState("");
   const [busqueda, setBusqueda] = useState("");
@@ -435,7 +435,7 @@ export default function PreciosApp() {
                         <Boxes size={11} className="text-slate-400" /> {cantidadFmt(stockTotal)}
                       </p>
                       <p className="text-slate-400">
-                        {SUCURSAL_LABELS[1]} {cantidadFmt(stockMapa?.get(1) || 0)} · {SUCURSAL_LABELS[2]} {cantidadFmt(stockMapa?.get(2) || 0)}
+                        {sucursales.map((s) => `${nombreSucursal(s.id)} ${cantidadFmt(stockMapa?.get(s.id) || 0)}`).join(" · ")}
                       </p>
                     </td>
                     {COLUMNAS_PRECIO.map((c) => (

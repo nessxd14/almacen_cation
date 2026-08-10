@@ -15,6 +15,8 @@ import TrasladosApp       from "./TrasladosApp";
 import PreciosApp         from "./PreciosApp";
 import LoginScreen        from "./LoginScreen";
 import { useAuth } from "./lib/useAuth";
+import { useSucursal } from "./lib/useSucursal";
+import { Building2 } from "lucide-react";
 
 const TABS = [
   { id: "catalogo",   label: "Catálogo",     icon: BookOpen,        Comp: CatalogoApp },
@@ -38,6 +40,7 @@ const TABS_SOLO_ADMIN = new Set(["admin", "concilia", "huerfanos", "revision"]);
 
 export default function App() {
   const { cargando, usuario, signOut } = useAuth();
+  const { sucursales, sucursalActivaId, setSucursalActiva } = useSucursal();
   const [tab, setTab] = useState("catalogo");
 
   if (cargando) {
@@ -85,6 +88,20 @@ export default function App() {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2 pl-2 text-sm text-slate-500">
+          {sucursales.length > 0 && (
+            <label className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5">
+              <Building2 size={14} className="text-slate-400" />
+              <select
+                value={sucursalActivaId ?? ""}
+                onChange={(e) => setSucursalActiva(Number(e.target.value))}
+                className="bg-transparent text-sm text-slate-700 focus:outline-none"
+              >
+                {sucursales.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <span className="hidden sm:inline">{usuario.nombre}</span>
           <button onClick={signOut}
             className="flex items-center gap-1 rounded-md px-2 py-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
