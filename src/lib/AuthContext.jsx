@@ -28,7 +28,7 @@ export function AuthProvider({ children }) {
     setCargandoPerfil(true);
     supabase
       .from("perfil")
-      .select("id, nombre, email, rol, activo")
+      .select("id, nombre, email, rol, activo, sucursal_id")
       .eq("id", session.user.id)
       .maybeSingle()
       .then(({ data }) => {
@@ -51,6 +51,8 @@ export function AuthProvider({ children }) {
         nombre: perfil?.nombre || session.user.email,
         rol: perfil?.rol || "operario",
         activo: perfil?.activo !== false,
+        // Encargado de una sucursal fija (null = ve todas, elige en el header).
+        sucursalId: perfil?.sucursal_id ?? null,
       }
     : null;
 
