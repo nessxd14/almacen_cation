@@ -5,10 +5,12 @@ import { metaProducto } from "./lib/producto";
 import { sanearFiltro } from "./lib/filtroTexto";
 import { fetchAll } from "./lib/fetchAll";
 import { useSucursal } from "./lib/useSucursal";
+import { useAppNav } from "./lib/useAppNav";
 import { resumenATarjetas, nivelAlerta } from "./lib/inventario";
+import { controlEfectivo, clasificarFila, progresoSurtido } from "./lib/control";
 import {
   Boxes, Package, DollarSign, AlertTriangle, PackageX, Search,
-  ArrowUpDown, MapPin, SlidersHorizontal, ImageOff, ScanLine
+  ArrowUpDown, MapPin, SlidersHorizontal, ImageOff, ScanLine, ClipboardList,
 } from "lucide-react";
 
 const UMBRAL_STORAGE_KEY = "wms_umbral_default";
@@ -59,7 +61,52 @@ const ETIQUETA_CAMPO = {
   valor_linea: "Valor",
 };
 
-function FilaInventario({ f, alerta }) {
+// Brief W3 #1: la cantidad ya no alcanza sola — hay que decir de qué tipo
+// de número se trata. Un negativo en control libre es información (lo
+// vendido desde que empezó el modo libre), nunca se pinta como error.
+function CeldaCantidad({ f, estado, bajo }) {
+  const n = Number(f.cantidad_base);
+  const texto = `${cantidadFmt(n)} ${f.unidad_base}`;
+
+  if (estado === "estricto_cero") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+        <PackageX size={11} /> {texto}
+      </span>
+    );
+  }
+  if (estado === "libre_negativo") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5"
+        title="Se vendieron unidades desde que empezó el control libre. Al contar, este número se resuelve."
+      >
+        <span className="font-medium text-slate-700">{texto}</span>
+        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">vendido sin contar</span>
+      </span>
+    );
+  }
+  if (estado === "libre_sin_inventariar") {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="font-medium text-slate-700">{texto}</span>
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">sin inventariar</span>
+      </span>
+    );
+  }
+  // estricto_stock
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`font-medium ${bajo ? "text-amber-700" : "text-slate-700"}`}>
+        {bajo && <AlertTriangle size={11} className="mr-1 inline" />}
+        {texto}
+      </span>
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">estricto</span>
+    </span>
+  );
+}
+
+function FilaInventario({ f, estado, bajo, onContar }) {
   return (
     <tr className="hover:bg-slate-50">
       <td className="px-3 py-2.5">
@@ -84,17 +131,16 @@ function FilaInventario({ f, alerta }) {
         </span>
       </td>
       <td className="px-3 py-2.5 text-right">
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
-          ${alerta === "cero" ? "bg-slate-100 text-slate-400"
-            : alerta === "bajo" ? "bg-amber-100 text-amber-700"
-            : "bg-emerald-100 text-emerald-700"}`}>
-          {alerta === "cero" && <PackageX size={11} />}
-          {alerta === "bajo" && <AlertTriangle size={11} />}
-          {cantidadFmt(f.cantidad_base)} {f.unidad_base}
-        </span>
+        <CeldaCantidad f={f} estado={estado} bajo={bajo} />
       </td>
       <td className="px-3 py-2.5 text-right font-medium text-slate-700">
         {precioFmt(f.valor_linea)}
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <button onClick={onContar}
+          className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
+          <ClipboardList size={12} /> Contar
+        </button>
       </td>
     </tr>
   );
@@ -122,11 +168,13 @@ function TarjetaResumen({ icono: Icono, etiqueta, valor, sub, acento = "slate" }
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export default function InventarioApp() {
-  const { sucursalActivaId, nombreSucursal } = useSucursal();
+  const { sucursalActivaId, sucursalActiva, nombreSucursal } = useSucursal();
+  const { irAConteo } = useAppNav();
   const [resumen, setResumen] = useState(null);
   const [filas, setFilas] = useState([]);
-  // producto_id -> {familia_id, familia_nombre, stock_min}
+  // producto_id -> {familia_id, familia_nombre, stockMin, controlStock}
   const [mapaProducto, setMapaProducto] = useState(new Map());
+  const [progreso, setProgreso] = useState(null); // {inventariados, total, pct} — solo en sucursales LIBRE
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   // Umbral por defecto para productos sin stock_min propio — persiste entre
@@ -175,6 +223,22 @@ export default function InventarioApp() {
     setResumen(resumenATarjetas(data));
   }, [sucursalActivaId]);
 
+  // Banner de progreso (brief W3 #2): solo tiene sentido en sucursales con
+  // control_stock_default LIBRE — en ESTRICTO no hay migración gradual que
+  // mostrar. count(*) con head:true, no se traen las filas para contarlas
+  // (mismo criterio que corrigió el resumen de inventario en W2).
+  const cargarProgreso = useCallback(async () => {
+    if (!sucursalActivaId || sucursalActiva?.control_stock_default !== "LIBRE") { setProgreso(null); return; }
+    const [{ count: total, error: e1 }, { count: inventariados, error: e2 }] = await Promise.all([
+      supabase.from("producto_sucursal").select("producto_id", { count: "exact", head: true })
+        .eq("sucursal_id", sucursalActivaId).eq("se_vende", true),
+      supabase.from("producto_sucursal").select("producto_id", { count: "exact", head: true })
+        .eq("sucursal_id", sucursalActivaId).eq("se_vende", true).eq("control_stock", "ESTRICTO"),
+    ]);
+    if (e1 || e2) { console.error("cargarProgreso falló:", e1 || e2); setProgreso(null); return; }
+    setProgreso(progresoSurtido(inventariados, total));
+  }, [sucursalActivaId, sucursalActiva]);
+
   // Tabla detallada (producto × ubicación con stock) de la sucursal activa.
   // Decisión anotada (brief W2 #4): Almacén tiene 1.228 filas hoy, por
   // encima del límite de 1.000 de PostgREST — se usa fetchAll (aceptable a
@@ -201,17 +265,29 @@ export default function InventarioApp() {
     }
     setFilas(lista);
 
-    // Mapa liviano producto_id -> {familia, stock_min}, solo para agrupar
-    // visualmente y resolver el umbral por producto (no altera
-    // v_inventario_detalle ni el orden/filtrado de las filas).
+    // Mapa liviano producto_id -> {familia, stockMin, controlStock}, solo
+    // para agrupar visualmente y resolver el estado de control por fila (no
+    // altera v_inventario_detalle ni el orden/filtrado de las filas).
+    // stock_min sale de producto_sucursal (brief W3 #5) — producto.stock_min
+    // quedó huérfano (sigue NULL en todo el catálogo), no se usa más acá.
     const ids = [...new Set(lista.map(f => f.producto_id))];
     if (ids.length > 0) {
-      const { data: prods } = await supabase
-        .from("producto")
-        .select("id, familia_id, familia:familia_id(nombre), stock_min")
-        .in("id", ids);
+      const [{ data: prods }, { data: ps }] = await Promise.all([
+        supabase.from("producto").select("id, familia_id, familia:familia_id(nombre)").in("id", ids),
+        supabase.from("producto_sucursal").select("producto_id, stock_min, control_stock")
+          .eq("sucursal_id", sucursalActivaId).in("producto_id", ids),
+      ]);
+      const mapaPs = new Map((ps || []).map(p => [p.producto_id, p]));
       const mapa = new Map(
-        (prods || []).map(p => [p.id, { familia_id: p.familia_id, familia_nombre: p.familia?.nombre, stock_min: p.stock_min }])
+        (prods || []).map(p => {
+          const psRow = mapaPs.get(p.id);
+          return [p.id, {
+            familia_id: p.familia_id,
+            familia_nombre: p.familia?.nombre,
+            stockMin: psRow?.stock_min ?? null,
+            controlStock: psRow?.control_stock ?? null,
+          }];
+        })
       );
       setMapaProducto(mapa);
     } else {
@@ -225,7 +301,8 @@ export default function InventarioApp() {
     // Sincroniza con Supabase (sistema externo), no deriva estado de React.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     cargarResumen();
-  }, [cargarResumen]);
+    cargarProgreso();
+  }, [cargarResumen, cargarProgreso]);
   useEffect(() => {
     const t = setTimeout(cargarFilas, 300);
     return () => clearTimeout(t);
@@ -235,15 +312,27 @@ export default function InventarioApp() {
     setOrden(o => o.campo === campo ? { campo, asc: !o.asc } : { campo, asc: true });
   }
 
-  const alertaFila = useCallback(
-    (f) => nivelAlerta(f.cantidad_base, mapaProducto.get(f.producto_id)?.stock_min, umbralDefault),
-    [mapaProducto, umbralDefault]
+  const defaultControl = sucursalActiva?.control_stock_default || "ESTRICTO";
+
+  // Estado de control por fila (brief W3 #1): producto_sucursal.control_stock
+  // pisa el default de la sucursal; null hereda.
+  const estadoFila = useCallback(
+    (f) => clasificarFila(f.cantidad_base, controlEfectivo(mapaProducto.get(f.producto_id)?.controlStock ?? null, defaultControl)),
+    [mapaProducto, defaultControl]
+  );
+
+  // "Bajo mínimo" solo tiene sentido sobre un número confiable (estricto) —
+  // comparar un negativo o un "sin inventariar" contra un mínimo no dice nada.
+  const bajoFila = useCallback(
+    (f) => estadoFila(f) === "estricto_stock"
+      && nivelAlerta(f.cantidad_base, mapaProducto.get(f.producto_id)?.stockMin, umbralDefault) === "bajo",
+    [estadoFila, mapaProducto, umbralDefault]
   );
 
   // Aplicar filtro de alerta sobre las filas cargadas
   const filasFiltradas = filas.filter(f => {
-    if (filtroAlerta === "cero") return alertaFila(f) === "cero";
-    if (filtroAlerta === "bajo") return alertaFila(f) === "bajo";
+    if (filtroAlerta === "cero") return estadoFila(f) === "estricto_cero";
+    if (filtroAlerta === "bajo") return bajoFila(f);
     return true;
   });
 
@@ -252,8 +341,8 @@ export default function InventarioApp() {
   // v_inventario_resumen; bajo se cuenta acá porque depende de stock_min por
   // producto, algo que la vista de resumen no calcula.
   const bajoCount = useMemo(
-    () => filas.filter(f => alertaFila(f) === "bajo").length,
-    [filas, alertaFila]
+    () => filas.filter(f => bajoFila(f)).length,
+    [filas, bajoFila]
   );
 
   const ThOrden = ({ campo, children, className = "" }) => (
@@ -309,6 +398,24 @@ export default function InventarioApp() {
         </div>
       )}
 
+      {/* Banner de progreso — solo en sucursales con control_stock_default LIBRE (brief W3 #2) */}
+      {progreso && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-800">
+            <span className="font-semibold">{nombreSucursal(sucursalActivaId)} en control libre</span>
+            {" — se puede vender sin stock. Cada producto que contás pasa a control estricto por su cuenta."}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-amber-100">
+              <div className="h-full rounded-full bg-amber-500" style={{ width: `${progreso.pct}%` }} />
+            </div>
+            <span className="whitespace-nowrap text-xs font-medium text-amber-700">
+              {progreso.inventariados} de {progreso.total} contados
+            </span>
+          </div>
+        </div>
+      )}
+
       {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
 
       {/* Controles tabla */}
@@ -360,13 +467,14 @@ export default function InventarioApp() {
                 <ThOrden campo="codigo_zona">Ubicación</ThOrden>
                 <ThOrden campo="cantidad_base" className="text-right">Cantidad</ThOrden>
                 <ThOrden campo="valor_linea" className="text-right">Valor</ThOrden>
+                <th className="px-3 py-2 text-right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {cargando ? (
-                <tr><td colSpan={4} className="px-3 py-10 text-center text-slate-400">Cargando…</td></tr>
+                <tr><td colSpan={5} className="px-3 py-10 text-center text-slate-400">Cargando…</td></tr>
               ) : filasFiltradas.length === 0 ? (
-                <tr><td colSpan={4} className="px-3 py-10 text-center text-slate-400">
+                <tr><td colSpan={5} className="px-3 py-10 text-center text-slate-400">
                   {filas.length === 0
                     ? "Sin stock registrado todavía. Aparecerá al hacer los primeros conteos."
                     : "No hay filas que coincidan con el filtro."}
@@ -376,19 +484,21 @@ export default function InventarioApp() {
                   <Fragment key={g.familia_id ?? `p:${g.filas[0].producto_id}`}>
                     {g.productoIds.size > 1 && (
                       <tr className="bg-slate-50">
-                        <td colSpan={4} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                           {g.familia_nombre} <span className="font-normal normal-case text-slate-400">({g.productoIds.size} variantes)</span>
                         </td>
                       </tr>
                     )}
                     {g.filas.map(f => (
-                      <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={alertaFila(f)} />
+                      <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} estado={estadoFila(f)} bajo={bajoFila(f)}
+                        onContar={() => irAConteo({ productoId: f.producto_id, ubicacionId: f.ubicacion_id })} />
                     ))}
                   </Fragment>
                 ))
               ) : (
                 filasFiltradas.map(f => (
-                  <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={alertaFila(f)} />
+                  <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} estado={estadoFila(f)} bajo={bajoFila(f)}
+                    onContar={() => irAConteo({ productoId: f.producto_id, ubicacionId: f.ubicacion_id })} />
                 ))
               )}
             </tbody>

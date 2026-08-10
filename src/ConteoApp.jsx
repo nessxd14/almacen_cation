@@ -24,6 +24,7 @@ import EscanerCodigo from "./EscanerCodigo";
 import { fetchAll } from "./lib/fetchAll";
 import { useUsuarioActual } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
+import { useAppNav } from "./lib/useAppNav";
 import { metaProducto } from "./lib/producto";
 import {
   Camera, Search, MapPin, CheckCircle, AlertCircle, AlertTriangle, Info,
@@ -113,6 +114,7 @@ async function initPersistence() {
 export default function ConteoApp() {
   const usuarioActual = useUsuarioActual();
   const { sucursalActivaId, nombreSucursal } = useSucursal();
+  const { conteoPrefill, setConteoPrefill } = useAppNav();
   const [store, setStore] = useState(null);
   const [storeMode, setStoreMode] = useState(null);
 
@@ -250,6 +252,21 @@ export default function ConteoApp() {
         .single();
       if (error) throw error;
       setSesion(data);
+
+      // Brief W3 #3: el botón "Contar" de Inventario llega con producto y
+      // ubicación ya elegidos — saltar location/búsqueda directo a captura.
+      if (conteoPrefill) {
+        const ubic = ubicaciones.find((u) => u.id === conteoPrefill.ubicacionId);
+        const pres = presentaciones.find((p) => p.producto_id === conteoPrefill.productoId && p.es_base)
+          || presentaciones.find((p) => p.producto_id === conteoPrefill.productoId);
+        setConteoPrefill(null);
+        if (ubic && pres) {
+          setUbicacion(ubic);
+          setSelected(pres);
+          setScreen("capture");
+          return;
+        }
+      }
       setScreen("location");
     } catch (e) {
       setFlash({ type: "error", msg: "Error al crear sesión: " + e.message });
@@ -374,6 +391,21 @@ export default function ConteoApp() {
     await store.put("conteos", { ...lineLocal, _sync: syncState, _foto_blob: syncState === "ok" ? undefined : fotoBlob });
     setLines((prev) => prev.map((l) => l.cliente_uuid === clienteUuid ? { ...l, _sync: syncState } : l));
     await refreshPendingCount();
+
+    // Brief W3 #3 — corazón de la migración gradual: contar un producto lo
+    // pasa a control ESTRICTO en producto_sucursal, sin tocar a los demás.
+    // Solo cuando la fila ya está confirmada en el servidor (nunca sobre
+    // "pending" — no la vio nadie todavía) y hay un producto real detrás
+    // (los huérfanos no tienen producto_id que marcar). RPC pedida a Ness
+    // (marcar_inventariado); best-effort — si falla, la línea ya quedó
+    // guardada, solo no avanzó la barra de progreso de Surtido.
+    if (!esHuerfano && (syncState === "ok" || syncState === "sin_foto")) {
+      const { error: errMarcar } = await supabase.rpc("marcar_inventariado", {
+        p_producto_id: selected.producto_id,
+        p_sucursal_id: ubicacion.sucursal_id,
+      });
+      if (errMarcar) console.error("marcar_inventariado falló:", errMarcar);
+    }
 
     setFlash(flash);
     setTimeout(() => setFlash(null), 2500);
