@@ -19,14 +19,44 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import { subirFotoConteo, pathFotoConteo } from "./fotoConteo";
+import { syncLinea } from "./lib/guardarLinea";
 import EscanerCodigo from "./EscanerCodigo";
 import { fetchAll } from "./lib/fetchAll";
 import { useUsuarioActual } from "./lib/useAuth";
 import { metaProducto } from "./lib/producto";
 import {
-  Camera, Search, MapPin, CheckCircle, AlertCircle,
-  Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader, ImageOff,
+  Camera, Search, MapPin, CheckCircle, AlertCircle, AlertTriangle, Info,
+  Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader, ImageOff, RefreshCw,
 } from "lucide-react";
+
+const FLASH_STYLES = {
+  ok: "bg-green-50 text-green-700",
+  neutral: "bg-slate-100 text-slate-600",
+  warn: "bg-amber-50 text-amber-700",
+  info: "bg-blue-50 text-blue-700",
+  error: "bg-red-50 text-red-700",
+};
+const FLASH_ICONS = {
+  ok: CheckCircle,
+  neutral: CheckCircle,
+  warn: AlertTriangle,
+  info: Info,
+  error: AlertCircle,
+};
+
+function PendingBanner({ pendingCount, isOnline, onRetry }) {
+  if (!pendingCount) return null;
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-amber-50 border border-amber-200 text-amber-700">
+      <AlertTriangle size={14} />
+      <span>{pendingCount} línea{pendingCount === 1 ? "" : "s"} sin subir</span>
+      <button onClick={onRetry} disabled={!isOnline}
+        className="ml-auto flex items-center gap-1 underline disabled:opacity-40 disabled:no-underline">
+        <RefreshCw size={12} /> Reintentar subida
+      </button>
+    </div>
+  );
+}
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
 const uuid = () =>
@@ -101,6 +131,7 @@ export default function ConteoApp() {
 
   // líneas capturadas
   const [lines, setLines] = useState([]);
+  const [pendingCount, setPendingCount] = useState(0);
 
   // estado de red
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -161,42 +192,50 @@ export default function ConteoApp() {
     cargarCatalogo();
   }, []);
 
+  /* ── contador de líneas sin subir (persiste entre pantallas) ───────── */
+  const refreshPendingCount = useCallback(async () => {
+    if (!store) return;
+    const all = await store.getAll("conteos");
+    setPendingCount(all.filter((l) => l._sync !== "ok").length);
+  }, [store]);
+
+  useEffect(() => {
+    // Sincroniza el contador con IndexedDB (fuente externa), no con estado de React.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshPendingCount();
+  }, [refreshPendingCount]);
+
   /* ── sync pump offline → Supabase ────────────────────────────────── */
+  // fila primero, foto después: el dato del conteo vale más que la foto,
+  // y foto_ref ya es determinístico por cliente_uuid, así que la fila
+  // puede quedar guardada aunque la foto todavía no exista en Storage.
+  const runSyncPump = useCallback(async () => {
+    if (!store) return;
+    const pending = (await store.getAll("conteos")).filter((l) => l._sync !== "ok");
+    for (const line of pending) {
+      const { _sync, _foto_blob, ...lineDB } = line;
+      const { syncState } = await syncLinea({
+        isOnline: true,
+        supabase,
+        subirFotoConteo,
+        lineDB,
+        fotoBlob: _foto_blob,
+        rowAlreadySaved: _sync === "sin_foto",
+      });
+      await store.put("conteos", { ...line, _sync: syncState, _foto_blob: syncState === "ok" ? undefined : _foto_blob });
+      setLines((prev) => prev.map((l) => l.cliente_uuid === line.cliente_uuid ? { ...l, _sync: syncState } : l));
+    }
+    await refreshPendingCount();
+  }, [store, refreshPendingCount]);
+
   useEffect(() => {
     if (!isOnline || !store) return;
-    const run = async () => {
-      const pending = (await store.getAll("conteos")).filter((l) => !["ok", "ok_sin_foto"].includes(l._sync));
-      for (const line of pending) {
-        const { _sync, _foto_blob, ...payload } = line;
-        // offline-first: la foto se sube aquí, en el sync (no en la captura).
-        // La fila del conteo se guarda siempre; la foto es best-effort — un
-        // bucket caído no puede costar un conteo físico.
-        let fotoOk = true;
-        if (_foto_blob) {
-          try {
-            await subirFotoConteo({
-              sesionId: payload.sesion_id,
-              clienteUuid: payload.cliente_uuid,
-              archivo: _foto_blob,
-            });
-          } catch (e) {
-            fotoOk = false;
-            console.error("subirFotoConteo falló:", e);
-          }
-        }
-        const { error } = await supabase
-          .from("conteo_fisico_inicial")
-          .upsert(payload, { onConflict: "cliente_uuid" });
-        if (error) { console.error("upsert conteo falló:", error); continue; }
-        const estado = fotoOk ? "ok" : "ok_sin_foto";
-        await store.put("conteos", { ...line, _sync: estado, _foto_blob: fotoOk ? undefined : _foto_blob });
-        setLines((prev) => prev.map((l) => l.cliente_uuid === line.cliente_uuid ? { ...l, _sync: estado } : l));
-      }
-    };
-    run();
-    const id = setInterval(run, 15000);
+    // Polling contra Supabase/IndexedDB (sistemas externos), no derivación de estado de React.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    runSyncPump();
+    const id = setInterval(runSyncPump, 15000);
     return () => clearInterval(id);
-  }, [isOnline, store]);
+  }, [isOnline, store, runSyncPump]);
 
   /* ── crear sesión en Supabase ─────────────────────────────────────── */
   const crearSesion = async (metodo) => {
@@ -309,25 +348,17 @@ export default function ConteoApp() {
     const lineLocal = { ...lineDB, _sync: "pending", _foto_blob: fotoBlob };
     await store.put("conteos", lineLocal);
     setLines((prev) => [...prev, { ...lineDB, _sync: "pending" }]);
+    await refreshPendingCount();
 
-    // intentar sync inmediato si hay conexión (foto primero, luego fila)
-    if (isOnline) {
-      try {
-        await subirFotoConteo({ sesionId: sesion.id, clienteUuid, archivo: fotoBlob });
-        const { error } = await supabase
-          .from("conteo_fisico_inicial")
-          .upsert(lineDB, { onConflict: "cliente_uuid" });
-        if (!error) {
-          await store.put("conteos", { ...lineLocal, _sync: "ok" });
-          setLines((prev) => prev.map((l) => l.cliente_uuid === clienteUuid ? { ...l, _sync: "ok" } : l));
-        }
-      } catch {
-        // queda pending; el pump reintenta foto + fila
-      }
-    }
+    // intentar sync inmediato: la fila primero, la foto después. El flash
+    // final refleja el estado real — nunca un ✓ verde si la fila no llegó.
+    const { syncState, flash } = await syncLinea({ isOnline, supabase, subirFotoConteo, lineDB, fotoBlob });
+    await store.put("conteos", { ...lineLocal, _sync: syncState, _foto_blob: syncState === "ok" ? undefined : fotoBlob });
+    setLines((prev) => prev.map((l) => l.cliente_uuid === clienteUuid ? { ...l, _sync: syncState } : l));
+    await refreshPendingCount();
 
-    setFlash({ type:"ok", msg:"Línea guardada ✓" });
-    setTimeout(() => setFlash(null), 2000);
+    setFlash(flash);
+    setTimeout(() => setFlash(null), 2500);
     resetCapture();
     setGuardando(false);
     inputRef.current?.focus();
@@ -347,6 +378,8 @@ export default function ConteoApp() {
         <ClipboardList className="text-slate-700" />
         <h1 className="text-xl font-bold text-slate-800">Nueva sesión de conteo</h1>
       </div>
+
+      <PendingBanner pendingCount={pendingCount} isOnline={isOnline} onRetry={runSyncPump} />
 
       {errorCatalogo && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
@@ -392,6 +425,7 @@ export default function ConteoApp() {
         <MapPin className="text-slate-700" />
         <h2 className="text-lg font-semibold text-slate-800">Selecciona la ubicación</h2>
       </div>
+      <PendingBanner pendingCount={pendingCount} isOnline={isOnline} onRetry={runSyncPump} />
       {ubicaciones.map((u) => (
         <button key={u.id} onClick={() => { setUbicacion(u); setScreen("capture"); }}
           className="w-full text-left px-4 py-3 bg-white border rounded-xl hover:bg-slate-50 font-mono text-sm">
@@ -418,13 +452,17 @@ export default function ConteoApp() {
         </button>
       </div>
 
-      {flash && (
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm
-          ${flash.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-          {flash.type === "ok" ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
-          {flash.msg}
-        </div>
-      )}
+      <PendingBanner pendingCount={pendingCount} isOnline={isOnline} onRetry={runSyncPump} />
+
+      {flash && (() => {
+        const FlashIcon = FLASH_ICONS[flash.type] ?? AlertCircle;
+        return (
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${FLASH_STYLES[flash.type] ?? FLASH_STYLES.error}`}>
+            <FlashIcon size={14} />
+            {flash.msg}
+          </div>
+        );
+      })()}
 
       {!selected && !esHuerfano && (
         <>
@@ -536,6 +574,7 @@ export default function ConteoApp() {
         </button>
         <h2 className="font-semibold text-slate-800">Líneas capturadas ({lines.length})</h2>
       </div>
+      <PendingBanner pendingCount={pendingCount} isOnline={isOnline} onRetry={runSyncPump} />
       {lines.length === 0 && <p className="text-sm text-slate-400 text-center py-8">Sin líneas aún</p>}
       {lines.map((l) => {
         const pres = presentaciones.find((p) => p.id === l.presentacion_id);
@@ -549,10 +588,10 @@ export default function ConteoApp() {
             </div>
             <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium
               ${l._sync === "ok" ? "bg-green-100 text-green-700"
-                : l._sync === "ok_sin_foto" ? "bg-slate-200 text-slate-600"
+                : l._sync === "sin_foto" ? "bg-slate-200 text-slate-600"
                 : "bg-amber-100 text-amber-700"}`}>
-              {l._sync === "ok_sin_foto" && <ImageOff size={12} />}
-              {l._sync === "ok" ? "Sync ✓" : l._sync === "ok_sin_foto" ? "Sync sin foto" : "Pendiente"}
+              {l._sync === "sin_foto" && <ImageOff size={12} />}
+              {l._sync === "ok" ? "Sync ✓" : l._sync === "sin_foto" ? "Sync sin foto" : "Pendiente"}
             </span>
           </div>
         );
