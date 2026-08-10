@@ -1,12 +1,17 @@
-import { useState, useEffect, useCallback, Fragment } from "react";
+import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import { metaProducto } from "./lib/producto";
 import { sanearFiltro } from "./lib/filtroTexto";
+import { fetchAll } from "./lib/fetchAll";
+import { useSucursal } from "./lib/useSucursal";
+import { resumenATarjetas, nivelAlerta } from "./lib/inventario";
 import {
   Boxes, Package, DollarSign, AlertTriangle, PackageX, Search,
   ArrowUpDown, MapPin, SlidersHorizontal, ImageOff, ScanLine
 } from "lucide-react";
+
+const UMBRAL_STORAGE_KEY = "wms_umbral_default";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -117,15 +122,28 @@ function TarjetaResumen({ icono: Icono, etiqueta, valor, sub, acento = "slate" }
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export default function InventarioApp() {
+  const { sucursalActivaId, nombreSucursal } = useSucursal();
   const [resumen, setResumen] = useState(null);
   const [filas, setFilas] = useState([]);
-  const [mapaFamilia, setMapaFamilia] = useState(new Map()); // producto_id -> {familia_id, familia_nombre}
+  // producto_id -> {familia_id, familia_nombre, stock_min}
+  const [mapaProducto, setMapaProducto] = useState(new Map());
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
-  const [umbral, setUmbral] = useState(5);
+  // Umbral por defecto para productos sin stock_min propio — persiste entre
+  // sesiones porque, a diferencia de stock_min, es una preferencia de la
+  // persona que mira la pantalla, no un dato del producto.
+  const [umbralDefault, setUmbralDefault] = useState(() => {
+    if (typeof localStorage === "undefined") return 5;
+    const guardado = Number(localStorage.getItem(UMBRAL_STORAGE_KEY));
+    return guardado > 0 ? guardado : 5;
+  });
   const [orden, setOrden] = useState({ campo: "producto_nombre", asc: true });
   const [filtroAlerta, setFiltroAlerta] = useState("todos"); // todos | bajo | cero
   const [showScanner, setShowScanner] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem(UMBRAL_STORAGE_KEY, String(umbralDefault)); } catch { /* localStorage no disponible */ }
+  }, [umbralDefault]);
 
   const handleScan = useCallback(async (codigo) => {
     setShowScanner(false);
@@ -144,72 +162,70 @@ export default function InventarioApp() {
     if (pres?.producto?.nombre) setBusqueda(pres.producto.nombre);
   }, []);
 
-  // Resumen global (sobre TODO el catálogo, no solo lo filtrado)
+  // Resumen de la sucursal activa: una lectura de v_inventario_resumen (2
+  // filas en toda la vista), nada de sumar filas de detalle en el navegador.
   const cargarResumen = useCallback(async () => {
-    // Total de productos activos
-    const { count: totalProductos } = await supabase
-      .from("producto").select("id", { count: "exact", head: true }).eq("activo", true);
+    if (!sucursalActivaId) return;
+    const { data, error } = await supabase
+      .from("v_inventario_resumen")
+      .select("*")
+      .eq("sucursal_id", sucursalActivaId)
+      .maybeSingle();
+    if (error) { console.error("cargarResumen falló:", error); setResumen(null); return; }
+    setResumen(resumenATarjetas(data));
+  }, [sucursalActivaId]);
 
-    // Stock total por producto (incluye ceros vía la vista)
-    const { data: stockPorProducto } = await supabase
-      .from("v_producto_stock").select("producto_id, stock_total");
-
-    // Valor total: traemos detalle (solo lo que tiene stock)
-    const { data: detalle } = await supabase
-      .from("v_inventario_detalle").select("cantidad_base, valor_linea");
-
-    const totalUnidades = (detalle || []).reduce((s, r) => s + Number(r.cantidad_base || 0), 0);
-    const valorTotal = (detalle || []).reduce((s, r) => s + Number(r.valor_linea || 0), 0);
-
-    const enCero = (stockPorProducto || []).filter(s => Number(s.stock_total) === 0).length;
-    const bajo = (stockPorProducto || []).filter(s => {
-      const n = Number(s.stock_total);
-      return n > 0 && n <= umbral;
-    }).length;
-
-    setResumen({
-      totalProductos: totalProductos || 0,
-      totalUnidades,
-      valorTotal,
-      enCero,
-      bajo,
-    });
-  }, [umbral]);
-
-  // Tabla detallada (producto × ubicación con stock)
+  // Tabla detallada (producto × ubicación con stock) de la sucursal activa.
+  // Decisión anotada (brief W2 #4): Almacén tiene 1.228 filas hoy, por
+  // encima del límite de 1.000 de PostgREST — se usa fetchAll (aceptable a
+  // este tamaño) en vez de paginación real. Si el volumen crece de forma
+  // sostenida, pasar a .range() con scroll/paginado en la UI.
   const cargarFilas = useCallback(async () => {
+    if (!sucursalActivaId) return;
     setCargando(true);
-    let query = supabase.from("v_inventario_detalle").select("*");
     const textoBusqueda = sanearFiltro(busqueda);
-    if (textoBusqueda) query = query.or(`producto_nombre.ilike.%${textoBusqueda}%,sku_interno.ilike.%${textoBusqueda}%,marca.ilike.%${textoBusqueda}%`);
-    query = query.order(orden.campo, { ascending: orden.asc });
-    const { data, error } = await query.limit(1000);
-    if (error) console.error("cargarFilas (inventario) falló:", error);
-    const lista = data || [];
+    const construirQuery = () => {
+      let q = supabase.from("v_inventario_detalle").select("*").eq("sucursal_id", sucursalActivaId);
+      if (textoBusqueda) q = q.or(`producto_nombre.ilike.%${textoBusqueda}%,sku_interno.ilike.%${textoBusqueda}%,marca.ilike.%${textoBusqueda}%`);
+      q = q.order(orden.campo, { ascending: orden.asc });
+      // Desempate estable para que fetchAll no repita/salte filas entre páginas.
+      if (orden.campo !== "producto_id") q = q.order("producto_id", { ascending: true });
+      return q;
+    };
+
+    let lista = [];
+    try {
+      lista = await fetchAll(construirQuery);
+    } catch (e) {
+      console.error("cargarFilas (inventario) falló:", e);
+    }
     setFilas(lista);
 
-    // Mapa liviano producto_id -> familia, solo para agrupar visualmente
-    // (no altera v_inventario_detalle ni el orden/filtrado de las filas).
+    // Mapa liviano producto_id -> {familia, stock_min}, solo para agrupar
+    // visualmente y resolver el umbral por producto (no altera
+    // v_inventario_detalle ni el orden/filtrado de las filas).
     const ids = [...new Set(lista.map(f => f.producto_id))];
     if (ids.length > 0) {
       const { data: prods } = await supabase
         .from("producto")
-        .select("id, familia_id, familia:familia_id(nombre)")
+        .select("id, familia_id, familia:familia_id(nombre), stock_min")
         .in("id", ids);
       const mapa = new Map(
-        (prods || [])
-          .filter(p => p.familia_id != null)
-          .map(p => [p.id, { familia_id: p.familia_id, familia_nombre: p.familia?.nombre }])
+        (prods || []).map(p => [p.id, { familia_id: p.familia_id, familia_nombre: p.familia?.nombre, stock_min: p.stock_min }])
       );
-      setMapaFamilia(mapa);
+      setMapaProducto(mapa);
     } else {
-      setMapaFamilia(new Map());
+      setMapaProducto(new Map());
     }
 
     setCargando(false);
-  }, [busqueda, orden]);
+  }, [busqueda, orden, sucursalActivaId]);
 
-  useEffect(() => { cargarResumen(); }, [cargarResumen]);
+  useEffect(() => {
+    // Sincroniza con Supabase (sistema externo), no deriva estado de React.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    cargarResumen();
+  }, [cargarResumen]);
   useEffect(() => {
     const t = setTimeout(cargarFilas, 300);
     return () => clearTimeout(t);
@@ -219,20 +235,26 @@ export default function InventarioApp() {
     setOrden(o => o.campo === campo ? { campo, asc: !o.asc } : { campo, asc: true });
   }
 
+  const alertaFila = useCallback(
+    (f) => nivelAlerta(f.cantidad_base, mapaProducto.get(f.producto_id)?.stock_min, umbralDefault),
+    [mapaProducto, umbralDefault]
+  );
+
   // Aplicar filtro de alerta sobre las filas cargadas
   const filasFiltradas = filas.filter(f => {
-    const n = Number(f.cantidad_base);
-    if (filtroAlerta === "cero") return n === 0;
-    if (filtroAlerta === "bajo") return n > 0 && n <= umbral;
+    if (filtroAlerta === "cero") return alertaFila(f) === "cero";
+    if (filtroAlerta === "bajo") return alertaFila(f) === "bajo";
     return true;
   });
 
-  function nivelAlerta(cantidad) {
-    const n = Number(cantidad);
-    if (n === 0) return "cero";
-    if (n <= umbral) return "bajo";
-    return "ok";
-  }
+  // "Necesitan atención" ya no suma con el número global de v_producto_stock
+  // (mezclaba sucursales y productos inactivos) — enCero sale de
+  // v_inventario_resumen; bajo se cuenta acá porque depende de stock_min por
+  // producto, algo que la vista de resumen no calcula.
+  const bajoCount = useMemo(
+    () => filas.filter(f => alertaFila(f) === "bajo").length,
+    [filas, alertaFila]
+  );
 
   const ThOrden = ({ campo, children, className = "" }) => (
     <th className={`px-3 py-2 text-left ${className}`}>
@@ -248,22 +270,24 @@ export default function InventarioApp() {
   // (Producto) — con cualquier otro criterio se desactiva para no producir
   // un agrupamiento incoherente con el orden pedido.
   const agrupando = orden.campo === "producto_nombre";
-  const bloques = agrupando ? agruparPorFamilia(filasFiltradas, mapaFamilia) : null;
+  const bloques = agrupando ? agruparPorFamilia(filasFiltradas, mapaProducto) : null;
 
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-800">Estado de inventario</h1>
-          <p className="text-sm text-slate-500">Vista global del stock en el almacén</p>
+          <p className="text-sm text-slate-500">
+            Stock en {nombreSucursal(sucursalActivaId) || "…"}
+          </p>
         </div>
-        {/* Ajuste de umbral */}
+        {/* Ajuste de umbral por defecto */}
         <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
           <SlidersHorizontal size={14} className="text-slate-400" />
-          <label className="text-xs text-slate-500">Stock bajo si ≤</label>
+          <label className="text-xs text-slate-500">Umbral por defecto (para productos sin mínimo definido)</label>
           <input
-            type="number" min={0} value={umbral}
-            onChange={e => setUmbral(Math.max(0, Number(e.target.value)))}
+            type="number" min={0} value={umbralDefault}
+            onChange={e => setUmbralDefault(Math.max(0, Number(e.target.value)))}
             className="w-14 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none"
           />
         </div>
@@ -279,9 +303,9 @@ export default function InventarioApp() {
           <TarjetaResumen icono={DollarSign} etiqueta="Valor del inventario"
             valor={precioFmt(resumen.valorTotal)} acento="emerald" />
           <TarjetaResumen icono={AlertTriangle} etiqueta="Necesitan atención"
-            valor={resumen.enCero + resumen.bajo}
-            sub={`${resumen.enCero} en cero · ${resumen.bajo} bajo`}
-            acento={resumen.enCero + resumen.bajo > 0 ? "amber" : "slate"} />
+            valor={resumen.enCero + bajoCount}
+            sub={`${resumen.enCero} en cero · ${bajoCount} bajo`}
+            acento={resumen.enCero + bajoCount > 0 ? "amber" : "slate"} />
         </div>
       )}
 
@@ -358,13 +382,13 @@ export default function InventarioApp() {
                       </tr>
                     )}
                     {g.filas.map(f => (
-                      <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={nivelAlerta(f.cantidad_base)} />
+                      <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={alertaFila(f)} />
                     ))}
                   </Fragment>
                 ))
               ) : (
                 filasFiltradas.map(f => (
-                  <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={nivelAlerta(f.cantidad_base)} />
+                  <FilaInventario key={`${f.producto_id}-${f.ubicacion_id}`} f={f} alerta={alertaFila(f)} />
                 ))
               )}
             </tbody>
@@ -374,7 +398,9 @@ export default function InventarioApp() {
 
       {!cargando && filasFiltradas.length > 0 && (
         <p className="mt-3 text-right text-xs text-slate-400">
-          {filasFiltradas.length} líneas mostradas
+          {!busqueda && resumen && filas.length < resumen.filasDetalle
+            ? `${filas.length} de ${resumen.filasDetalle} líneas mostradas — hay más`
+            : `${filasFiltradas.length} líneas mostradas`}
         </p>
       )}
     </div>

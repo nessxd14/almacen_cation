@@ -24,6 +24,7 @@ import {
 import CodigosLinea from "./CodigosLinea";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
 import { useUsuarioActual } from "./lib/useAuth";
+import { useSucursal } from "./lib/useSucursal";
 import {
   ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine,
@@ -80,10 +81,6 @@ function labelCategoria(categoria) {
   return CATEGORIA_LABELS[categoria] || categoria;
 }
 
-const SUCURSAL_LABELS = { 1: "Almacén", 2: "Tienda" };
-function labelSucursal(id) {
-  return id != null ? (SUCURSAL_LABELS[id] || `Sucursal ${id}`) : null;
-}
 function fmtDinero(v) {
   if (v == null) return "—";
   return Number(v).toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -228,6 +225,7 @@ const CANAL_PRECIO_POR_CATEGORIA = { MAYOR: "precio_mayoreo", TIENDA: "precio_ba
 /* ── Armador de pedido ─────────────────────────────────────────────────── */
 function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   const usuarioActual = useUsuarioActual();
+  const { nombreSucursal, sucursales } = useSucursal();
   const [categoria, setCategoria] = useState("");
   const [referencia, setReferencia] = useState("");
   const [lineas, setLineas] = useState(
@@ -489,7 +487,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
                   )}
                   {l.stockPorSucursal && (
                     <p className="text-xs text-slate-400">
-                      {labelSucursal(1)} {cantidadFmt(l.stockPorSucursal.get(1) || 0)} · {labelSucursal(2)} {cantidadFmt(l.stockPorSucursal.get(2) || 0)}
+                      {sucursales.map((s) => `${nombreSucursal(s.id)} ${cantidadFmt(l.stockPorSucursal.get(s.id) || 0)}`).join(" · ")}
                       {" → "}{cantidadFmt(disponibleTotal)} {l.unidad_base} disponibles
                       {esBulto && ` · ${cantidadFmt(disponibleTotal / factorElegido)} ${presElegida.nombre}`}
                     </p>
@@ -529,6 +527,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
 function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLibre, codigos }) {
   const usuarioActual = useUsuarioActual();
+  const { nombreSucursal } = useSucursal();
   const [abierto, setAbierto] = useState(false);
   const [asignaciones, setAsignaciones] = useState([]);
   const [ubicacionesDisponibles, setUbicacionesDisponibles] = useState([]);
@@ -629,7 +628,7 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
           {linea.producto?.sku_interno && <p className="text-xs text-slate-400">{linea.producto.sku_interno}</p>}
           <CodigosLinea codigos={codigos} marca={linea.producto?.marca} />
           {linea.sucursal_origen_id != null && (
-            <p className="text-xs text-slate-400">Origen: {labelSucursal(linea.sucursal_origen_id)}</p>
+            <p className="text-xs text-slate-400">Origen: {nombreSucursal(linea.sucursal_origen_id)}</p>
           )}
         </div>
         <span className="text-sm font-mono text-slate-600">{textoCantidadLinea(linea)}</span>
@@ -839,6 +838,7 @@ function FilaEspecial({ linea, onRefrescar }) {
    impresa. Texto de producto sin truncar ni clamp: en papel no hay el
    límite de espacio de una card en pantalla. */
 function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codigosPorProducto }) {
+  const { nombreSucursal } = useSucursal();
   return (
     <div className="hidden print:block">
       <h1 className="text-2xl font-bold text-slate-900">Pedido #{pedido.id}</h1>
@@ -881,7 +881,7 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
                     </p>
                   )}
                 </td>
-                <td className="py-2 pr-3">{labelSucursal(l.sucursal_origen_id) || "—"}</td>
+                <td className="py-2 pr-3">{nombreSucursal(l.sucursal_origen_id) || "—"}</td>
                 <td className="py-2 pr-3">{l.precio_unitario != null ? fmtDinero(l.precio_unitario) : "—"}</td>
                 <td className="py-2 pr-3">{l.descuento_pct ? `${l.descuento_pct}%` : "—"}</td>
                 <td className="py-2 pr-3">{l.subtotal != null ? fmtDinero(l.subtotal) : "—"}</td>

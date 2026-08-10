@@ -16,13 +16,14 @@
  *                          (resolución por escaneo vía RPC resolver_identificador)
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import { subirFotoConteo, pathFotoConteo } from "./fotoConteo";
 import { syncLinea } from "./lib/guardarLinea";
 import EscanerCodigo from "./EscanerCodigo";
 import { fetchAll } from "./lib/fetchAll";
 import { useUsuarioActual } from "./lib/useAuth";
+import { useSucursal } from "./lib/useSucursal";
 import { metaProducto } from "./lib/producto";
 import {
   Camera, Search, MapPin, CheckCircle, AlertCircle, AlertTriangle, Info,
@@ -111,6 +112,7 @@ async function initPersistence() {
 /* ═══════════════════════════════════════════════════════════════════════ */
 export default function ConteoApp() {
   const usuarioActual = useUsuarioActual();
+  const { sucursalActivaId, nombreSucursal } = useSucursal();
   const [store, setStore] = useState(null);
   const [storeMode, setStoreMode] = useState(null);
 
@@ -176,7 +178,7 @@ export default function ConteoApp() {
       setLoadingCatalogo(true);
       try {
         const [ubs, pres, ids] = await Promise.all([
-          fetchAll(() => supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento").order("codigo_zona").order("estante").order("nivel").order("compartimiento")),
+          fetchAll(() => supabase.from("ubicacion").select("id, codigo_zona, estante, nivel, compartimiento, sucursal_id").order("codigo_zona").order("estante").order("nivel").order("compartimiento")),
           fetchAll(() => supabase.from("presentacion").select("id, producto_id, nombre, factor_unidad_base, es_base, producto(id, nombre, sku_interno, marca, unidad_base)").order("id")),
           fetchAll(() => supabase.from("identificador").select("presentacion_id, valor").eq("activo", true).order("id")),
         ]);
@@ -314,6 +316,22 @@ export default function ConteoApp() {
     setCantidad(""); setEsHuerfano(false); setDescLibre(""); setFotoBlob(null);
   };
 
+  const ubicacionesSucursal = useMemo(
+    () => ubicaciones.filter((u) => u.sucursal_id === sucursalActivaId),
+    [ubicaciones, sucursalActivaId]
+  );
+
+  // Si cambian la sucursal activa (header) con una ubicación ya elegida,
+  // esa ubicación puede ser de otra sucursal — no dejar contar contra ella.
+  useEffect(() => {
+    if (ubicacion && ubicacion.sucursal_id !== sucursalActivaId) {
+      // Reacciona a un cambio externo (sucursal activa en el header), no deriva estado local.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUbicacion(null);
+      setScreen("location");
+    }
+  }, [sucursalActivaId, ubicacion]);
+
   /* ── guardar línea ────────────────────────────────────────────────── */
   const guardarLinea = async () => {
     if (!store || !sesion || !ubicacion) return;
@@ -390,7 +408,7 @@ export default function ConteoApp() {
       <p className="text-sm text-slate-500">
         Persistencia: <span className="font-mono">{storeMode}</span>
         {loadingCatalogo && <span className="ml-2 text-slate-400">· Cargando catálogo…</span>}
-        {!loadingCatalogo && <span className="ml-2 text-green-600">· {ubicaciones.length} ubic · {presentaciones.length} pres</span>}
+        {!loadingCatalogo && <span className="ml-2 text-green-600">· {ubicacionesSucursal.length} ubic · {presentaciones.length} pres</span>}
       </p>
 
       <button
@@ -418,15 +436,22 @@ export default function ConteoApp() {
     </div>
   );
 
-  /* ubicación */
+  /* ubicación — filtradas a la sucursal activa: sin esto, Cristian
+     (Tienda) podía contar contra una ubicación de Almacén sin barrera. */
   if (screen === "location") return (
     <div className="max-w-md mx-auto pt-6 px-4 space-y-3">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="text-slate-700" />
-        <h2 className="text-lg font-semibold text-slate-800">Selecciona la ubicación</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">Selecciona la ubicación</h2>
+          <p className="text-xs text-slate-400">{nombreSucursal(sucursalActivaId) || "…"}</p>
+        </div>
       </div>
       <PendingBanner pendingCount={pendingCount} isOnline={isOnline} onRetry={runSyncPump} />
-      {ubicaciones.map((u) => (
+      {ubicacionesSucursal.length === 0 && (
+        <p className="text-sm text-slate-400 text-center py-8">Sin ubicaciones cargadas para esta sucursal.</p>
+      )}
+      {ubicacionesSucursal.map((u) => (
         <button key={u.id} onClick={() => { setUbicacion(u); setScreen("capture"); }}
           className="w-full text-left px-4 py-3 bg-white border rounded-xl hover:bg-slate-50 font-mono text-sm">
           {labelUbicacion(u)}
