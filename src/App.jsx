@@ -2,9 +2,11 @@ import { useState } from "react";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
   History, ShoppingBag, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
+  AlertTriangle,
 } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
+import FaltantesApp       from "./FaltantesApp";
 import ReconciliacionApp  from "./ReconciliacionApp";
 import PromocionHuerfanos from "./PromocionHuerfanos";
 import RevisionCapturas   from "./RevisionCapturas";
@@ -26,6 +28,7 @@ const TABS = [
   { id: "inventario", label: "Estado",        icon: Warehouse,       Comp: InventarioApp },
   { id: "conteo",     label: "Conteo",        icon: ClipboardList,   Comp: ConteoApp },
   { id: "surtido",    label: "Surtido",       icon: Tags,            Comp: SurtidoApp },
+  { id: "faltantes",  label: "Faltantes",     icon: AlertTriangle,   Comp: FaltantesApp },
   { id: "concilia",   label: "Conciliación",  icon: Scale,           Comp: ReconciliacionApp },
   { id: "huerfanos",  label: "Huérfanos",     icon: ArrowUpFromLine, Comp: PromocionHuerfanos },
 
@@ -46,7 +49,7 @@ const TABS = [
 // de sucursal se queda fuera de todos ellos porque es contexto global, no
 // pertenece a ningún grupo.
 const GRUPOS = [
-  { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "surtido", "concilia", "huerfanos"] },
+  { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "surtido", "faltantes", "concilia", "huerfanos"] },
   { id: "catalogo-grp", label: "Catálogo",     icon: BookOpen,   tabs: ["catalogo", "precios", "revision"] },
   { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "traslados", "historial", "oper"] },
   { id: "admin-grp",    label: "Admin",        icon: Settings,   tabs: ["admin"] },
