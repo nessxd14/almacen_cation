@@ -489,6 +489,18 @@ export async function saldoDisponiblePedido(productoIds) {
   return new Map(data.map((r) => [r.producto_id, Number(r.saldo_libre)]));
 }
 
+/* ── saldo vendible por sucursal (brief W7) — vendible ya neto de lo
+ * reservado por otros pedidos, con el motivo (nombres de esos pedidos)
+ * -> Map<producto_id, {vendible, reservado, motivo}>
+ */
+export async function saldoVendible(productoIds, sucursalId) {
+  const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
+  if (ids.length === 0 || !sucursalId) return new Map();
+  const { data, error } = await supabase.rpc('saldo_vendible', { p_producto_ids: ids, p_sucursal_id: Number(sucursalId) });
+  if (error || !data) return new Map();
+  return new Map(data.map((r) => [r.producto_id, { vendible: Number(r.vendible), reservado: Number(r.reservado), motivo: r.motivo || null }]));
+}
+
 /* ══════════════════════════════════════════════════════════════════════
  * Brief F — Traslados entre sucursales
  * ══════════════════════════════════════════════════════════════════════ */

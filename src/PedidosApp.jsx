@@ -18,12 +18,13 @@ import TypeaheadProducto from "./TypeaheadProducto";
 import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones, armarDesglose,
   crearPedido, despacharLinea, despacharLineas, revertirEvento, comprarDirecto,
-  entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido,
+  entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido, saldoVendible,
   codigosGrisPorProducto, stockPorSucursalProducto,
 } from "./lib/operaciones";
 import {
   armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion, formatoEquivalencia,
 } from "./lib/despacho";
+import { avisoDisponibilidad, lineasSinCobertura } from "./lib/disponibilidad";
 import CodigosLinea from "./CodigosLinea";
 import BarraSeleccion from "./BarraSeleccion";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
@@ -229,7 +230,7 @@ const CANAL_PRECIO_POR_CATEGORIA = { MAYOR: "precio_mayoreo", TIENDA: "precio_ba
 /* ── Armador de pedido ─────────────────────────────────────────────────── */
 function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   const usuarioActual = useUsuarioActual();
-  const { nombreSucursal, sucursales } = useSucursal();
+  const { nombreSucursal, sucursales, sucursalActivaId } = useSucursal();
   const [categoria, setCategoria] = useState("");
   const [referencia, setReferencia] = useState("");
   const [lineas, setLineas] = useState(
@@ -237,7 +238,7 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       producto_id: l.producto_id, nombre: l.nombre, sku_interno: l.sku_interno, unidad_base: l.unidad_base,
       cantidad: String(l.cantidad_base ?? 1),
       presentaciones: [], presentacionId: null, precios: null, precioUnitario: "", precioTocado: false,
-      stockPorSucursal: null,
+      stockPorSucursal: null, disponibilidad: null,
     }))
   );
   const [query, setQuery] = useState("");
@@ -275,6 +276,14 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
           setLineas((prev) => prev.map((l) => l.producto_id === id ? { ...l, stockPorSucursal: mapa } : l));
         });
       }
+      // Disponibilidad "en el momento" (brief W7): una sola llamada batch,
+      // no una por producto — a diferencia del stock por sucursal de
+      // arriba, saldo_vendible sí acepta un array.
+      if (sucursalActivaId) {
+        saldoVendible(ids, sucursalActivaId).then((mapa) => {
+          setLineas((prev) => prev.map((l) => mapa.has(l.producto_id) ? { ...l, disponibilidad: mapa.get(l.producto_id) } : l));
+        });
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -290,24 +299,25 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       return [...prev, {
         producto_id: p.id, nombre: p.nombre, sku_interno: p.sku_interno, unidad_base: p.unidad_base,
         cantidad: "1", presentaciones: [], presentacionId: null, precios: null, precioUnitario: "", precioTocado: false,
-        stockPorSucursal: null,
+        stockPorSucursal: null, disponibilidad: null,
       }];
     });
 
-    const [{ data: pres }, { data: prod }, stockMapa] = await Promise.all([
+    const [{ data: pres }, { data: prod }, stockMapa, disponibilidadMapa] = await Promise.all([
       supabase.from("presentacion")
         .select("id, nombre, factor_unidad_base, es_base")
         .eq("producto_id", p.id).eq("activo", true)
         .order("es_base", { ascending: false }),
       supabase.from("producto").select("precio_base, precio_mayoreo").eq("id", p.id).single(),
       stockPorSucursalProducto(p.id),
+      sucursalActivaId ? saldoVendible([p.id], sucursalActivaId) : Promise.resolve(new Map()),
     ]);
     const lista = pres || [];
     const base = lista.find((x) => x.es_base) || lista[0];
     setLineas((prev) => prev.map((l) => l.producto_id === p.id
-      ? { ...l, presentaciones: lista, presentacionId: l.presentacionId ?? (base?.id ?? null), precios: prod || null, stockPorSucursal: stockMapa }
+      ? { ...l, presentaciones: lista, presentacionId: l.presentacionId ?? (base?.id ?? null), precios: prod || null, stockPorSucursal: stockMapa, disponibilidad: disponibilidadMapa.get(p.id) || l.disponibilidad }
       : l));
-  }, []);
+  }, [sucursalActivaId]);
 
   const handleScan = useCallback(async (codigo) => {
     setShowScanner(false);
@@ -379,6 +389,20 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       if (!continuar) return;
     }
 
+    // Aviso final antes de crear (brief W7 "extra"): el punto donde alguien
+    // puede reconsiderar antes de que el pedido exista.
+    const sinCobertura = lineasSinCobertura(lineas.map((l) => {
+      const pres = l.presentaciones.find((p) => p.id === l.presentacionId);
+      const factor = pres ? Number(pres.factor_unidad_base) : 1;
+      return { ...l, cantidadBaseIngresada: Number(l.cantidad || 0) * factor };
+    }));
+    if (sinCobertura.length > 0) {
+      const continuar = window.confirm(
+        `${sinCobertura.length} de ${lineas.length} línea${lineas.length === 1 ? "" : "s"} no ${sinCobertura.length === 1 ? "tiene" : "tienen"} stock suficiente. ¿Crear igual?`
+      );
+      if (!continuar) return;
+    }
+
     setCreando(true);
     const { id, error } = await crearPedido({
       categoria,
@@ -428,6 +452,12 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
               </button>
             ))}
           </div>
+          {categoria === "TIENDA" && (
+            <p className="mt-2 text-xs text-slate-500">
+              Los pedidos de tienda no reservan stock: el mostrador puede vender estas unidades.
+              Tampoco se pueden despachar unidades ya comprometidas con un cliente.
+            </p>
+          )}
         </div>
 
         <input value={referencia} onChange={(e) => setReferencia(e.target.value)}
@@ -503,6 +533,30 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
                       {" — quedarán "}{cantidadFmt(cantidadBaseIngresada - disponibleTotal)} {l.unidad_base} pendientes.
                     </p>
                   )}
+                  {(() => {
+                    const aviso = avisoDisponibilidad({
+                      cantidadPedida: cantidadBaseIngresada,
+                      vendible: l.disponibilidad?.vendible,
+                      reservado: l.disponibilidad?.reservado,
+                      motivo: l.disponibilidad?.motivo,
+                    });
+                    if (!aviso) return null;
+                    return (
+                      <div className="text-xs text-slate-500">
+                        <p>
+                          Pedís {cantidadFmt(cantidadBaseIngresada)} {l.unidad_base} · hay {cantidadFmt(aviso.vendible)} {l.unidad_base}
+                          {aviso.reservado > 0 && (
+                            <> · {cantidadFmt(aviso.reservado)} {l.unidad_base} reservadas para {aviso.motivo || "otros pedidos"}</>
+                          )}
+                        </p>
+                        {aviso.noAlcanza > 0 && (
+                          <p className="flex items-center gap-1 font-medium text-red-600">
+                            <AlertTriangle size={11} /> {cantidadFmt(aviso.noAlcanza)} {l.unidad_base} no se van a poder despachar
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {categoria && l.precios != null && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-400">Precio unitario</span>
