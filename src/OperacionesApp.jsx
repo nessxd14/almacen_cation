@@ -19,6 +19,7 @@ import {
   ejecutarOperacion, asegurarAsignacion,
 } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
+import { useSucursal } from "./lib/useSucursal";
 import { metaProducto } from "./lib/producto";
 import {
   PackagePlus, ArrowLeftRight, SlidersHorizontal,
@@ -55,6 +56,7 @@ function textoAproxBulto(cantidadBaseStr, presentacionBulto) {
 
 export default function OperacionesApp() {
   const usuarioActual = useUsuarioActual();
+  const { nombreSucursal } = useSucursal();
   const modosVisibles = usuarioActual?.rol === "admin"
     ? MODOS
     : MODOS.filter((m) => !MODOS_SOLO_ADMIN.has(m.id));
@@ -152,25 +154,29 @@ export default function OperacionesApp() {
     if (!productoSeleccionado) { setUbicacionesOrigen([]); setSinAsignacionOrigen(false); return; }
     let cancelado = false;
     const modoOrigen = modo === "TRASLADO" ? "TRASLADO_ORIGEN" : modo;
-    ubicacionesParaOperacion({ productoId: productoSeleccionado.id, modo: modoOrigen }).then(({ ubicaciones, sinAsignacion }) => {
+    // nombreSucursal antepone la sucursal al label en TRASLADO — por
+    // definición cruza sucursales, y "PISO" a secas ya generó una
+    // confusión real (brief W5 #5): se leyó como "se movió a otro lado"
+    // en vez de "se movió a Tienda".
+    ubicacionesParaOperacion({ productoId: productoSeleccionado.id, modo: modoOrigen, nombreSucursal: modo === "TRASLADO" ? nombreSucursal : undefined }).then(({ ubicaciones, sinAsignacion }) => {
       if (cancelado) return;
       setUbicacionesOrigen(ubicaciones);
       setSinAsignacionOrigen(sinAsignacion);
     });
     return () => { cancelado = true; };
-  }, [productoSeleccionado, modo]);
+  }, [productoSeleccionado, modo, nombreSucursal]);
 
   /* ── ubicaciones de destino (solo TRASLADO) ───────────────────────── */
   useEffect(() => {
     if (modo !== "TRASLADO" || !productoSeleccionado) { setUbicacionesDestino([]); setSinAsignacionDestino(false); return; }
     let cancelado = false;
-    ubicacionesParaOperacion({ productoId: productoSeleccionado.id, modo: "TRASLADO_DESTINO" }).then(({ ubicaciones, sinAsignacion }) => {
+    ubicacionesParaOperacion({ productoId: productoSeleccionado.id, modo: "TRASLADO_DESTINO", nombreSucursal }).then(({ ubicaciones, sinAsignacion }) => {
       if (cancelado) return;
       setUbicacionesDestino(ubicaciones.filter((u) => u.id !== Number(ubicacionId)));
       setSinAsignacionDestino(sinAsignacion);
     });
     return () => { cancelado = true; };
-  }, [modo, productoSeleccionado, ubicacionId]);
+  }, [modo, productoSeleccionado, ubicacionId, nombreSucursal]);
 
   /* ── consultar stock cuando cambia producto+ubicación ────────────── */
   useEffect(() => {

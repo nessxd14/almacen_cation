@@ -21,6 +21,7 @@ import { fetchAll } from "./lib/fetchAll";
 import { useSucursal } from "./lib/useSucursal";
 import { sanearFiltro } from "./lib/filtroTexto";
 import { controlEfectivo } from "./lib/control";
+import BarraSeleccion from "./BarraSeleccion";
 import {
   Tags, Search, Check, X, AlertTriangle, Lock, Unlock, ChevronLeft, ChevronRight,
 } from "lucide-react";
@@ -247,20 +248,16 @@ export default function SurtidoApp() {
       </div>
 
       {seleccion.size > 0 && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-          <span>{seleccion.size} seleccionados</span>
+        <BarraSeleccion texto={`${seleccion.size} seleccionados`} onCerrar={() => setSeleccion(new Set())}>
           <button disabled={guardandoLote} onClick={() => aplicarEnLote(true)}
-            className="ml-auto rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+            className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50">
             Marcar en surtido
           </button>
           <button disabled={guardandoLote} onClick={() => aplicarEnLote(false)}
             className="rounded-md border border-blue-300 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
             Marcar fuera de surtido
           </button>
-          <button onClick={() => setSeleccion(new Set())} className="text-blue-400 hover:text-blue-600">
-            <X size={14} />
-          </button>
-        </div>
+        </BarraSeleccion>
       )}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">

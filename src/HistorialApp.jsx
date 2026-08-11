@@ -37,18 +37,24 @@ function fechaFmt(ts) {
     day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }
-function etiquetaUbicacion(u) {
+// nombreSucursal (opcional): antepone la sucursal (brief W5 #5) — solo
+// tiene sentido cuando la tabla puede mezclar sucursales (panel de
+// historial por producto); el tab global ya está filtrado a una sola.
+function etiquetaUbicacion(u, nombreSucursal) {
   if (!u) return "—";
   const partes = [u.codigo_zona];
   if (u.estante && u.nivel) partes.push(`${u.estante} ${u.nivel}`);
   else if (u.estante) partes.push(u.estante);
   if (u.compartimiento) partes.push(u.compartimiento);
-  return partes.join(" › ");
+  const base = partes.join(" › ");
+  if (typeof nombreSucursal !== "function" || u.sucursal_id == null) return base;
+  const nombre = nombreSucursal(u.sucursal_id);
+  return nombre ? `${nombre} · ${base}` : base;
 }
 
 // ─── Una fila de movimiento ──────────────────────────────────────────────────
 
-function FilaMovimiento({ mov, mostrarProducto }) {
+function FilaMovimiento({ mov, mostrarProducto, nombreSucursal }) {
   const cfg = TIPOS[mov.tipo_movimiento] || { label: mov.tipo_movimiento, icon: FileText, color: "slate", signo: "" };
   const Icono = cfg.icon;
   const cantidad = Number(mov.cantidad);
@@ -78,7 +84,7 @@ function FilaMovimiento({ mov, mostrarProducto }) {
       <td className="px-3 py-2.5">
         <span className="flex items-center gap-1 text-sm text-slate-600">
           <MapPin size={12} className="text-slate-400" />
-          {etiquetaUbicacion(mov.ubicacion)}
+          {etiquetaUbicacion(mov.ubicacion, nombreSucursal)}
         </span>
       </td>
       <td className={`px-3 py-2.5 text-right text-sm font-bold ${signoColor}`}>
@@ -110,7 +116,7 @@ function FilaMovimiento({ mov, mostrarProducto }) {
 // Si no -> historial global con buscador (modo tab).
 
 export function HistorialMovimientos({ productoId = null, compacto = false }) {
-  const { sucursalActivaId } = useSucursal();
+  const { sucursalActivaId, nombreSucursal } = useSucursal();
   const [movs, setMovs] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
@@ -268,7 +274,7 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
                 </td></tr>
               ) : (
                 movs.map(m => (
-                  <FilaMovimiento key={m.id} mov={m} mostrarProducto={!productoId} />
+                  <FilaMovimiento key={m.id} mov={m} mostrarProducto={!productoId} nombreSucursal={productoId ? nombreSucursal : undefined} />
                 ))
               )}
             </tbody>
