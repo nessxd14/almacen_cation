@@ -17,7 +17,7 @@ import EscanerCodigo from "./EscanerCodigo";
 import TypeaheadProducto from "./TypeaheadProducto";
 import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones, armarDesglose,
-  crearPedido, despacharLinea, despacharLineas, revertirEvento, comprarDirecto,
+  crearPedido, despacharLinea, despacharLineaForzado, turnoLinea, despacharLineas, revertirEvento, comprarDirecto,
   entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido, saldoVendible,
   codigosGrisPorProducto, stockPorSucursalProducto,
 } from "./lib/operaciones";
@@ -25,6 +25,7 @@ import {
   armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion, formatoEquivalencia,
 } from "./lib/despacho";
 import { avisoDisponibilidad, lineasSinCobertura } from "./lib/disponibilidad";
+import { objetivoPick, haySobreTurno, MOTIVOS_DESPACHO_FORZADO, MOTIVO_OTRO, motivoValido, motivoFinal } from "./lib/reserva";
 import CodigosLinea from "./CodigosLinea";
 import BarraSeleccion from "./BarraSeleccion";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
@@ -601,24 +602,43 @@ function FilaLinea({
   const [guardandoCompra, setGuardandoCompra] = useState(false);
   const [flash, setFlash] = useState(null);
   const [, forzarTick] = useState(0);
+  // Brief W8 — compuerta de reserva: turno FIFO de esta línea (cubierto <
+  // pendiente => hay turno de otro pedido por delante). forzado abre el
+  // camino de "Despachar igual" con motivo obligatorio.
+  const [turno, setTurno] = useState(null);
+  const [forzado, setForzado] = useState(false);
+  const [motivoSel, setMotivoSel] = useState("");
+  const [motivoLibre, setMotivoLibre] = useState("");
+  const [despachandoForzado, setDespachandoForzado] = useState(false);
 
   const pendiente = Math.max(Number(linea.cantidad_base) - Number(linea.cantidad_despachada), 0);
   const puedeDespachar = linea.estado === "POR_DESPACHAR" || (linea.estado === "PENDIENTE" && habilitado);
+  const cubierto = turno?.cubierto ?? null;
+  const sobreTurno = haySobreTurno({ pendiente, cubierto });
 
   const showFlash = (msg, type = "error") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
   // Recalcular pick auto al expandir O al seleccionar la casilla (brief W5
   // #1: seleccionar precarga el pick, sin necesidad de abrir el acordeón).
+  // Brief W8: el objetivo del pick se limita a `cubierto` cuando hay turno
+  // de otro pedido por delante, salvo que ya se haya elegido "Despachar
+  // igual" (forzado) — ahí sí se calcula sobre lo pendiente completo.
   useEffect(() => {
     if ((!abierto && !seleccionada) || !puedeDespachar) return;
     let activo = true;
     setCargandoPick(true);
-    Promise.all([
-      calcularPick({ productoId: linea.producto_id, cantidadBase: pendiente, sucursalPreferidaId: linea.sucursal_origen_id }),
-      desglosePresentaciones({ productoId: linea.producto_id, cantidadBase: pendiente }),
-      ubicacionesParaOperacion({ productoId: linea.producto_id, modo: "SALIDA", sucursalPreferidaId: linea.sucursal_origen_id, nombreSucursal }),
-    ]).then(([pick, desg, ubs]) => {
+    turnoLinea(linea.id).then((t) => {
       if (!activo) return;
+      setTurno(t);
+      const objetivo = objetivoPick({ pendiente, cubierto: t?.cubierto ?? null, forzado });
+      return Promise.all([
+        calcularPick({ productoId: linea.producto_id, cantidadBase: objetivo, sucursalPreferidaId: linea.sucursal_origen_id }),
+        desglosePresentaciones({ productoId: linea.producto_id, cantidadBase: objetivo }),
+        ubicacionesParaOperacion({ productoId: linea.producto_id, modo: "SALIDA", sucursalPreferidaId: linea.sucursal_origen_id, nombreSucursal }),
+      ]);
+    }).then((res) => {
+      if (!activo || !res) return;
+      const [pick, desg, ubs] = res;
       setAsignaciones(pick.asignaciones);
       setDesglose(desg);
       setUbicacionesDisponibles(ubs.ubicaciones);
@@ -626,7 +646,7 @@ function FilaLinea({
     });
     return () => { activo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [abierto, seleccionada, linea.id]);
+  }, [abierto, seleccionada, linea.id, forzado]);
 
   // Espeja el pick (auto o editado) hacia DetallePedido mientras la línea
   // está seleccionada — es lo que arma el payload de despachar_lineas.
@@ -679,6 +699,33 @@ function FilaLinea({
     });
     // Despachada por su cuenta: si estaba en la selección del lote, ya no
     // pertenece ahí (puedeDespachar pasa a false y la casilla desaparece).
+    if (seleccionada) onToggleSeleccion(linea.id);
+  }
+
+  // Brief W8: pisar el turno exige motivo, usuario y hora — nunca en
+  // silencio. despachar_linea_forzado escribe la bitácora en la misma
+  // transacción que el despacho (no best-effort).
+  async function confirmarDespachoForzado() {
+    const filtradas = asignaciones.filter((a) => Number(a.cantidad_base) > 0);
+    if (filtradas.length === 0) { showFlash("Asigná una cantidad mayor a cero en al menos una ubicación"); return; }
+    if (totalAsignado > pendiente + 0.0001) { showFlash(`El total asignado (${totalAsignado}) excede lo pendiente (${pendiente})`); return; }
+    if (!motivoValido(motivoSel, motivoLibre)) { showFlash("El motivo es obligatorio para despachar por encima del turno"); return; }
+
+    setDespachandoForzado(true);
+    const { resultado, error } = await despacharLineaForzado({
+      lineaId: linea.id, asignaciones: filtradas, motivo: motivoFinal(motivoSel, motivoLibre), usuario: usuarioActual.nombre,
+    });
+    setDespachandoForzado(false);
+    if (error) { showFlash("Error: " + error.message); return; }
+    setAbierto(false);
+    setForzado(false);
+    setMotivoSel("");
+    setMotivoLibre("");
+    onLineaPatch(linea.id, { estado: resultado.estado, cantidad_despachada: resultado.cantidad_despachada });
+    onEventoNuevo(linea.id, {
+      id: resultado.evento_id, pedido_linea_id: linea.id, cantidad_base: totalAsignado,
+      creado_en: new Date().toISOString(), reversible_hasta: resultado.reversible_hasta, revertido: false,
+    });
     if (seleccionada) onToggleSeleccion(linea.id);
   }
 
@@ -788,8 +835,53 @@ function FilaLinea({
 
                   <p className={`text-xs ${totalAsignado < pendiente ? "text-amber-600" : "text-slate-500"}`}>
                     Total asignado: {cantidadFmt(totalAsignado)} / {cantidadFmt(pendiente)} pendiente
-                    {totalAsignado < pendiente && " — el resto quedará pendiente"}
+                    {totalAsignado < pendiente && !sobreTurno && " — el resto quedará pendiente"}
                   </p>
+
+                  {/* Brief W8 — compuerta de reserva: cuando el turno FIFO no alcanza
+                      para todo lo pendiente, el pick automático se limita a lo cubierto
+                      y se ofrece "Despachar igual" con motivo obligatorio para pisarlo. */}
+                  {sobreTurno && !forzado && (
+                    <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      <p>
+                        Podés despachar {cantidadFmt(cubierto)} de {cantidadFmt(pendiente)}.
+                        {" "}Las otras {cantidadFmt(pendiente - cubierto)} tienen turno para otro pedido.
+                      </p>
+                      <button onClick={() => setForzado(true)} className="mt-1 font-semibold underline">
+                        Despachar igual
+                      </button>
+                    </div>
+                  )}
+
+                  {sobreTurno && forzado && (
+                    <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-xs text-amber-700">
+                        Vas a despachar por encima del turno FIFO. Elegí un motivo — queda registrado con tu usuario y la hora.
+                      </p>
+                      <select value={motivoSel} onChange={(e) => setMotivoSel(e.target.value)}
+                        className="w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300">
+                        <option value="">Elegí un motivo…</option>
+                        {MOTIVOS_DESPACHO_FORZADO.map((m) => <option key={m} value={m}>{m}</option>)}
+                        <option value={MOTIVO_OTRO}>Otro (especificar)</option>
+                      </select>
+                      {motivoSel === MOTIVO_OTRO && (
+                        <input value={motivoLibre} onChange={(e) => setMotivoLibre(e.target.value)}
+                          placeholder="Motivo *"
+                          className="w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      )}
+                      <div className="flex gap-2">
+                        <button onClick={confirmarDespachoForzado} disabled={despachandoForzado}
+                          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-amber-600 py-1.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-50">
+                          {despachandoForzado && <Loader size={13} className="animate-spin" />}
+                          {despachandoForzado ? "Despachando…" : "Confirmar despacho igual"}
+                        </button>
+                        <button onClick={() => { setForzado(false); setMotivoSel(""); setMotivoLibre(""); }}
+                          className="rounded-lg border px-3 py-1.5 text-sm text-slate-500">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {desglose?.desglose?.length > 0 && (
                     <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
@@ -801,11 +893,13 @@ function FilaLinea({
                     </div>
                   )}
 
-                  <button onClick={confirmarDespacho} disabled={despachando}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
-                    {despachando && <Loader size={14} className="animate-spin" />}
-                    {despachando ? "Despachando…" : linea.estado === "PENDIENTE" ? "Despachar pendiente" : "Despachar"}
-                  </button>
+                  {!forzado && (
+                    <button onClick={confirmarDespacho} disabled={despachando}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+                      {despachando && <Loader size={14} className="animate-spin" />}
+                      {despachando ? "Despachando…" : linea.estado === "PENDIENTE" ? "Despachar pendiente" : "Despachar"}
+                    </button>
+                  )}
                 </>
               )}
             </div>

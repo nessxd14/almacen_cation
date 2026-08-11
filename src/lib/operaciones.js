@@ -424,6 +424,30 @@ export async function despacharLinea({ lineaId, asignaciones, usuario }) {
   return { resultado: data, error };
 }
 
+/* ── despachar por encima del turno (brief W8): motivo obligatorio, deja
+ * rastro en despacho_sobre_reserva por la porción que excede el turno FIFO.
+ */
+export async function despacharLineaForzado({ lineaId, asignaciones, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("despachar_linea_forzado", {
+    p_linea_id: Number(lineaId),
+    p_asignaciones: asignaciones,
+    p_motivo: motivo,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── info de turno FIFO de una línea (brief W8) -> {cubierto, pendiente, turno} | null */
+export async function turnoLinea(lineaId) {
+  const { data, error } = await supabase
+    .from("v_pedido_linea_reserva")
+    .select("cubierto, pendiente, turno")
+    .eq("linea_id", Number(lineaId))
+    .maybeSingle();
+  if (error || !data) return null;
+  return { cubierto: Number(data.cubierto), pendiente: Number(data.pendiente), turno: data.turno };
+}
+
 /* ── despachar varias líneas en una sola llamada (brief W5) — colapsa las
  * N recargas de pedido que generaba despachar de a una en pedidos grandes
  * (cientos de peticiones, y si el token vence en medio de la ráfaga, la
