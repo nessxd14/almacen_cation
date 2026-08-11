@@ -2,8 +2,19 @@
 -- (brief "reserva de stock y faltantes", W8+S10 — los dos van juntos, nunca por
 -- separado: ver S10 en nessxd14/seller, rama claude/s10-reserva-w8).
 -- Proyecto Supabase Cloud: supabase_db_almacen_roari (ref zxoxougwgstrarwymlvd).
--- NO aplicada automáticamente — revisar y ejecutar manualmente, validando primero
--- en BEGIN … ROLLBACK (mismo criterio que 2026-07-05_pedidos.sql).
+--
+-- ============================================================================
+-- YA APLICADA (2026-08-11) — no queda como paso manual pendiente.
+--
+-- Verificada primero en BEGIN…ROLLBACK contra la base viva (producto real,
+-- pedido MAYOR reservando + pedido TIENDA de menor prioridad): despachar_linea
+-- rechazó exceder el turno, despachar_linea_forzado sin motivo rechazó,
+-- despachar_linea_forzado con motivo despachó y dejó fila en
+-- despacho_sobre_reserva, y un despacho normal dentro de turno completo siguió
+-- funcionando igual que antes. Todo revirtió limpio (funciones y datos de
+-- prueba) antes de aplicar de verdad. Confirmado con Ness — aplicada junto con
+-- S10 (nessxd14/seller, rama claude/s10-reserva-w8).
+-- ============================================================================
 --
 -- ============================================================================
 -- Qué cambia
