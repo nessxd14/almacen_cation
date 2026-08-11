@@ -30,8 +30,16 @@ const uuid = () =>
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 
-export const labelUbicacion = (u) =>
-  u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
+// nombreSucursal (opcional): resolver de SucursalContext — antepone
+// "Tienda · " / "Almacén Central · " cuando el contexto no deja clara la
+// sucursal (brief W5 #5). Sin él, comportamiento idéntico a siempre.
+export const labelUbicacion = (u, { nombreSucursal } = {}) => {
+  if (!u) return "—";
+  const base = [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-");
+  if (typeof nombreSucursal !== "function" || u.sucursal_id == null) return base;
+  const nombre = nombreSucursal(u.sucursal_id);
+  return nombre ? `${nombre} · ${base}` : base;
+};
 
 /* ── búsqueda typeahead de producto (nombre / sku) ────────────────────── */
 export async function buscarProductos(q) {
@@ -146,9 +154,13 @@ export async function buscarAgrupado(q) {
 
 /* ── ubicaciones según el modo de operación ───────────────────────────
  * modo: "ENTRADA" | "SALIDA" | "AJUSTE" | "TRASLADO_ORIGEN" | "TRASLADO_DESTINO"
+ * nombreSucursal (opcional, de SucursalContext): antepone la sucursal al
+ * label cuando corresponde — sobre todo TRASLADO_*, que por definición
+ * cruza sucursales y es donde "PISO" a secas generó confusión real
+ * (brief W5 #5).
  * -> { ubicaciones: [{id, label, cantidad_base?, es_principal?}], sinAsignacion }
  */
-export async function ubicacionesParaOperacion({ productoId, modo, sucursalPreferidaId }) {
+export async function ubicacionesParaOperacion({ productoId, modo, sucursalPreferidaId, nombreSucursal }) {
   if (!productoId) return { ubicaciones: [], sinAsignacion: false };
   const pid = Number(productoId);
 
@@ -161,7 +173,7 @@ export async function ubicacionesParaOperacion({ productoId, modo, sucursalPrefe
       .order("cantidad_base", { ascending: false });
     let ubicaciones = (data || [])
       .filter((r) => r.ubicacion)
-      .map((r) => ({ id: r.ubicacion.id, label: labelUbicacion(r.ubicacion), cantidad_base: r.cantidad_base, sucursal_id: r.ubicacion.sucursal_id }));
+      .map((r) => ({ id: r.ubicacion.id, label: labelUbicacion(r.ubicacion, { nombreSucursal }), cantidad_base: r.cantidad_base, sucursal_id: r.ubicacion.sucursal_id }));
     if (sucursalPreferidaId != null) {
       const pref = Number(sucursalPreferidaId);
       ubicaciones = [...ubicaciones].sort((a, b) => (b.sucursal_id === pref) - (a.sucursal_id === pref));
@@ -172,7 +184,7 @@ export async function ubicacionesParaOperacion({ productoId, modo, sucursalPrefe
   if (modo === "ENTRADA" || modo === "TRASLADO_DESTINO") {
     const { data } = await supabase
       .from("producto_ubicacion")
-      .select("es_principal, ubicacion:ubicacion_id(id, codigo_zona, estante, nivel, compartimiento)")
+      .select("es_principal, ubicacion:ubicacion_id(id, codigo_zona, estante, nivel, compartimiento, sucursal_id)")
       .eq("producto_id", pid)
       .order("es_principal", { ascending: false });
     const asignadas = (data || []).filter((r) => r.ubicacion);
@@ -180,15 +192,15 @@ export async function ubicacionesParaOperacion({ productoId, modo, sucursalPrefe
     if (asignadas.length === 0) {
       const { data: todas } = await supabase
         .from("ubicacion")
-        .select("id, codigo_zona, estante, nivel, compartimiento")
+        .select("id, codigo_zona, estante, nivel, compartimiento, sucursal_id")
         .order("codigo_zona").order("estante").order("nivel").order("compartimiento");
       return {
-        ubicaciones: (todas || []).map((u) => ({ id: u.id, label: labelUbicacion(u) })),
+        ubicaciones: (todas || []).map((u) => ({ id: u.id, label: labelUbicacion(u, { nombreSucursal }) })),
         sinAsignacion: true,
       };
     }
     return {
-      ubicaciones: asignadas.map((r) => ({ id: r.ubicacion.id, label: labelUbicacion(r.ubicacion), es_principal: r.es_principal })),
+      ubicaciones: asignadas.map((r) => ({ id: r.ubicacion.id, label: labelUbicacion(r.ubicacion, { nombreSucursal }), es_principal: r.es_principal })),
       sinAsignacion: false,
     };
   }
@@ -351,19 +363,13 @@ export async function calcularPick({ productoId, cantidadBase, sucursalPreferida
  * (cajas, packs) hasta el más chico (unidad base). No ejecuta nada, es
  * solo informativo — la SALIDA real siempre se registra en la
  * presentación base (ver despacharLinea).
- * ubicacionId se acepta por paridad con el brief pero no afecta el
- * cálculo hoy (las presentaciones no varían por ubicación).
+ *
+ * armarDesglose es la parte pura, extraída para poder precalcular varias
+ * líneas de pedido de una sola consulta batch de `presentacion` (ver
+ * ReporteImpresionPedido en PedidosApp.jsx, brief W5 #4) en vez de una
+ * consulta por línea.
  */
-export async function desglosePresentaciones({ productoId, ubicacionId, cantidadBase }) {
-  void ubicacionId;
-  const { data } = await supabase
-    .from("presentacion")
-    .select("id, nombre, factor_unidad_base, es_base")
-    .eq("producto_id", Number(productoId))
-    .eq("activo", true)
-    .order("factor_unidad_base", { ascending: false });
-
-  const presentaciones = data || [];
+export function armarDesglose(presentaciones, cantidadBase) {
   let restante = Number(cantidadBase);
   const desglose = [];
 
@@ -378,6 +384,19 @@ export async function desglosePresentaciones({ productoId, ubicacionId, cantidad
   }
 
   return { desglose, restante };
+}
+
+// ubicacionId se acepta por paridad con el brief pero no afecta el
+// cálculo hoy (las presentaciones no varían por ubicación).
+export async function desglosePresentaciones({ productoId, ubicacionId, cantidadBase }) {
+  void ubicacionId;
+  const { data } = await supabase
+    .from("presentacion")
+    .select("id, nombre, factor_unidad_base, es_base")
+    .eq("producto_id", Number(productoId))
+    .eq("activo", true)
+    .order("factor_unidad_base", { ascending: false });
+  return armarDesglose(data || [], cantidadBase);
 }
 
 /* ── crear un pedido con sus líneas (en unidad base) ─────────────────── */
@@ -400,6 +419,23 @@ export async function despacharLinea({ lineaId, asignaciones, usuario }) {
   const { data, error } = await supabase.rpc("despachar_linea", {
     p_linea_id: Number(lineaId),
     p_asignaciones: asignaciones,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── despachar varias líneas en una sola llamada (brief W5) — colapsa las
+ * N recargas de pedido que generaba despachar de a una en pedidos grandes
+ * (cientos de peticiones, y si el token vence en medio de la ráfaga, la
+ * renovación choca con el rate limit de Supabase y expulsa a la persona).
+ * Reusa despachar_linea internamente del lado de la base y es atómica: si
+ * una línea falla, ninguna queda despachada.
+ * lineas: [{linea_id, asignaciones:[{ubicacion_id, cantidad_base}]}]
+ * -> { resultado: {despachadas, resultados: [...]}, error }
+ */
+export async function despacharLineas({ lineas, usuario }) {
+  const { data, error } = await supabase.rpc("despachar_lineas", {
+    p_lineas: lineas,
     p_usuario: usuario,
   });
   return { resultado: data, error };

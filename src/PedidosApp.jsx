@@ -16,19 +16,23 @@ import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import TypeaheadProducto from "./TypeaheadProducto";
 import {
-  ubicacionesParaOperacion, calcularPick, desglosePresentaciones,
-  crearPedido, despacharLinea, revertirEvento, comprarDirecto,
+  ubicacionesParaOperacion, calcularPick, desglosePresentaciones, armarDesglose,
+  crearPedido, despacharLinea, despacharLineas, revertirEvento, comprarDirecto,
   entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido,
   codigosGrisPorProducto, stockPorSucursalProducto,
 } from "./lib/operaciones";
+import {
+  armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion, formatoEquivalencia,
+} from "./lib/despacho";
 import CodigosLinea from "./CodigosLinea";
+import BarraSeleccion from "./BarraSeleccion";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
 import { useUsuarioActual } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
 import {
   ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
-  AlertTriangle, Loader, ArrowLeft, X, ScanLine,
-  ShoppingBag, Clock, Boxes, Printer,
+  AlertTriangle, Loader, ArrowLeft, X, ScanLine, RefreshCw,
+  ShoppingBag, Clock, Boxes, Printer, CheckSquare,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -525,7 +529,10 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
 }
 
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
-function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLibre, codigos }) {
+function FilaLinea({
+  linea, eventos, habilitado, categoria, saldoLibre, codigos,
+  seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido,
+}) {
   const usuarioActual = useUsuarioActual();
   const { nombreSucursal } = useSucursal();
   const [abierto, setAbierto] = useState(false);
@@ -546,15 +553,16 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
 
   const showFlash = (msg, type = "error") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
-  // recalcular pick auto al expandir
+  // Recalcular pick auto al expandir O al seleccionar la casilla (brief W5
+  // #1: seleccionar precarga el pick, sin necesidad de abrir el acordeón).
   useEffect(() => {
-    if (!abierto || !puedeDespachar) return;
+    if ((!abierto && !seleccionada) || !puedeDespachar) return;
     let activo = true;
     setCargandoPick(true);
     Promise.all([
       calcularPick({ productoId: linea.producto_id, cantidadBase: pendiente, sucursalPreferidaId: linea.sucursal_origen_id }),
       desglosePresentaciones({ productoId: linea.producto_id, cantidadBase: pendiente }),
-      ubicacionesParaOperacion({ productoId: linea.producto_id, modo: "SALIDA", sucursalPreferidaId: linea.sucursal_origen_id }),
+      ubicacionesParaOperacion({ productoId: linea.producto_id, modo: "SALIDA", sucursalPreferidaId: linea.sucursal_origen_id, nombreSucursal }),
     ]).then(([pick, desg, ubs]) => {
       if (!activo) return;
       setAsignaciones(pick.asignaciones);
@@ -564,7 +572,15 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
     });
     return () => { activo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [abierto, linea.id]);
+  }, [abierto, seleccionada, linea.id]);
+
+  // Espeja el pick (auto o editado) hacia DetallePedido mientras la línea
+  // está seleccionada — es lo que arma el payload de despachar_lineas.
+  useEffect(() => {
+    if (!seleccionada) return;
+    onPickChange(linea.id, { asignaciones, pendiente });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seleccionada, asignaciones, pendiente]);
 
   // countdown para revertir (Tienda, dentro de ventana)
   const eventoRevertible = (eventos || []).find((e) => !e.revertido && e.reversible_hasta && new Date(e.reversible_hasta) > new Date());
@@ -589,17 +605,27 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
 
   const totalAsignado = asignaciones.reduce((s, a) => s + Number(a.cantidad_base || 0), 0);
 
+  // Despacho de ESTA línea sola: patchea el estado local en vez de
+  // recargar el pedido entero (brief W5 #3) — despachar_linea ya devuelve
+  // todo lo necesario (estado, cantidad_despachada, pendiente).
   async function confirmarDespacho() {
     const filtradas = asignaciones.filter((a) => Number(a.cantidad_base) > 0);
     if (filtradas.length === 0) { showFlash("Asigná una cantidad mayor a cero en al menos una ubicación"); return; }
     if (totalAsignado > pendiente + 0.0001) { showFlash(`El total asignado (${totalAsignado}) excede lo pendiente (${pendiente})`); return; }
 
     setDespachando(true);
-    const { error } = await despacharLinea({ lineaId: linea.id, asignaciones: filtradas, usuario: usuarioActual.nombre });
+    const { resultado, error } = await despacharLinea({ lineaId: linea.id, asignaciones: filtradas, usuario: usuarioActual.nombre });
     setDespachando(false);
     if (error) { showFlash("Error: " + error.message); return; }
     setAbierto(false);
-    onRefrescar();
+    onLineaPatch(linea.id, { estado: resultado.estado, cantidad_despachada: resultado.cantidad_despachada });
+    onEventoNuevo(linea.id, {
+      id: resultado.evento_id, pedido_linea_id: linea.id, cantidad_base: totalAsignado,
+      creado_en: new Date().toISOString(), reversible_hasta: resultado.reversible_hasta, revertido: false,
+    });
+    // Despachada por su cuenta: si estaba en la selección del lote, ya no
+    // pertenece ahí (puedeDespachar pasa a false y la casilla desaparece).
+    if (seleccionada) onToggleSeleccion(linea.id);
   }
 
   async function confirmarCompraDirecta() {
@@ -609,19 +635,26 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
     setGuardandoCompra(false);
     if (error) { showFlash("Error: " + error.message); return; }
     setMostrarComprado(false);
-    onRefrescar();
+    onLineaPatch(linea.id, { estado: "COMPRADO_DIRECTO", compra_directa_nota: nota.trim(), compra_directa_costo: costo ? Number(costo) : null });
+    if (seleccionada) onToggleSeleccion(linea.id);
   }
 
   async function revertir(eventoId, montoParcial) {
-    const { error } = await revertirEvento({ eventoId, cantidadBase: montoParcial ?? null, usuario: usuarioActual.nombre });
+    const { resultado, error } = await revertirEvento({ eventoId, cantidadBase: montoParcial ?? null, usuario: usuarioActual.nombre });
     if (error) { showFlash("Error al revertir: " + error.message); return; }
-    onRefrescar();
+    onLineaPatch(linea.id, { estado: resultado.nuevo_estado_linea, cantidad_despachada: resultado.cantidad_despachada });
+    if (resultado.evento_revertido_total) onEventoRevertido(linea.id, eventoId);
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white">
+    <div className={`rounded-xl border bg-white ${seleccionada ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-200"}`}>
       <button onClick={() => setAbierto((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        {puedeDespachar && (
+          <input type="checkbox" checked={seleccionada} onClick={(e) => e.stopPropagation()}
+            onChange={() => onToggleSeleccion(linea.id)}
+            className="shrink-0" />
+        )}
         {abierto ? <ChevronUp size={16} className="text-slate-400 shrink-0" /> : <ChevronDown size={16} className="text-slate-400 shrink-0" />}
         <div className="min-w-0 flex-1">
           <p title={linea.producto?.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{linea.producto?.nombre}</p>
@@ -785,11 +818,15 @@ function FilaLinea({ linea, eventos, habilitado, categoria, onRefrescar, saldoLi
 }
 
 /* ── Fila de ítem especial/personalizado — no pasa por FilaLinea (no hay
-   pick ni Kardex): solo "marcar entregado" cierra la línea. */
-function FilaEspecial({ linea, onRefrescar }) {
+   pick ni Kardex): solo "marcar entregado" cierra la línea. También
+   despachable en lote (brief W5 #1: catálogo y personalizados por igual),
+   aunque en lote no pasa por despachar_lineas — no tiene pick, se
+   entrega vía entregar_personalizado como cualquier entrega individual. */
+function FilaEspecial({ linea, seleccionada, onToggleSeleccion, onLineaPatch }) {
   const usuarioActual = useUsuarioActual();
   const [entregando, setEntregando] = useState(false);
   const [flash, setFlash] = useState(null);
+  const despachable = linea.estado === "ESPECIAL";
 
   const showFlash = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 3000); };
 
@@ -799,17 +836,21 @@ function FilaEspecial({ linea, onRefrescar }) {
     const { error } = await entregarPersonalizado({ lineaId: linea.id, usuario: usuarioActual.nombre });
     setEntregando(false);
     if (error) { showFlash("Error: " + error.message); return; }
-    onRefrescar();
+    onLineaPatch(linea.id, { estado: "COMPRADO_DIRECTO" });
+    if (seleccionada) onToggleSeleccion(linea.id);
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 space-y-2">
+    <div className={`rounded-xl border bg-white px-4 py-3 space-y-2 ${seleccionada ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-200"}`}>
       {flash && (
         <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
           <AlertTriangle size={12} /> {flash}
         </div>
       )}
       <div className="flex items-start gap-3">
+        {despachable && (
+          <input type="checkbox" checked={seleccionada} onChange={() => onToggleSeleccion(linea.id)} className="mt-1 shrink-0" />
+        )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-800">{linea.descripcion || linea.producto?.nombre || "Ítem especial"}</p>
           <CodigosLinea esPersonalizado />
@@ -837,7 +878,7 @@ function FilaEspecial({ linea, onRefrescar }) {
    es un editor interactivo de pick (selects, inputs) mal adaptado a hoja
    impresa. Texto de producto sin truncar ni clamp: en papel no hay el
    límite de espacio de una card en pantalla. */
-function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codigosPorProducto }) {
+function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codigosPorProducto, desglosePorLinea }) {
   const { nombreSucursal } = useSucursal();
   return (
     <div className="hidden print:block">
@@ -866,6 +907,7 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
         <tbody>
           {lineasCatalogo.map((l) => {
             const pendiente = Math.max(Number(l.cantidad_base) - Number(l.cantidad_despachada), 0);
+            const desg = desglosePorLinea?.get(l.id);
             return (
               <tr key={l.id} className="break-inside-avoid border-b border-slate-300 align-top">
                 <td className="py-2 pr-3">
@@ -874,10 +916,20 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
                   <CodigosLinea codigos={codigosPorProducto?.get(l.producto_id)} marca={l.producto?.marca} />
                 </td>
                 <td className="whitespace-nowrap py-2 pr-3">
-                  {textoCantidadLinea(l)}
+                  {formatoEquivalencia({
+                    cantidadPresentacion: l.cantidad_presentacion,
+                    nombrePresentacion: l.presentacion?.nombre,
+                    factor: l.presentacion?.factor_unidad_base,
+                    cantidadBase: cantidadFmt(l.cantidad_base),
+                    unidadBase: l.producto?.unidad_base,
+                  })}
                   {l.estado === "PENDIENTE" && (
                     <p className="text-xs text-slate-500">
                       {cantidadFmt(l.cantidad_despachada)} despachado, {cantidadFmt(pendiente)} pendiente
+                      {desg?.desglose?.length > 0 && (
+                        <> — {desg.desglose.map((d) => `${d.cantidad} ${d.nombre}`).join(" + ")}
+                          {desg.restante > 0 && ` + ${cantidadFmt(desg.restante)} sueltas`}</>
+                      )}
                     </p>
                   )}
                 </td>
@@ -946,6 +998,7 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
 
 /* ── Detalle de pedido (formulario grande de despacho) ───────────────────── */
 function DetallePedido({ pedidoId, onBack }) {
+  const usuarioActual = useUsuarioActual();
   const [pedido, setPedido] = useState(null);
   const [lineas, setLineas] = useState([]);
   const [eventosPorLinea, setEventosPorLinea] = useState({});
@@ -953,6 +1006,17 @@ function DetallePedido({ pedidoId, onBack }) {
   const [cargando, setCargando] = useState(true);
   const [saldoPorProducto, setSaldoPorProducto] = useState(new Map());
   const [codigosPorProducto, setCodigosPorProducto] = useState(new Map());
+  const [desglosePorLinea, setDesglosePorLinea] = useState(new Map());
+
+  // Despacho por lote (brief W5): una casilla por línea despachable +
+  // barra de acción, en vez de despachar de a una y recargar el pedido
+  // entero 30 veces. seleccion mezcla líneas de catálogo (van por
+  // despachar_lineas) y especiales (van por entregar_personalizado, no
+  // tienen pick) — se separan recién al confirmar.
+  const [seleccion, setSeleccion] = useState(new Set());
+  const [picksPorLinea, setPicksPorLinea] = useState(new Map());
+  const [despachandoLote, setDespachandoLote] = useState(false);
+  const [flashLote, setFlashLote] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -967,7 +1031,7 @@ function DetallePedido({ pedidoId, onBack }) {
     ]);
     const lineaIds = (ls || []).map((l) => l.id);
     const productoIdsCatalogo = (ls || []).filter((l) => !l.es_personalizado).map((l) => l.producto_id);
-    const [{ data: eventos }, { data: hab }, codigos] = await Promise.all([
+    const [{ data: eventos }, { data: hab }, codigos, { data: pres }] = await Promise.all([
       lineaIds.length
         ? supabase.from("pedido_despacho_evento").select("*").in("pedido_linea_id", lineaIds).order("id", { ascending: false })
         : Promise.resolve({ data: [] }),
@@ -975,19 +1039,67 @@ function DetallePedido({ pedidoId, onBack }) {
         ? supabase.from("v_pedido_linea_despachable").select("id").in("id", lineaIds)
         : Promise.resolve({ data: [] }),
       codigosGrisPorProducto(productoIdsCatalogo),
+      // Presentaciones de TODOS los productos del pedido en una sola
+      // consulta — arma el desglose informativo de la hoja impresa
+      // (brief W5 #4) sin una consulta por línea.
+      productoIdsCatalogo.length
+        ? supabase.from("presentacion").select("id, nombre, factor_unidad_base, producto_id")
+            .in("producto_id", productoIdsCatalogo).eq("activo", true).order("factor_unidad_base", { ascending: false })
+        : Promise.resolve({ data: [] }),
     ]);
     const grupo = {};
     for (const e of eventos || []) (grupo[e.pedido_linea_id] ||= []).push(e);
+
+    const presPorProducto = new Map();
+    for (const row of pres || []) {
+      if (!presPorProducto.has(row.producto_id)) presPorProducto.set(row.producto_id, []);
+      presPorProducto.get(row.producto_id).push(row);
+    }
+    const desglose = new Map();
+    for (const l of ls || []) {
+      if (l.es_personalizado) continue;
+      const pendiente = Math.max(Number(l.cantidad_base) - Number(l.cantidad_despachada), 0);
+      desglose.set(l.id, armarDesglose(presPorProducto.get(l.producto_id) || [], pendiente));
+    }
 
     setPedido(p);
     setLineas(ls || []);
     setEventosPorLinea(grupo);
     setHabilitadas(new Set((hab || []).map((h) => h.id)));
     setCodigosPorProducto(codigos);
+    setDesglosePorLinea(desglose);
     setCargando(false);
   }, [pedidoId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Patch local de una línea sin recargar el pedido entero (brief W5 #3):
+  // revertir y comprar directo ya devuelven todo lo necesario en su propia
+  // respuesta — desproporcionado volver a pedir cabecera + líneas + saldos
+  // + picks por una acción sobre una sola línea.
+  const patchLinea = useCallback((lineaId, patch) => {
+    setLineas((prev) => prev.map((l) => l.id === lineaId ? { ...l, ...patch } : l));
+  }, []);
+  const agregarEvento = useCallback((lineaId, evento) => {
+    setEventosPorLinea((prev) => ({ ...prev, [lineaId]: [evento, ...(prev[lineaId] || [])] }));
+  }, []);
+  const marcarEventoRevertido = useCallback((lineaId, eventoId) => {
+    setEventosPorLinea((prev) => ({
+      ...prev,
+      [lineaId]: (prev[lineaId] || []).map((e) => e.id === eventoId ? { ...e, revertido: true } : e),
+    }));
+  }, []);
+
+  function toggleSeleccion(lineaId) {
+    setSeleccion((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineaId)) next.delete(lineaId); else next.add(lineaId);
+      return next;
+    });
+  }
+  function onPickChange(lineaId, pick) {
+    setPicksPorLinea((prev) => new Map(prev).set(lineaId, pick));
+  }
 
   // Saldo disponible (informativo, no bloquea "Despachar" ni el pick
   // automático): una sola llamada batch acá, no un polling por línea —
@@ -1039,6 +1151,67 @@ function DetallePedido({ pedidoId, onBack }) {
   const lineasCatalogo = lineas.filter((l) => !l.es_personalizado);
   const lineasEspeciales = lineas.filter((l) => l.es_personalizado);
 
+  const puedeDespacharLinea = (l) => l.estado === "POR_DESPACHAR" || (l.estado === "PENDIENTE" && habilitadas.has(l.id));
+  const idsDespachables = new Set([
+    ...lineasCatalogo.filter(puedeDespacharLinea).map((l) => l.id),
+    ...lineasEspeciales.filter((l) => l.estado === "ESPECIAL").map((l) => l.id),
+  ]);
+  const todasSeleccionadas = idsDespachables.size > 0 && [...idsDespachables].every((id) => seleccion.has(id));
+
+  function toggleSeleccionarTodas() {
+    setSeleccion(todasSeleccionadas ? new Set() : new Set(idsDespachables));
+  }
+
+  const lineasPorId = new Map(lineas.map((l) => [l.id, l]));
+  const totalUnidades = totalUnidadesSeleccion(seleccion, lineasPorId);
+
+  async function confirmarDespachoLote() {
+    const seleccionCatalogo = new Set([...seleccion].filter((id) => !lineasPorId.get(id)?.es_personalizado));
+    const seleccionEspeciales = [...seleccion].filter((id) => lineasPorId.get(id)?.es_personalizado);
+
+    const faltantes = lineasConFaltante(seleccionCatalogo, picksPorLinea);
+    if (faltantes.length > 0) {
+      const ok = window.confirm(
+        `${faltantes.length} línea${faltantes.length === 1 ? "" : "s"} quedará${faltantes.length === 1 ? "" : "n"} parcialmente pendiente${faltantes.length === 1 ? "" : "s"} (el pick no cubre lo pendiente). ¿Despachar igual?`
+      );
+      if (!ok) return;
+    }
+
+    const payload = armarPayloadDespacho(seleccionCatalogo, picksPorLinea);
+    if (payload.length === 0 && seleccionEspeciales.length === 0) {
+      setFlashLote({ type: "error", msg: "Nada para despachar todavía — abrí o dejá calcular el pick de al menos una línea." });
+      return;
+    }
+
+    setDespachandoLote(true);
+    setFlashLote(null);
+    try {
+      // Una sola llamada para todo el catálogo seleccionado: esto es lo
+      // que colapsa las N recargas de un despacho de a una en una sola
+      // (brief W5). Atómica en el server: si una línea falla, ninguna
+      // queda despachada — el mensaje de error dice cuál.
+      if (payload.length > 0) {
+        const { error } = await despacharLineas({ lineas: payload, usuario: usuarioActual.nombre });
+        if (error) { setFlashLote({ type: "error", msg: "Despacho por lote falló, ninguna línea quedó despachada: " + error.message }); return; }
+      }
+      // Los especiales no tienen pick — se entregan como cualquier entrega
+      // individual, en paralelo (son pocos frente al volumen de catálogo,
+      // que es lo que generaba la ráfaga de peticiones).
+      if (seleccionEspeciales.length > 0) {
+        const resultados = await Promise.all(
+          seleccionEspeciales.map((id) => entregarPersonalizado({ lineaId: id, usuario: usuarioActual.nombre }))
+        );
+        const conError = resultados.find((r) => r.error);
+        if (conError) setFlashLote({ type: "error", msg: "El despacho por lote se hizo, pero algunos ítems especiales no se pudieron entregar: " + conError.error.message });
+      }
+      setSeleccion(new Set());
+      setPicksPorLinea(new Map());
+      await cargar(); // única recarga completa, al final del lote
+    } finally {
+      setDespachandoLote(false);
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto pt-4 px-4 pb-8">
       <div className="print:hidden space-y-4">
@@ -1046,8 +1219,12 @@ function DetallePedido({ pedidoId, onBack }) {
           <button onClick={onBack} className="text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
           <h1 className="text-lg font-semibold text-slate-800">Pedido #{pedido.id}</h1>
           <BadgePedido estado={pedido.estado} />
+          <button onClick={cargar} title="Actualizar (recarga completa)"
+            className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            <RefreshCw size={14} />
+          </button>
           <button onClick={() => window.print()}
-            className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
             <Printer size={15} /> Imprimir
           </button>
         </div>
@@ -1065,6 +1242,13 @@ function DetallePedido({ pedidoId, onBack }) {
           </div>
         )}
 
+        {idsDespachables.size > 0 && (
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            <input type="checkbox" checked={todasSeleccionadas} onChange={toggleSeleccionarTodas} />
+            Seleccionar todas las despachables ({idsDespachables.size})
+          </label>
+        )}
+
         <div className="space-y-2">
           {lineasCatalogo.map((l) => (
             <FilaLinea
@@ -1073,9 +1257,14 @@ function DetallePedido({ pedidoId, onBack }) {
               eventos={eventosPorLinea[l.id]}
               habilitado={habilitadas.has(l.id)}
               categoria={pedido.categoria}
-              onRefrescar={cargar}
               saldoLibre={saldoPorProducto.get(l.producto_id)}
               codigos={codigosPorProducto.get(l.producto_id)}
+              seleccionada={seleccion.has(l.id)}
+              onToggleSeleccion={toggleSeleccion}
+              onPickChange={onPickChange}
+              onLineaPatch={patchLinea}
+              onEventoNuevo={agregarEvento}
+              onEventoRevertido={marcarEventoRevertido}
             />
           ))}
         </div>
@@ -1084,13 +1273,37 @@ function DetallePedido({ pedidoId, onBack }) {
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-slate-600">Ítems especiales / a pedido</h2>
             {lineasEspeciales.map((l) => (
-              <FilaEspecial key={l.id} linea={l} onRefrescar={cargar} />
+              <FilaEspecial
+                key={l.id}
+                linea={l}
+                seleccionada={seleccion.has(l.id)}
+                onToggleSeleccion={toggleSeleccion}
+                onLineaPatch={patchLinea}
+              />
             ))}
           </div>
         )}
       </div>
 
-      <ReporteImpresionPedido pedido={pedido} lineasCatalogo={lineasCatalogo} lineasEspeciales={lineasEspeciales} codigosPorProducto={codigosPorProducto} />
+      {seleccion.size > 0 && (
+        <BarraSeleccion
+          fixed
+          texto={`${seleccion.size} línea${seleccion.size === 1 ? "" : "s"} seleccionada${seleccion.size === 1 ? "" : "s"} · ${cantidadFmt(totalUnidades)} unidades`}
+          onCerrar={() => setSeleccion(new Set())}
+        >
+          {flashLote && (
+            <span className={`text-xs ${flashLote.type === "error" ? "text-red-600" : "text-blue-700"}`}>{flashLote.msg}</span>
+          )}
+          <button onClick={confirmarDespachoLote} disabled={despachandoLote}
+            className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50">
+            {despachandoLote && <Loader size={12} className="animate-spin" />}
+            <CheckSquare size={13} />
+            {despachandoLote ? "Despachando…" : "Despachar seleccionadas"}
+          </button>
+        </BarraSeleccion>
+      )}
+
+      <ReporteImpresionPedido pedido={pedido} lineasCatalogo={lineasCatalogo} lineasEspeciales={lineasEspeciales} codigosPorProducto={codigosPorProducto} desglosePorLinea={desglosePorLinea} />
     </div>
   );
 }
