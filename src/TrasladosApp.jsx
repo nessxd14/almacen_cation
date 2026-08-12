@@ -29,12 +29,30 @@ function fechaFmt(iso) {
   return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-const MOTIVO_LABELS = { VENTA_DIRECTA: "Venta directa", REPOSICION: "Reposición" };
+// Brief T1 — Tarea 6a: el enum motivo_traslado de la base también tiene DEVOLUCION (el
+// POS ya crea traslados con ese motivo); sin esta entrada la bandeja mostraba el literal
+// crudo "DEVOLUCION" en vez de una etiqueta legible.
+const MOTIVO_LABELS = { VENTA_DIRECTA: "Venta directa", REPOSICION: "Reposición", DEVOLUCION: "Devolución" };
+
+// Tarea 6b: pestaña de solo lectura para lo ya cerrado (RECIBIDO/RECHAZADO/CANCELADO) —
+// hoy el almacén no tenía forma de ver qué se recibió o rechazó, solo lo pendiente/en
+// tránsito. La recepción en sí sigue sin construirse acá: Tienda recibe desde el POS.
+const ESTADOS_CERRADOS = ["RECIBIDO", "RECHAZADO", "CANCELADO"];
 
 const TABS = [
   { id: "SOLICITADO", label: "Pendientes" },
   { id: "EN_TRANSITO", label: "En tránsito" },
+  { id: "CERRADOS", label: "Cerrados" },
 ];
+
+// Mismo criterio de color que ESTADOS_LINEA/BadgeLinea y ESTILOS_SALDO en PedidosApp.jsx
+// (verde=emerald para lo bien resuelto, ámbar para lo que falta, rojo/slate para lo
+// que no llegó a completarse) — no se inventa una paleta nueva acá.
+const ESTADO_CERRADO_LABELS = {
+  RECIBIDO: { label: "Recibido", cls: "bg-emerald-100 text-emerald-700" },
+  RECHAZADO: { label: "Rechazado", cls: "bg-red-100 text-red-600" },
+  CANCELADO: { label: "Cancelado", cls: "bg-slate-100 text-slate-500" },
+};
 
 function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
   const usuarioActual = useUsuarioActual();
@@ -102,8 +120,13 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
         className="flex w-full items-center gap-3 px-4 py-3 text-left">
         {abierto ? <ChevronUp size={16} className="text-slate-400 shrink-0" /> : <ChevronDown size={16} className="text-slate-400 shrink-0" />}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-slate-800">
+          <p className="text-sm font-medium text-slate-800 flex items-center gap-2">
             Traslado #{solicitud.id} · {MOTIVO_LABELS[solicitud.motivo] || solicitud.motivo}
+            {ESTADO_CERRADO_LABELS[solicitud.estado] && (
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ESTADO_CERRADO_LABELS[solicitud.estado].cls}`}>
+                {ESTADO_CERRADO_LABELS[solicitud.estado].label}
+              </span>
+            )}
           </p>
           <p className="text-xs text-slate-400 flex items-center gap-1">
             {nombreSucursal(solicitud.sucursal_origen_id)} <ArrowRight size={11} /> {nombreSucursal(solicitud.sucursal_destino_id)}
@@ -173,6 +196,16 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
                   {!esPendiente && !l.presentacion_id && (
                     <p className="mt-1 text-xs text-slate-400">Pedido: {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}</p>
                   )}
+                  {!esPendiente && l.cantidad_recibida != null && (
+                    <p className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+                      Recibido: {cantidadFmt(l.cantidad_recibida)} {l.producto?.unidad_base}
+                      {l.cantidad_recibida < l.cantidad_despachada && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">
+                          Faltan {cantidadFmt(l.cantidad_despachada - l.cantidad_recibida)}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -223,12 +256,9 @@ export default function TrasladosApp() {
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const { data: sol } = await supabase
-      .from("solicitud_traslado")
-      .select("*")
-      .eq("estado", tab)
-      .order("creado_en", { ascending: false })
-      .limit(200);
+    let query = supabase.from("solicitud_traslado").select("*").order("creado_en", { ascending: false });
+    query = tab === "CERRADOS" ? query.in("estado", ESTADOS_CERRADOS).limit(50) : query.eq("estado", tab).limit(200);
+    const { data: sol } = await query;
 
     const solIds = (sol || []).map((s) => s.id);
     const { data: lineas } = solIds.length
