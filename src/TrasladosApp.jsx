@@ -29,12 +29,14 @@ function fechaFmt(iso) {
   return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-const MOTIVO_LABELS = { VENTA_DIRECTA: "Venta directa", REPOSICION: "Reposición" };
+const MOTIVO_LABELS = { VENTA_DIRECTA: "Venta directa", REPOSICION: "Reposición", DEVOLUCION: "Devolución" };
 
 const TABS = [
   { id: "SOLICITADO", label: "Pendientes" },
   { id: "EN_TRANSITO", label: "En tránsito" },
+  { id: "CERRADOS", label: "Cerrados" },
 ];
+const ESTADOS_CERRADOS = ["RECIBIDO", "RECHAZADO", "CANCELADO"];
 
 function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
   const usuarioActual = useUsuarioActual();
@@ -173,6 +175,16 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, onRefrescar }) {
                   {!esPendiente && !l.presentacion_id && (
                     <p className="mt-1 text-xs text-slate-400">Pedido: {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}</p>
                   )}
+                  {!esPendiente && l.cantidad_recibida != null && (
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+                      Recibido: {cantidadFmt(l.cantidad_recibida)} {l.producto?.unidad_base}
+                      {Number(l.cantidad_recibida) < Number(l.cantidad_despachada) && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                          faltan {cantidadFmt(Number(l.cantidad_despachada) - Number(l.cantidad_recibida))}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -223,12 +235,14 @@ export default function TrasladosApp() {
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const { data: sol } = await supabase
+    let consulta = supabase
       .from("solicitud_traslado")
       .select("*")
-      .eq("estado", tab)
-      .order("creado_en", { ascending: false })
-      .limit(200);
+      .order("creado_en", { ascending: false });
+    consulta = tab === "CERRADOS"
+      ? consulta.in("estado", ESTADOS_CERRADOS).limit(50)
+      : consulta.eq("estado", tab).limit(200);
+    const { data: sol } = await consulta;
 
     const solIds = (sol || []).map((s) => s.id);
     const { data: lineas } = solIds.length
