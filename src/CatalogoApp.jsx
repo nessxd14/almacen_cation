@@ -9,10 +9,13 @@ import { HistorialMovimientos } from "./HistorialApp";
 import EditarProducto, { CarruselPrecios } from "./EditarProducto";
 import NuevoProducto from "./NuevoProducto";
 import EscanerCodigo from "./EscanerCodigo";
-import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea, buscarAgrupado } from "./lib/operaciones";
+import { ubicacionesParaOperacion, calcularPick, crearPedido, despacharLinea, buscarAgrupado, stockPorSucursalBatch } from "./lib/operaciones";
 import { agregarAlBorrador } from "./lib/pedidoBorrador";
 import { useUsuarioActual } from "./lib/useAuth";
+import { useSucursal } from "./lib/useSucursal";
 import { metaProducto, marcaFmt } from "./lib/producto";
+import { sumaStockPorSucursal, desgloseStockPorSucursal, textoDesgloseSucursal } from "./lib/stockSucursal";
+import { labelUbicacionConSucursal } from "./lib/despacho";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -90,6 +93,17 @@ function DesgloseConversiones({ stockTotal, presentaciones }) {
   );
 }
 
+// Brief W9: línea secundaria "Almacén 1.170 · Tienda 75" debajo del total —
+// no reemplaza el total, lo desglosa. Nada que renderizar con 0 o 1
+// sucursal con stock (el total ya lo dice) — ver lib/stockSucursal.js.
+function DesgloseSucursalLinea({ stockPorSucursal, className }) {
+  const { sucursales } = useSucursal();
+  const desglose = desgloseStockPorSucursal(stockPorSucursal, sucursales);
+  const texto = textoDesgloseSucursal(desglose, numeroFmt);
+  if (!texto) return null;
+  return <p className={className || "text-xs text-slate-400"}>{texto}</p>;
+}
+
 // Imagen con fallback a placeholder
 function ImagenProducto({ url, nombre, className }) {
   const [error, setError] = useState(false);
@@ -109,6 +123,7 @@ function ImagenProducto({ url, nombre, className }) {
 // ─── Panel de detalle ────────────────────────────────────────────────────────
 
 function DetalleProducto({ producto, onClose, onActualizado }) {
+  const { sucursales, nombreSucursal } = useSucursal();
   const [detalle, setDetalle] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [vistaPanel, setVistaPanel] = useState("detalle"); // "detalle" | "historial"
@@ -138,7 +153,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
       // Stock por ubicación (incluye virtuales — necesario para el total real)
       const { data: stock } = await supabase
         .from("stock_actual")
-        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento, sucursal:sucursal_id(tipo))")
+        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento, sucursal_id, sucursal:sucursal_id(nombre, tipo))")
         .eq("producto_id", producto.id);
       // Ficha técnica — texto pesado, no viene en el producto de la grilla.
       const { data: ficha } = await supabase
@@ -231,6 +246,15 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
               s => s.ubicacion?.sucursal?.tipo !== "virtual" && Number(s.cantidad_base) !== 0
             );
             const stockTotal = detalle.stock.reduce((s, r) => s + Number(r.cantidad_base || 0), 0);
+            // Brief W9 tarea 2: mismo desglose por sucursal que la tarjeta del
+            // Catálogo, agregado acá desde las filas de stock por ubicación.
+            const mapaPorSucursal = new Map();
+            for (const r of detalle.stock) {
+              const sid = r.ubicacion?.sucursal_id;
+              if (sid == null) continue;
+              mapaPorSucursal.set(sid, (mapaPorSucursal.get(sid) || 0) + Number(r.cantidad_base || 0));
+            }
+            const desgloseSucursales = desgloseStockPorSucursal(mapaPorSucursal, sucursales);
             return (
               <div className="mb-5 rounded-xl bg-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -242,6 +266,11 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                       <span className="ml-1 text-sm font-normal text-slate-400">{producto.unidad_base}</span>
                       <DesgloseConversiones stockTotal={stockTotal} presentaciones={detalle.presentaciones} />
                     </p>
+                    {desgloseSucursales.map((d) => (
+                      <p key={d.sucursalId} className="text-xs text-slate-400">
+                        {d.nombre} <span className="font-medium text-slate-500">{cantidadFmt(d.cantidad)}</span> {producto.unidad_base}
+                      </p>
+                    ))}
                   </div>
                 </div>
 
@@ -266,7 +295,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                             ${negativo ? "border-red-200 bg-red-50" : "border-slate-200"}`}>
                             <MapPin size={13} className={negativo ? "text-red-500" : "text-slate-400"} />
                             <span className={`flex-1 ${negativo ? "text-red-700" : "text-slate-700"}`}>
-                              {etiquetaUbicacion(s.ubicacion)}
+                              {labelUbicacionConSucursal(etiquetaUbicacion(s.ubicacion), s.ubicacion?.sucursal_id, nombreSucursal)}
                             </span>
                             <span className={`font-semibold ${negativo ? "text-red-600" : "text-slate-900"}`}>
                               {cantidadFmt(n)}
@@ -411,6 +440,7 @@ function QuickView({ producto, onClose, onVerDetalle, onVenderAhora, onAgregarPe
           <div className="mt-2 flex justify-center">
             <BadgeStock cantidad={producto.stock_total} unidad={producto.unidad_base} />
           </div>
+          <DesgloseSucursalLinea stockPorSucursal={producto.stock_por_sucursal} className="mt-1 text-xs text-slate-400" />
 
           <div className="mt-5 space-y-2">
             <button onClick={onVenderAhora}
@@ -678,6 +708,7 @@ function TarjetaGaleria({ p, mostrarAtributos, onClick }) {
           <p className="text-sm font-bold text-slate-900">{precioFmt(p.precio_base)}</p>
           <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
         </div>
+        <DesgloseSucursalLinea stockPorSucursal={p.stock_por_sucursal} className="mt-1 text-right text-xs text-slate-400" />
       </div>
     </button>
   );
@@ -698,7 +729,10 @@ function FilaLista({ p, mostrarAtributos, indentado, onClick }) {
         {metaProducto(p) && <p className="truncate text-xs text-slate-400">{metaProducto(p)}</p>}
       </div>
       {!mapeado && <Link2Off size={14} className="shrink-0 text-slate-300" />}
-      <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
+      <div className="shrink-0 text-right">
+        <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
+        <DesgloseSucursalLinea stockPorSucursal={p.stock_por_sucursal} className="mt-0.5 text-xs text-slate-400" />
+      </div>
       <span className="shrink-0 text-sm font-semibold text-slate-900">{precioFmt(p.precio_base)}</span>
       <ChevronRight size={15} className="shrink-0 text-slate-300" />
     </button>
@@ -823,25 +857,33 @@ export default function CatalogoApp() {
     const ids = gruposCrudos.flatMap(g => g.variantes.map(v => v.producto_id));
     if (ids.length === 0) return [];
 
-    const [{ data: detalles }, { data: stocks }] = await Promise.all([
+    // Brief W9: buscarAgrupado puede traer hasta 200 ids acá. stockPorSucursalBatch
+    // hace un .in() sobre stock_actual sin .range() — PostgREST trunca en 1.000
+    // filas en silencio. Hoy hay ~1 fila de stock por producto (200 ids ≈ 200
+    // filas), lejos del límite; si stock_actual pasa a tener más filas por
+    // producto, revisar esto (mismo cuidado que ya existe en PreciosApp.jsx).
+    const [{ data: detalles }, mapaStockPorProducto] = await Promise.all([
       supabase
         .from("producto")
         .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_municipal, shopify_variant_id, imagen_url")
         .in("id", ids),
-      supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
+      stockPorSucursalBatch(ids),
     ]);
     const mapaDet = new Map((detalles || []).map(d => [d.id, d]));
-    const mapaStock = new Map((stocks || []).map(s => [s.producto_id, s.stock_total]));
 
     return gruposCrudos.map(g => ({
       ...g,
       variantes: g.variantes
         .filter(v => mapaDet.has(v.producto_id))
-        .map(v => ({
-          ...mapaDet.get(v.producto_id),
-          atributos: v.atributos,
-          stock_total: mapaStock.get(v.producto_id) ?? 0,
-        })),
+        .map(v => {
+          const stockPorSucursal = mapaStockPorProducto.get(v.producto_id) || new Map();
+          return {
+            ...mapaDet.get(v.producto_id),
+            atributos: v.atributos,
+            stock_total: sumaStockPorSucursal(stockPorSucursal),
+            stock_por_sucursal: stockPorSucursal,
+          };
+        }),
     })).filter(g => g.variantes.length > 0);
   };
 
@@ -905,8 +947,10 @@ export default function CatalogoApp() {
     let mapaFamilia = new Map();
     if (lista.length > 0) {
       const ids = lista.map(p => p.id);
-      const [{ data: stocks }, { data: extra }] = await Promise.all([
-        supabase.from("v_producto_stock").select("producto_id, stock_total").in("producto_id", ids),
+      // La grilla pagina de a 40 productos (PAGINA) — muy lejos del límite de
+      // 1.000 filas de PostgREST que sí hay que cuidar en enriquecerVariantes.
+      const [mapaStockPorProducto, { data: extra }] = await Promise.all([
+        stockPorSucursalBatch(ids),
         // Mapa liviano producto_id -> familia + atributos, solo para agrupar
         // visualmente esta página — no reemplaza la query paginada de arriba.
         supabase
@@ -914,8 +958,11 @@ export default function CatalogoApp() {
           .select("id, familia_id, familia:familia_id(nombre), producto_atributo(atributo_valor:atributo_valor_id(valor, atributo:atributo_id(nombre)))")
           .in("id", ids),
       ]);
-      const mapaStock = new Map((stocks || []).map(s => [s.producto_id, s.stock_total]));
-      for (const p of lista) p.stock_total = mapaStock.get(p.id) ?? 0;
+      for (const p of lista) {
+        const stockPorSucursal = mapaStockPorProducto.get(p.id) || new Map();
+        p.stock_total = sumaStockPorSucursal(stockPorSucursal);
+        p.stock_por_sucursal = stockPorSucursal;
+      }
 
       mapaFamilia = new Map((extra || []).map(p => [p.id, {
         familia_id: p.familia_id,

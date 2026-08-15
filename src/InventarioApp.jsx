@@ -465,7 +465,7 @@ export default function InventarioApp() {
               <tr className="border-b border-slate-100 bg-slate-50">
                 <ThOrden campo="producto_nombre">Producto</ThOrden>
                 <ThOrden campo="codigo_zona">Ubicación</ThOrden>
-                <ThOrden campo="cantidad_base" className="text-right">Cantidad</ThOrden>
+                <ThOrden campo="cantidad_base" className="text-right">Cantidad ({nombreSucursal(sucursalActivaId) || "…"})</ThOrden>
                 <ThOrden campo="valor_linea" className="text-right">Valor</ThOrden>
                 <th className="px-3 py-2 text-right" />
               </tr>
