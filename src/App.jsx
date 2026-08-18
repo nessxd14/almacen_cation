@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
   History, ShoppingBag, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
-  AlertTriangle,
+  AlertTriangle, PackageCheck,
 } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
@@ -16,6 +16,7 @@ import InventarioApp      from "./InventarioApp";
 import HistorialApp       from "./HistorialApp";
 import AdminApp           from "./AdminApp";
 import PedidosApp         from "./PedidosApp";
+import VentaDirectaApp    from "./VentaDirectaApp";
 import TrasladosApp       from "./TrasladosApp";
 import PreciosApp         from "./PreciosApp";
 import SurtidoApp         from "./SurtidoApp";
@@ -37,6 +38,7 @@ const TABS = [
   { id: "revision",   label: "Revisión",      icon: Images,          Comp: RevisionCapturas },
 
   { id: "pedidos",    label: "Pedidos",       icon: ShoppingBag,     Comp: PedidosApp },
+  { id: "ventadirecta", label: "Venta directa", icon: PackageCheck,  Comp: VentaDirectaApp },
   { id: "traslados",  label: "Traslados",     icon: Truck,           Comp: TrasladosApp },
   { id: "historial",  label: "Historial",     icon: History,         Comp: HistorialApp },
   { id: "oper",       label: "Operaciones",   icon: Boxes,           Comp: OperacionesApp },
@@ -51,7 +53,7 @@ const TABS = [
 const GRUPOS = [
   { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "surtido", "faltantes", "concilia", "huerfanos"] },
   { id: "catalogo-grp", label: "Catálogo",     icon: BookOpen,   tabs: ["catalogo", "precios", "revision"] },
-  { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "traslados", "historial", "oper"] },
+  { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "ventadirecta", "traslados", "historial", "oper"] },
   { id: "admin-grp",    label: "Admin",        icon: Settings,   tabs: ["admin"] },
 ];
 

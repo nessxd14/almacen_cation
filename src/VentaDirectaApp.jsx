@@ -1,0 +1,284 @@
+/**
+ * VentaDirectaApp.jsx — Bandeja de preparación de Venta Directa de Almacén (VTD).
+ *
+ * Ver brief_v1_venta_directa_almacen.md, sección 3 (WMS). Un VTD es una fila
+ * de `venta` con estado ABIERTA — el POS la abrió sin tocar Kardex y acá el
+ * almacenero la busca, prepara los bultos y la despacha físicamente.
+ *
+ * B1 sin resolver: `venta` todavía no tiene numeración propia (serie
+ * VTD-2026-NNNNN), así que el identificador visible es `venta.id` crudo
+ * (brief opción a). Si más adelante se agrega la columna `numero`, ajustar
+ * solo `identificadorVenta()`.
+ *
+ * 3.3 del brief: el WMS NO ejecuta completar_venta / ajustar_venta_abierta /
+ * anular_venta — esas mueven caja y las corre la tienda. El check de "lo que
+ * entregué" de esta pantalla es puramente local (no persiste, no se manda a
+ * ningún lado): diseñar esa comunicación con caja queda fuera de alcance.
+ */
+
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { supabase } from "./supabaseClient";
+import EscanerCodigo from "./EscanerCodigo";
+import { labelUbicacion } from "./lib/operaciones";
+import { useSucursal } from "./lib/useSucursal";
+import {
+  PackageCheck, ScanLine, Loader, RefreshCw, ArrowLeft, MapPin, Clock, User, CheckSquare, Square,
+} from "lucide-react";
+
+/* ── helpers ─────────────────────────────────────────────────────────── */
+function cantidadFmt(v) {
+  const n = Number(v || 0);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
+}
+// El almacenero cuenta bultos, no unidades base — mostrar siempre la
+// presentación cuando exista (mismo criterio que PedidosApp).
+function textoCantidadLinea(l) {
+  const unidad = l.producto?.unidad_base || "";
+  if (l.presentacion_id && l.presentacion) {
+    return `${cantidadFmt(l.cantidad_presentacion)} ${l.presentacion.nombre}`;
+  }
+  return `${cantidadFmt(l.cantidad)} ${unidad}`;
+}
+function fechaFmt(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+function identificadorVenta(v) {
+  return `VTD ${v.id}`;
+}
+// "modo" no se persiste en `venta` (lo resuelve abrir_venta en el momento y
+// no vuelve). Se infiere acá por la presencia de pagos asociados.
+function modoVenta(v) {
+  return (v.venta_pago?.length || 0) > 0 ? "PAGADO" : "POR COBRAR";
+}
+function antiguedadMin(iso) {
+  if (!iso) return 0;
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+}
+
+const SELECT_VENTA = `
+  id, estado, total, creado_en, ubicacion_id,
+  ubicacion:ubicacion_id!inner ( id, codigo_zona, estante, nivel, compartimiento, sucursal_id ),
+  cliente:cliente_id ( nombre ),
+  venta_pago ( id ),
+  venta_linea (
+    id, producto_id, presentacion_id, cantidad, cantidad_presentacion,
+    producto:producto_id ( nombre, unidad_base ),
+    presentacion:presentacion_id ( nombre )
+  )
+`;
+
+function BadgeModo({ modo }) {
+  const cls = modo === "PAGADO" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700";
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{modo}</span>;
+}
+
+export default function VentaDirectaApp() {
+  const { sucursalActivaId, nombreSucursal } = useSucursal();
+  const [ventas, setVentas] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState(null);
+  const [seleccion, setSeleccion] = useState(null); // venta_id activa en detalle
+  const [showScanner, setShowScanner] = useState(false);
+  const [flash, setFlash] = useState(null);
+  const [entregado, setEntregado] = useState({}); // { [linea_id]: boolean } — local, no persiste
+
+  const cargar = useCallback(async () => {
+    if (!sucursalActivaId) return;
+    setCargando(true);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from("venta")
+      .select(SELECT_VENTA)
+      .eq("estado", "ABIERTA")
+      .eq("ubicacion.sucursal_id", sucursalActivaId)
+      .order("creado_en", { ascending: true });
+    if (err) {
+      setError(err.message);
+      setVentas([]);
+    } else {
+      setVentas(data || []);
+    }
+    setCargando(false);
+  }, [sucursalActivaId]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const showFlash = (msg) => {
+    setFlash(msg);
+    setTimeout(() => setFlash(null), 3000);
+  };
+
+  const handleScan = useCallback((codigo) => {
+    setShowScanner(false);
+    const raw = (codigo || "").trim();
+    const id = Number(raw.replace(/\D/g, ""));
+    if (!id) { showFlash(`Código no reconocido: ${raw}`); return; }
+    const venta = ventas.find((v) => v.id === id);
+    if (!venta) { showFlash(`VTD ${id} no está en la bandeja de esta sucursal`); return; }
+    setSeleccion(id);
+  }, [ventas]);
+
+  const ventaSeleccionada = useMemo(
+    () => ventas.find((v) => v.id === seleccion) || null,
+    [ventas, seleccion],
+  );
+
+  if (!sucursalActivaId) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-slate-500">
+        <Loader size={16} className="animate-spin" /> Cargando sucursal…
+      </div>
+    );
+  }
+
+  if (ventaSeleccionada) {
+    return (
+      <DetalleVenta
+        venta={ventaSeleccionada}
+        nombreSucursal={nombreSucursal}
+        entregado={entregado}
+        setEntregado={setEntregado}
+        onVolver={() => setSeleccion(null)}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
+          <PackageCheck size={20} /> Venta directa de almacén
+        </h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowScanner(true)}
+            className="flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            <ScanLine size={16} /> Escanear ticket
+          </button>
+          <button
+            onClick={cargar}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            title="Actualizar"
+          >
+            <RefreshCw size={16} className={cargando ? "animate-spin" : ""} />
+          </button>
+        </div>
+      </div>
+
+      {flash && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">{flash}</div>
+      )}
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+      )}
+
+      {cargando ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader size={16} className="animate-spin" /> Cargando…
+        </div>
+      ) : ventas.length === 0 ? (
+        <p className="text-sm text-slate-500">No hay ventas directas abiertas en esta sucursal.</p>
+      ) : (
+        <div className="space-y-2">
+          {ventas.map((v) => {
+            const min = antiguedadMin(v.creado_en);
+            const vieja = min >= 30;
+            return (
+              <button
+                key={v.id}
+                onClick={() => setSeleccion(v.id)}
+                className={`w-full rounded-xl border bg-white p-4 text-left shadow-sm transition-colors hover:bg-slate-50
+                  ${vieja ? "border-amber-300" : "border-slate-200"}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-800">{identificadorVenta(v)}</span>
+                    <BadgeModo modo={modoVenta(v)} />
+                    {vieja && (
+                      <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                        <Clock size={12} /> {min} min
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-sm text-slate-500">{v.venta_linea?.length || 0} líneas</span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <MapPin size={12} /> {labelUbicacion(v.ubicacion)}
+                  </span>
+                  {v.cliente?.nombre && (
+                    <span className="flex items-center gap-1"><User size={12} /> {v.cliente.nombre}</span>
+                  )}
+                  <span>{fechaFmt(v.creado_en)}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
+    </div>
+  );
+}
+
+function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, onVolver }) {
+  const toggle = (lineaId) => {
+    setEntregado((prev) => ({ ...prev, [lineaId]: !prev[lineaId] }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <button onClick={onVolver} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+        <ArrowLeft size={16} /> Volver a la bandeja
+      </button>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
+            <PackageCheck size={18} /> {identificadorVenta(venta)}
+          </h2>
+          <BadgeModo modo={modoVenta(venta)} />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+          <span className="flex items-center gap-1">
+            <MapPin size={14} /> {labelUbicacion(venta.ubicacion, { nombreSucursal })}
+          </span>
+          {venta.cliente?.nombre && (
+            <span className="flex items-center gap-1"><User size={14} /> {venta.cliente.nombre}</span>
+          )}
+          <span>{fechaFmt(venta.creado_en)}</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {(venta.venta_linea || []).map((l) => {
+          const marcada = !!entregado[l.id];
+          return (
+            <button
+              key={l.id}
+              onClick={() => toggle(l.id)}
+              className={`flex w-full items-center justify-between gap-3 rounded-xl border bg-white p-3 text-left shadow-sm
+                ${marcada ? "border-emerald-300 bg-emerald-50" : "border-slate-200"}`}
+            >
+              <div className="flex items-center gap-3">
+                {marcada ? <CheckSquare size={18} className="text-emerald-600" /> : <Square size={18} className="text-slate-300" />}
+                <span className={`font-medium ${marcada ? "text-emerald-800 line-through" : "text-slate-800"}`}>
+                  {l.producto?.nombre || `Producto ${l.producto_id}`}
+                </span>
+              </div>
+              <span className="font-semibold text-slate-700">{textoCantidadLinea(l)}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        Esta marca es solo una ayuda visual mientras preparás el pedido — no completa ni anula la venta.
+        El cobro, el ajuste de cantidades y la anulación se hacen desde caja.
+      </p>
+    </div>
+  );
+}
