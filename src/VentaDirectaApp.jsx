@@ -5,10 +5,12 @@
  * de `venta` con estado ABIERTA — el POS la abrió sin tocar Kardex y acá el
  * almacenero la busca, prepara los bultos y la despacha físicamente.
  *
- * B1 sin resolver: `venta` todavía no tiene numeración propia (serie
- * VTD-2026-NNNNN), así que el identificador visible es `venta.id` crudo
- * (brief opción a). Si más adelante se agrega la columna `numero`, ajustar
- * solo `identificadorVenta()`.
+ * B1 resuelto (brief V2, 2026-08-18): `venta.numero` ya existe en producción
+ * (serie VTD-2026-NNNNN, asignada por `abrir_venta`) y es lo que imprime el
+ * POS en el ticket y codifica en el Code128. `numero` es nullable — las
+ * ventas anteriores al cambio lo tienen en NULL — así que el fallback es
+ * `#<id>`. El escaneo/búsqueda acepta ambos formatos por si circula algún
+ * ticket viejo con el id crudo.
  *
  * 3.3 del brief: el WMS NO ejecuta completar_venta / ajustar_venta_abierta /
  * anular_venta — esas mueven caja y las corre la tienda. El check de "lo que
@@ -22,7 +24,7 @@ import EscanerCodigo from "./EscanerCodigo";
 import { labelUbicacion } from "./lib/operaciones";
 import { useSucursal } from "./lib/useSucursal";
 import {
-  PackageCheck, ScanLine, Loader, RefreshCw, ArrowLeft, MapPin, Clock, User, CheckSquare, Square,
+  PackageCheck, ScanLine, Search, Loader, RefreshCw, ArrowLeft, MapPin, Clock, User, CheckSquare, Square,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -44,7 +46,7 @@ function fechaFmt(iso) {
   return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 function identificadorVenta(v) {
-  return `VTD ${v.id}`;
+  return v.numero || `#${v.id}`;
 }
 // "modo" no se persiste en `venta` (lo resuelve abrir_venta en el momento y
 // no vuelve). Se infiere acá por la presencia de pagos asociados.
@@ -55,9 +57,22 @@ function antiguedadMin(iso) {
   if (!iso) return 0;
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
 }
+// Acepta el número de serie (VTD-2026-00008, con o sin mayúsculas/espacios)
+// o el id crudo (65) — circulan ambos: el ticket nuevo imprime el número,
+// pero puede aparecer alguno viejo, de antes de V2, con el id a secas.
+function buscarVentaPorIdentificador(ventas, texto) {
+  const q = (texto || "").trim();
+  if (!q) return null;
+  const porNumero = ventas.find((v) => v.numero && v.numero.toLowerCase() === q.toLowerCase());
+  if (porNumero) return porNumero;
+  const soloDigitos = q.replace(/\D/g, "");
+  if (!soloDigitos) return null;
+  const id = Number(soloDigitos);
+  return ventas.find((v) => v.id === id) || null;
+}
 
 const SELECT_VENTA = `
-  id, estado, total, creado_en, ubicacion_id,
+  id, numero, estado, total, creado_en, ubicacion_id,
   ubicacion:ubicacion_id!inner ( id, codigo_zona, estante, nivel, compartimiento, sucursal_id ),
   cliente:cliente_id ( nombre ),
   venta_pago ( id ),
@@ -82,6 +97,7 @@ export default function VentaDirectaApp() {
   const [showScanner, setShowScanner] = useState(false);
   const [flash, setFlash] = useState(null);
   const [entregado, setEntregado] = useState({}); // { [linea_id]: boolean } — local, no persiste
+  const [busqueda, setBusqueda] = useState("");
 
   const cargar = useCallback(async () => {
     if (!sucursalActivaId) return;
@@ -109,15 +125,17 @@ export default function VentaDirectaApp() {
     setTimeout(() => setFlash(null), 3000);
   };
 
+  const buscar = useCallback((texto) => {
+    const venta = buscarVentaPorIdentificador(ventas, texto);
+    if (!venta) { showFlash(`No se encontró "${texto}" en la bandeja de esta sucursal`); return; }
+    setSeleccion(venta.id);
+    setBusqueda("");
+  }, [ventas]);
+
   const handleScan = useCallback((codigo) => {
     setShowScanner(false);
-    const raw = (codigo || "").trim();
-    const id = Number(raw.replace(/\D/g, ""));
-    if (!id) { showFlash(`Código no reconocido: ${raw}`); return; }
-    const venta = ventas.find((v) => v.id === id);
-    if (!venta) { showFlash(`VTD ${id} no está en la bandeja de esta sucursal`); return; }
-    setSeleccion(id);
-  }, [ventas]);
+    buscar(codigo);
+  }, [buscar]);
 
   const ventaSeleccionada = useMemo(
     () => ventas.find((v) => v.id === seleccion) || null,
@@ -151,6 +169,18 @@ export default function VentaDirectaApp() {
           <PackageCheck size={20} /> Venta directa de almacén
         </h1>
         <div className="flex items-center gap-2">
+          <form
+            onSubmit={(e) => { e.preventDefault(); if (busqueda.trim()) buscar(busqueda); }}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5"
+          >
+            <Search size={14} className="text-slate-400" />
+            <input
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="VTD-2026-00008 o id"
+              className="w-36 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+            />
+          </form>
           <button
             onClick={() => setShowScanner(true)}
             className="flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
