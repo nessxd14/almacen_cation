@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
 import { comprimirYCodificar } from "./lib/capturaFoto";
-import { subirImagenProducto, validarImagenProducto } from "./lib/imagenProducto";
+import { subirImagenProducto, tipoImagenValido } from "./lib/imagenProducto";
 import { useUsuarioActual } from "./lib/useAuth";
 
 // Brief S4 parte A: foco atrapado dentro del modal — Tab/Shift+Tab no debe
@@ -124,10 +124,12 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     e.target.value = "";
     if (!file) return;
     setErrorImagen(null);
-    const motivo = validarImagenProducto(file);
-    if (motivo) { setErrorImagen(motivo); return; }
+    if (!tipoImagenValido(file)) { setErrorImagen("Formato no soportado — usá JPEG, PNG o WebP"); return; }
     setSubiendoImagen(true);
     try {
+      // El tamaño no se valida acá: subirImagenProducto comprime del lado
+      // del cliente para entrar en el límite del bucket (2 MB) y solo
+      // falla si ni comprimida entra.
       const url = await subirImagenProducto(producto.id, file);
       setImagenUrl(url);
       show("Foto actualizada");
