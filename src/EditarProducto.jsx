@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import {
   X, Save, Camera, Plus, Trash2, Pencil, Barcode, Check, AlertCircle,
@@ -6,7 +6,12 @@ import {
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
 import { comprimirYCodificar } from "./lib/capturaFoto";
+import { subirImagenProducto, tipoImagenValido } from "./lib/imagenProducto";
 import { useUsuarioActual } from "./lib/useAuth";
+
+// Brief S4 parte A: foco atrapado dentro del modal — Tab/Shift+Tab no debe
+// poder escaparse hacia la página de atrás mientras el modal está abierto.
+const SELECTOR_FOCUSABLES = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -85,6 +90,56 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [fotosSeleccionadas, setFotosSeleccionadas] = useState([]);
   const [enviandoFotos, setEnviandoFotos] = useState(false);
   const [resultadoFotos, setResultadoFotos] = useState(null); // { tipo: "ok" | "error", msg }
+
+  // Foto principal directa (brief S4 parte B) — circuito aparte de
+  // "Completar con fotos": esto pisa producto.imagen_url al toque, sin pasar
+  // por revisión. El circuito de OpenClaw (arriba) no se toca.
+  const [imagenUrl, setImagenUrl] = useState(producto.imagen_url || "");
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
+  const [errorImagen, setErrorImagen] = useState(null);
+
+  // ── Modal centrado (brief S4 parte A): Escape cierra, foco atrapado ──
+  const modalRef = useRef(null);
+  useEffect(() => {
+    const enfocadoAntes = document.activeElement;
+    modalRef.current?.querySelector(SELECTOR_FOCUSABLES)?.focus();
+    return () => { enfocadoAntes?.focus?.(); };
+  }, []);
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab") return;
+      const focosables = modalRef.current?.querySelectorAll(SELECTOR_FOCUSABLES);
+      if (!focosables || focosables.length === 0) return;
+      const primero = focosables[0], ultimo = focosables[focosables.length - 1];
+      if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus(); }
+      else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus(); }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  async function subirFotoPrincipal(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setErrorImagen(null);
+    if (!tipoImagenValido(file)) { setErrorImagen("Formato no soportado — usá JPEG, PNG o WebP"); return; }
+    setSubiendoImagen(true);
+    try {
+      // El tamaño no se valida acá: subirImagenProducto comprime del lado
+      // del cliente para entrar en el límite del bucket (2 MB) y solo
+      // falla si ni comprimida entra.
+      const url = await subirImagenProducto(producto.id, file);
+      setImagenUrl(url);
+      show("Foto actualizada");
+      onGuardado?.();
+    } catch (err) {
+      setErrorImagen(err.message);
+    } finally {
+      setSubiendoImagen(false);
+    }
+  }
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -389,13 +444,19 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[55] flex justify-end bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       {toast && <Toast msg={toast.msg} tipo={toast.tipo} onClose={() => setToast(null)} />}
       {scanTarget != null && <EscanerCodigo onDetect={onScan} onClose={() => setScanTarget(null)} />}
 
-      <div className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+      {/* Modal centrado (brief S4 parte A) — max-height relativo al
+          viewport, no un breakpoint fijo en px: la terminal de caja corre a
+          1536×864 y un `max-height` pensado para la ventana del navegador de
+          desarrollo se corta arriba y abajo justo ahí. */}
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="Editar producto"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Editar producto</h2>
             <p className="text-xs text-slate-400">{producto.nombre}</p>
@@ -403,7 +464,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={20} /></button>
         </div>
 
-        <div className="space-y-6 p-5">
+        <div className="flex-1 space-y-6 overflow-y-auto p-5">
           {/* ── Datos básicos ── */}
           <section>
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Datos básicos</h3>
@@ -448,6 +509,43 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
             <Save size={15} /> {guardando ? "Guardando…" : "Guardar cambios"}
           </button>
+
+          {/* ── Foto principal (brief S4 parte B) — directa, sin revisión.
+              Circuito aparte de "Completar con fotos" de más abajo, que
+              sigue yendo por OpenClaw sin cambios. Solo admin: mismo trigger
+              que ya bloquea precios para el resto de los roles. ── */}
+          <section className="border-t border-slate-100 pt-5">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Foto principal</h3>
+            {esAdmin ? (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">
+                  Reemplaza la imagen del catálogo al toque, sin pasar por revisión.
+                </p>
+                <div className="flex items-center gap-3">
+                  {imagenUrl ? (
+                    <img src={imagenUrl} alt="" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                  ) : (
+                    <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-300">
+                      <ImagePlus size={20} />
+                    </div>
+                  )}
+                  <label className={`flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm
+                    ${subiendoImagen ? "cursor-not-allowed border-slate-200 text-slate-300" : "cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
+                    {subiendoImagen ? <Loader size={15} className="animate-spin" /> : <ImagePlus size={15} />}
+                    {subiendoImagen ? "Subiendo…" : imagenUrl ? "Cambiar foto" : "Subir foto"}
+                    <input type="file" accept="image/jpeg,image/png,image/webp"
+                      className="hidden" disabled={subiendoImagen} onChange={subirFotoPrincipal} />
+                  </label>
+                </div>
+                {errorImagen && <p className="text-xs text-red-600">{errorImagen}</p>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                <Lock size={14} className="shrink-0 text-slate-400" />
+                Solo un administrador puede cambiar la foto principal.
+              </div>
+            )}
+          </section>
 
           {/* ── Completar con fotos ── */}
           <section className="border-t border-slate-100 pt-5">
