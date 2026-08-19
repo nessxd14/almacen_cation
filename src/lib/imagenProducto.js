@@ -71,7 +71,14 @@ export async function subirImagenProducto(productoId, file) {
     contentType: "image/jpeg",
     upsert: true,
   });
-  if (errSubida) throw errSubida;
+  if (errSubida) {
+    // Un bucket mal escrito (ej. guion en vez de guion bajo) da exactamente
+    // el mismo error de RLS que una política faltante — Supabase no dice en
+    // ningún lado contra qué bucket intentó escribir. Loguearlo acá ahorra
+    // tener que repetir el diagnóstico manual la próxima vez que falle.
+    console.error(`subirImagenProducto: falló el upload al bucket "${BUCKET}" (path "${path}"):`, errSubida);
+    throw new Error(`${errSubida.message} (bucket "${BUCKET}")`);
+  }
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   // El path es siempre el mismo objeto (upsert lo pisa) — sin un parámetro
