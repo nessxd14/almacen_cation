@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Routes, Route } from "react-router-dom";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
   History, ShoppingBag, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
@@ -16,6 +17,7 @@ import InventarioApp      from "./InventarioApp";
 import HistorialApp       from "./HistorialApp";
 import AdminApp           from "./AdminApp";
 import PedidosApp         from "./PedidosApp";
+import PedidoDetallePage  from "./PedidoDetallePage";
 import VentaDirectaApp    from "./VentaDirectaApp";
 import TrasladosApp       from "./TrasladosApp";
 import PreciosApp         from "./PreciosApp";
@@ -105,6 +107,31 @@ export default function App() {
     .filter((g) => g.tabs.length > 0);
   const grupoActivo = gruposVisibles.find((g) => g.tabs.includes(tabActivo.id)) || gruposVisibles[0];
 
+  // Alcance mínimo del brief S3 parte A: una sola ruta real (/pedidos/:id),
+  // fuera del shell de pestañas de abajo (que sigue siendo estado local, sin
+  // URL — no se migró el resto de la app, no lo pidió el brief).
+  return (
+    <Routes>
+      <Route path="/pedidos/:id" element={<PedidoDetallePage />} />
+      <Route path="*" element={
+        <AppShell
+          tab={tab} setTab={setTab} conteoPrefill={conteoPrefill} setConteoPrefill={setConteoPrefill} irAConteo={irAConteo}
+          usuario={usuario} signOut={signOut}
+          sucursales={sucursales} sucursalActivaId={sucursalActivaId} setSucursalActiva={setSucursalActiva}
+          puedeElegir={puedeElegir} nombreSucursal={nombreSucursal}
+          tabsVisibles={tabsVisibles} gruposVisibles={gruposVisibles} grupoActivo={grupoActivo} tabActivo={tabActivo} Active={Active}
+        />
+      } />
+    </Routes>
+  );
+}
+
+function AppShell({
+  tab, setTab, conteoPrefill, setConteoPrefill, irAConteo,
+  usuario, signOut,
+  sucursales, sucursalActivaId, setSucursalActiva, puedeElegir, nombreSucursal,
+  tabsVisibles, gruposVisibles, grupoActivo, tabActivo, Active,
+}) {
   return (
     <AppNavContext.Provider value={{ tab, setTab, conteoPrefill, setConteoPrefill, irAConteo }}>
       <div className="min-h-screen bg-slate-50">

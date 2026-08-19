@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import TypeaheadProducto from "./TypeaheadProducto";
@@ -29,6 +30,7 @@ import { objetivoPick, haySobreTurno, MOTIVOS_DESPACHO_FORZADO, MOTIVO_OTRO, mot
 import CodigosLinea from "./CodigosLinea";
 import BarraSeleccion from "./BarraSeleccion";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
+import { resolverAutores, nombreAutor } from "./lib/autoria";
 import { useUsuarioActual } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
 import {
@@ -152,10 +154,17 @@ function textoSaldoLinea(saldoLibre, pendienteLinea) {
 }
 
 /* ── Lista de pedidos ──────────────────────────────────────────────────── */
-function ListaPedidos({ onSeleccionar, onNuevo }) {
+function ListaPedidos({ onNuevo }) {
   const [pedidos, setPedidos] = useState([]);
   const [cargando, setCargando] = useState(true);
-  const [filtroCategoria, setFiltroCategoria] = useState("TODAS");
+  // El filtro vive en la URL (?categoria=MAYOR), no en estado local: así el
+  // botón "volver" desde /pedidos/:id (brief S3) lo recupera solo, al volver
+  // a esta misma entrada del historial — no hace falta cargarlo a mano.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filtroCategoria = searchParams.get("categoria") || "TODAS";
+  const setFiltroCategoria = (id) => {
+    setSearchParams(id === "TODAS" ? {} : { categoria: id }, { replace: true });
+  };
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -209,14 +218,16 @@ function ListaPedidos({ onSeleccionar, onNuevo }) {
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {pedidosFiltrados.map((p) => (
-            <button key={p.id} onClick={() => onSeleccionar(p.id)}
+            // <a> real (vía Link) — no onClick: rueda del mouse y Ctrl+clic
+            // tienen que abrir pestaña nueva (brief S3 parte A).
+            <Link key={p.id} to={`/pedidos/${p.id}`}
               className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50">
               <span className="font-mono text-xs text-slate-400">#{p.id}</span>
               <span className="text-sm font-medium text-slate-800">{labelCategoria(p.categoria)}</span>
               <span className="flex-1 truncate text-sm text-slate-500">{p.cliente?.nombre || p.referencia || "—"}</span>
               <span className="text-xs text-slate-400">{fechaFmt(p.creado_en)}</span>
               <BadgePedido estado={p.estado} />
-            </button>
+            </Link>
           ))}
         </div>
       )}
@@ -1145,7 +1156,9 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
 }
 
 /* ── Detalle de pedido (formulario grande de despacho) ───────────────────── */
-function DetallePedido({ pedidoId, onBack }) {
+// Exportado con nombre: PedidoDetallePage.jsx lo monta en la ruta
+// /pedidos/:id (brief S3 parte A) fuera del shell de pestañas.
+export function DetallePedido({ pedidoId, onBack }) {
   const usuarioActual = useUsuarioActual();
   const [pedido, setPedido] = useState(null);
   const [lineas, setLineas] = useState([]);
@@ -1155,6 +1168,7 @@ function DetallePedido({ pedidoId, onBack }) {
   const [saldoPorProducto, setSaldoPorProducto] = useState(new Map());
   const [codigosPorProducto, setCodigosPorProducto] = useState(new Map());
   const [desglosePorLinea, setDesglosePorLinea] = useState(new Map());
+  const [autores, setAutores] = useState(new Map());
 
   // Despacho por lote (brief W5): una casilla por línea despachable +
   // barra de acción, en vez de despachar de a una y recargar el pedido
@@ -1217,6 +1231,9 @@ function DetallePedido({ pedidoId, onBack }) {
     setCodigosPorProducto(codigos);
     setDesglosePorLinea(desglose);
     setCargando(false);
+    // creado_por es un solo email acá (no hace falta el batch de la lista),
+    // pero se reusa resolverAutores para no duplicar la consulta a perfil.
+    if (p?.creado_por) resolverAutores([p.creado_por]).then(setAutores);
   }, [pedidoId]);
 
   useEffect(() => { cargar(); }, [cargar]);
@@ -1381,6 +1398,13 @@ function DetallePedido({ pedidoId, onBack }) {
           {pedido.cliente?.nombre && ` · ${pedido.cliente.nombre}`}
           {pedido.referencia && ` · ${pedido.referencia}`} · {fechaFmt(pedido.creado_en)}
         </p>
+        {pedido.creado_por && (
+          <p className="text-xs text-slate-400">
+            {pedido.cotizacion_origen_id
+              ? <>Convertido por {nombreAutor(pedido.creado_por, autores)} · desde cotización #{pedido.cotizacion_origen_id}</>
+              : <>Creado por {nombreAutor(pedido.creado_por, autores)}</>}
+          </p>
+        )}
 
         {pedido.total != null && (
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 space-y-0.5">
@@ -1458,26 +1482,22 @@ function DetallePedido({ pedidoId, onBack }) {
 
 /* ── Componente principal ─────────────────────────────────────────────────── */
 export default function PedidosApp() {
-  const [pantalla, setPantalla] = useState({ tipo: "lista" }); // {tipo:"lista"} | {tipo:"nuevo"} | {tipo:"detalle", id}
+  const [pantalla, setPantalla] = useState({ tipo: "lista" }); // {tipo:"lista"} | {tipo:"nuevo"}
   const [lineasBorrador, setLineasBorrador] = useState(null);
+  const navigate = useNavigate();
 
   if (pantalla.tipo === "nuevo") {
     return (
       <ArmadorPedido
         lineasIniciales={lineasBorrador}
-        onCreado={(id) => { setLineasBorrador(null); setPantalla({ tipo: "detalle", id }); }}
+        onCreado={(id) => { setLineasBorrador(null); setPantalla({ tipo: "lista" }); navigate(`/pedidos/${id}`); }}
         onCancelar={() => setPantalla({ tipo: "lista" })}
       />
     );
   }
 
-  if (pantalla.tipo === "detalle") {
-    return <DetallePedido pedidoId={pantalla.id} onBack={() => setPantalla({ tipo: "lista" })} />;
-  }
-
   return (
     <ListaPedidos
-      onSeleccionar={(id) => setPantalla({ tipo: "detalle", id })}
       onNuevo={() => {
         setLineasBorrador(obtenerBorrador());
         limpiarBorrador();
