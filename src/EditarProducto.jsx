@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import {
   X, Save, Camera, Plus, Trash2, Pencil, Barcode, Check, AlertCircle,
-  Lock, Store, Users, Building2, Landmark, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader, FileText,
+  Lock, Store, Users, Building2, Briefcase, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader, FileText,
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
 import { comprimirYCodificar } from "./lib/capturaFoto";
@@ -46,7 +46,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     precio_base: producto.precio_base ?? "",          // Tienda/Retail
     precio_mayoreo: producto.precio_mayoreo ?? "",
     precio_institucion: producto.precio_institucion ?? "",
-    precio_municipal: producto.precio_municipal ?? "",
+    precio_corporativo: producto.precio_corporativo ?? "",
   });
 
   const [presentaciones, setPresentaciones] = useState([]);
@@ -218,7 +218,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
         precio_base: form.precio_base === "" ? null : Number(form.precio_base),
         precio_mayoreo: form.precio_mayoreo === "" ? null : Number(form.precio_mayoreo),
         precio_institucion: form.precio_institucion === "" ? null : Number(form.precio_institucion),
-        precio_municipal: form.precio_municipal === "" ? null : Number(form.precio_municipal),
+        precio_corporativo: form.precio_corporativo === "" ? null : Number(form.precio_corporativo),
       } : {}),
     };
     const { error } = await supabase.from("producto").update(payload).eq("id", producto.id);
@@ -494,8 +494,8 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                   icono={Building2} label="Instituciones" nota="Interno"
                   value={form.precio_institucion} onChange={v => setForm(f => ({ ...f, precio_institucion: v }))} />
                 <CampoPrecio
-                  icono={Landmark} label="Municipal" nota="Interno"
-                  value={form.precio_municipal} onChange={v => setForm(f => ({ ...f, precio_municipal: v }))} />
+                  icono={Briefcase} label="Corporativo" nota="Interno"
+                  value={form.precio_corporativo} onChange={v => setForm(f => ({ ...f, precio_corporativo: v }))} />
               </div>
             ) : (
               <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
@@ -850,7 +850,7 @@ export function CarruselPrecios({ producto }) {
     { label: "Tienda", valor: producto.precio_base, icono: Store, badge: "Retail" },
     { label: "Mayoreo", valor: producto.precio_mayoreo, icono: Users, badge: "Interno" },
     { label: "Instituciones", valor: producto.precio_institucion, icono: Building2, badge: "Interno" },
-    { label: "Municipal", valor: producto.precio_municipal, icono: Landmark, badge: "Interno" },
+    { label: "Corporativo", valor: producto.precio_corporativo, icono: Briefcase, badge: "Interno" },
   ];
   const [i, setI] = useState(0);
   const actual = precios[i];
