@@ -25,12 +25,12 @@ import { sanearFiltro } from "./lib/filtroTexto";
 import { Tag, Search, Filter, Boxes, Lock, AlertTriangle, Loader, DollarSign } from "lucide-react";
 
 const PAGE_SIZE = 50;
-const CAMPOS_PRECIO = ["precio_base", "precio_mayoreo", "precio_institucion", "precio_municipal"];
+const CAMPOS_PRECIO = ["precio_base", "precio_mayoreo", "precio_institucion", "precio_corporativo"];
 const COLUMNAS_PRECIO = [
   { campo: "precio_base", label: "Tienda (retail)" },
   { campo: "precio_mayoreo", label: "Mayoreo" },
   { campo: "precio_institucion", label: "Instituciones" },
-  { campo: "precio_municipal", label: "Municipal" },
+  { campo: "precio_corporativo", label: "Corporativo" },
 ];
 function cantidadFmt(v) {
   const n = Number(v || 0);
@@ -217,7 +217,7 @@ export default function PreciosApp() {
         const pageIds = idsSinPrecio.slice(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE);
         if (pageIds.length > 0) {
           const { data, error } = await supabase.from("producto")
-            .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_municipal, familia_id")
+            .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_corporativo, familia_id")
             .in("id", pageIds);
           if (error) throw error;
           const porId = new Map((data || []).map((r) => [r.id, r]));
@@ -226,7 +226,7 @@ export default function PreciosApp() {
       } else {
         const idsCodigo = filtrosActuales.texto ? await idsPorCodigo(filtrosActuales.texto) : [];
         let query = supabase.from("producto")
-          .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_municipal, familia_id", { count: "exact" })
+          .select("id, nombre, marca, sku_interno, precio_base, precio_mayoreo, precio_institucion, precio_corporativo, familia_id", { count: "exact" })
           .eq("activo", true);
         query = aplicarFiltros(query, { ...filtrosActuales, idsCodigo });
         query = query.order("nombre").range(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE - 1);

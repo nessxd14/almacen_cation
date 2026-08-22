@@ -28,7 +28,7 @@ import { useUsuarioActual } from "./lib/useAuth";
 import EscanerCodigo from "./EscanerCodigo";
 import {
   X, Save, Loader, AlertCircle, Package2, Barcode, Camera, Plus, Trash2,
-  Store, Users, Building2, Landmark, Boxes, FileText,
+  Store, Users, Building2, Briefcase, Boxes, FileText,
 } from "lucide-react";
 
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : "tmp-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -74,7 +74,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
   const [scanTarget, setScanTarget] = useState(null); // "base" | key de una fila extra
 
   const [precios, setPrecios] = useState({
-    precio_base: "", precio_mayoreo: "", precio_institucion: "", precio_municipal: "",
+    precio_base: "", precio_mayoreo: "", precio_institucion: "", precio_corporativo: "",
   });
 
   const [mostrarEntrada, setMostrarEntrada] = useState(false);
@@ -176,7 +176,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
         precio_base: precios.precio_base === "" ? null : Number(precios.precio_base),
         precio_mayoreo: precios.precio_mayoreo === "" ? null : Number(precios.precio_mayoreo),
         precio_institucion: precios.precio_institucion === "" ? null : Number(precios.precio_institucion),
-        precio_municipal: precios.precio_municipal === "" ? null : Number(precios.precio_municipal),
+        precio_corporativo: precios.precio_corporativo === "" ? null : Number(precios.precio_corporativo),
       } : {}),
       ...(mostrarFicha && fichaMd.trim() ? { ficha_md: fichaMd.trim(), ficha_actualizada_en: new Date().toISOString() } : {}),
     };
@@ -374,8 +374,8 @@ export default function NuevoProducto({ onClose, onCreado }) {
                   value={precios.precio_mayoreo} onChange={v => setPrecios(p => ({ ...p, precio_mayoreo: v }))} />
                 <CampoPrecio icono={Building2} label="Instituciones"
                   value={precios.precio_institucion} onChange={v => setPrecios(p => ({ ...p, precio_institucion: v }))} />
-                <CampoPrecio icono={Landmark} label="Municipal"
-                  value={precios.precio_municipal} onChange={v => setPrecios(p => ({ ...p, precio_municipal: v }))} />
+                <CampoPrecio icono={Briefcase} label="Corporativo"
+                  value={precios.precio_corporativo} onChange={v => setPrecios(p => ({ ...p, precio_corporativo: v }))} />
               </div>
             ) : (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">

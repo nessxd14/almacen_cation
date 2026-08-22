@@ -830,7 +830,7 @@ export default function CatalogoApp() {
     const [{ data: prod }, { data: stock }] = await Promise.all([
       supabase
         .from("producto")
-        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_municipal, shopify_variant_id, imagen_url")
+        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_corporativo, shopify_variant_id, imagen_url")
         .eq("id", productosDistintos[0])
         .single(),
       supabase.from("v_producto_stock").select("stock_total").eq("producto_id", productosDistintos[0]).maybeSingle(),
@@ -865,7 +865,7 @@ export default function CatalogoApp() {
     const [{ data: detalles }, mapaStockPorProducto] = await Promise.all([
       supabase
         .from("producto")
-        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_municipal, shopify_variant_id, imagen_url")
+        .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_corporativo, shopify_variant_id, imagen_url")
         .in("id", ids),
       stockPorSucursalBatch(ids),
     ]);
@@ -935,7 +935,7 @@ export default function CatalogoApp() {
 
     let query = supabase
       .from("producto")
-      .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_municipal, shopify_variant_id, imagen_url", { count: "exact" })
+      .select("id, nombre, sku_interno, marca, unidad_base, precio_base, precio_mayoreo, precio_institucion, precio_corporativo, shopify_variant_id, imagen_url", { count: "exact" })
       .eq("activo", true);
 
     if (idsFiltro) query = query.in("id", idsFiltro);

@@ -76,14 +76,16 @@ const CATEGORIAS = [
   { id: "TIENDA", label: "Tienda directa" },
 ];
 
-// Las 4 categorías comerciales (el POS crea MAYOR/TIENDA/INSTITUCIONAL/
+// Las 4 categorías comerciales (el POS creaba MAYOR/TIENDA/INSTITUCIONAL/
 // MUNICIPAL; ArmadorPedido, que solo crea pedidos de stock sin datos
-// comerciales, sigue ofreciendo nada más MAYOR/TIENDA arriba).
+// comerciales, sigue ofreciendo nada más MAYOR/TIENDA arriba). MUNICIPAL
+// se retiró como valor nuevo — la clave queda solo para mostrar pedidos
+// históricos que ya la tienen guardada, con la etiqueta actual "Corporativo".
 const CATEGORIA_LABELS = {
   MAYOR:         "Mayoreo",
   TIENDA:        "Tienda directa",
   INSTITUCIONAL: "Institucional",
-  MUNICIPAL:     "Municipal",
+  MUNICIPAL:     "Corporativo",
 };
 function labelCategoria(categoria) {
   return CATEGORIA_LABELS[categoria] || categoria;
