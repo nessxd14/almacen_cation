@@ -495,6 +495,86 @@ export function estadoSaldoLinea(saldoLibre, pendienteLinea) {
   return 'rojo';
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+ * Brief W-B — Rechazar, Cambiar, Restar (piezas 2/3/4a/4b)
+ * Todas exigen rol distinto de cajero — el backend responde con "Un cajero
+ * no puede…" si no corresponde; el frontend no replica esa regla, solo
+ * muestra el mensaje si el backend lo rechaza.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* ── rechazar una línea puntual (POR_DESPACHAR/PENDIENTE -> RECHAZADO) ── */
+export async function rechazarPedidoLinea({ lineaId, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("rechazar_pedido_linea", {
+    p_pedido_linea_id: Number(lineaId),
+    p_motivo: motivo || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── rechazar TODAS las líneas pendientes de un pedido de una sola vez ── */
+export async function rechazarPedido({ pedidoId, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("rechazar_pedido", {
+    p_pedido_id: Number(pedidoId),
+    p_motivo: motivo || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── cambiar una línea por otro producto: la vieja queda CAMBIADA, se crea
+ * una línea nueva POR_DESPACHAR -> { pedido_id, linea_vieja_id, linea_nueva_id }
+ */
+export async function cambiarPedidoLinea({ lineaId, productoId, cantidadBase, precioUnitario, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("cambiar_pedido_linea", {
+    p_pedido_linea_id: Number(lineaId),
+    p_producto_id: Number(productoId),
+    p_cantidad_base: Number(cantidadBase),
+    p_precio_unitario: precioUnitario != null && precioUnitario !== "" ? Number(precioUnitario) : null,
+    p_motivo: motivo || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── quitar una línea del pedido sin reemplazo (POR_DESPACHAR/PENDIENTE -> RETIRADA) ── */
+export async function restarPedidoLinea({ lineaId, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("restar_pedido_linea", {
+    p_pedido_linea_id: Number(lineaId),
+    p_motivo: motivo || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ── devolver mercadería ya alistada al almacén (pedidos no-Tienda) —
+ * motivo obligatorio (el backend lo exige, acá no se valida más que eso).
+ * Mismo shape de respuesta que revertirEvento: {evento_id, linea_id,
+ * monto_revertido, nuevo_estado_linea, cantidad_despachada, evento_revertido_total}
+ */
+export async function devolverAlistadoAAlmacen({ eventoId, motivo, usuario, cantidadBase = null }) {
+  const { data, error } = await supabase.rpc("devolver_alistado_a_almacen", {
+    p_evento_id: Number(eventoId),
+    p_motivo: motivo,
+    p_usuario: usuario,
+    p_cantidad_base: cantidadBase != null ? Number(cantidadBase) : null,
+  });
+  return { resultado: data, error };
+}
+
+/* ── inyectar mercadería ya alistada directo a Tienda para venta de
+ * mostrador (pedidos no-Tienda) — motivo obligatorio, mismo shape que arriba.
+ */
+export async function inyectarAlistadoATienda({ eventoId, motivo, usuario, cantidadBase = null }) {
+  const { data, error } = await supabase.rpc("inyectar_alistado_a_tienda", {
+    p_evento_id: Number(eventoId),
+    p_motivo: motivo,
+    p_usuario: usuario,
+    p_cantidad_base: cantidadBase != null ? Number(cantidadBase) : null,
+  });
+  return { resultado: data, error };
+}
+
 /* ── entregar un ítem personalizado (ESPECIAL -> COMPRADO_DIRECTO) ───── */
 export async function entregarPersonalizado({ lineaId, usuario }) {
   const { data, error } = await supabase.rpc("entregar_personalizado", {
