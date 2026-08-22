@@ -21,6 +21,8 @@ import {
   crearPedido, despacharLinea, despacharLineaForzado, turnoLinea, despacharLineas, revertirEvento, comprarDirecto,
   entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido, saldoVendible,
   codigosGrisPorProducto, stockPorSucursalProducto,
+  rechazarPedidoLinea, rechazarPedido, cambiarPedidoLinea, restarPedidoLinea,
+  devolverAlistadoAAlmacen, inyectarAlistadoATienda,
 } from "./lib/operaciones";
 import {
   armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion, formatoEquivalencia,
@@ -37,6 +39,7 @@ import {
   ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine, RefreshCw,
   ShoppingBag, Clock, Boxes, Printer, CheckSquare,
+  Ban, Repeat, Trash2, Warehouse, Store,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -113,6 +116,9 @@ const ESTADOS_LINEA = {
   PENDIENTE:        { label: "Pendiente",     cls: "bg-amber-100 text-amber-700" },
   COMPRADO_DIRECTO: { label: "Comprado directo", cls: "bg-violet-100 text-violet-700" },
   ESPECIAL:         { label: "Pendiente de entrega", cls: "bg-amber-100 text-amber-700" },
+  RECHAZADO:        { label: "Rechazada",     cls: "bg-red-100 text-red-600" },
+  CAMBIADA:         { label: "Cambiada",      cls: "bg-slate-200 text-slate-500" },
+  RETIRADA:         { label: "Retirada",      cls: "bg-slate-200 text-slate-500" },
 };
 function BadgeLinea({ estado }) {
   const cfg = ESTADOS_LINEA[estado] || { label: estado, cls: "bg-slate-100 text-slate-500" };
@@ -596,10 +602,161 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   );
 }
 
+/* ── Modal de Cambiar línea (brief W-B, pieza 3) — reusa TypeaheadProducto
+   del catálogo (mismo buscador que Armador de pedido) en vez de uno nuevo.
+   La línea vieja se resuelve en el server (queda CAMBIADA) y se crea una
+   línea nueva POR_DESPACHAR — recarga completa del pedido al confirmar,
+   no hay forma de patchear localmente sin conocer los datos de la nueva. */
+function ModalCambiarLinea({ linea, onClose, onCambiado }) {
+  const usuarioActual = useUsuarioActual();
+  const [query, setQuery] = useState("");
+  const [producto, setProducto] = useState(null);
+  const [cantidad, setCantidad] = useState(String(linea.cantidad_base ?? 1));
+  const [precio, setPrecio] = useState(linea.precio_unitario != null ? String(linea.precio_unitario) : "");
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [flash, setFlash] = useState(null);
+
+  async function confirmar() {
+    if (!producto) { setFlash("Elegí un producto de reemplazo"); return; }
+    if (!cantidad || Number(cantidad) <= 0) { setFlash("Cantidad inválida"); return; }
+    setGuardando(true);
+    const { error } = await cambiarPedidoLinea({
+      lineaId: linea.id, productoId: producto.id, cantidadBase: Number(cantidad),
+      precioUnitario: precio !== "" ? precio : null, motivo: motivo.trim() || null,
+      usuario: usuarioActual.nombre,
+    });
+    setGuardando(false);
+    if (error) { setFlash("Error: " + error.message); return; }
+    onCambiado();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-800">Cambiar línea</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+        </div>
+        <p className="text-xs text-slate-500">
+          Reemplazando: <span className="font-medium text-slate-700">{linea.producto?.nombre}</span> · {textoCantidadLinea(linea)}
+        </p>
+
+        {flash && (
+          <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+            <AlertTriangle size={12} /> {flash}
+          </div>
+        )}
+
+        {!producto ? (
+          <TypeaheadProducto value={query} onChange={setQuery}
+            onSeleccionar={(p) => { setProducto(p); setQuery(""); }}
+            placeholder="Buscar producto de reemplazo…" />
+        ) : (
+          <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-800">{producto.nombre}</p>
+              {producto.sku_interno && <p className="text-xs text-slate-400">{producto.sku_interno}</p>}
+            </div>
+            <button onClick={() => setProducto(null)} className="shrink-0 text-slate-300 hover:text-red-500"><X size={16} /></button>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="mb-1 block text-xs font-medium text-slate-500">Cantidad ({linea.producto?.unidad_base})</label>
+            <input type="number" min="0.001" step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)}
+              className="w-full rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <div className="flex-1">
+            <label className="mb-1 block text-xs font-medium text-slate-500">Precio unitario</label>
+            <input type="number" min="0" step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)}
+              placeholder="Opcional"
+              className="w-full rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+        </div>
+
+        <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)"
+          className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+
+        <div className="flex gap-2">
+          <button onClick={confirmar} disabled={guardando}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+            {guardando && <Loader size={14} className="animate-spin" />}
+            {guardando ? "Cambiando…" : "Confirmar cambio"}
+          </button>
+          <button onClick={onClose} className="rounded-lg border px-3 py-2 text-sm text-slate-500">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Acciones sobre un evento de despacho ya alistado, para pedidos que no
+   son Tienda (brief W-B, pieza 4b) — Tienda sigue con su countdown propio
+   (revertir_evento), este es un mecanismo distinto sin ventana de tiempo.
+   Motivo obligatorio: se valida acá solo que no venga vacío, el resto lo
+   exige el backend. */
+function EventoAlistadoAcciones({ evento, linea, onLineaPatch, onEventoRevertido }) {
+  const usuarioActual = useUsuarioActual();
+  const [accion, setAccion] = useState(null); // null | 'devolver' | 'inyectar'
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function confirmar() {
+    if (!motivo.trim()) { setError("El motivo es obligatorio"); return; }
+    setGuardando(true);
+    setError(null);
+    const fn = accion === "devolver" ? devolverAlistadoAAlmacen : inyectarAlistadoATienda;
+    const { resultado, error: err } = await fn({ eventoId: evento.id, motivo: motivo.trim(), usuario: usuarioActual.nombre });
+    setGuardando(false);
+    if (err) { setError(err.message); return; }
+    onLineaPatch(linea.id, { estado: resultado.nuevo_estado_linea, cantidad_despachada: resultado.cantidad_despachada });
+    if (resultado.evento_revertido_total) onEventoRevertido(linea.id, evento.id);
+    setAccion(null);
+    setMotivo("");
+  }
+
+  if (evento.revertido) {
+    return <span className="text-slate-400">Devuelto</span>;
+  }
+
+  if (!accion) {
+    return (
+      <div className="flex shrink-0 gap-1">
+        <button onClick={() => setAccion("devolver")}
+          className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-600 hover:bg-slate-200">
+          <Warehouse size={11} /> Devolver a almacén
+        </button>
+        <button onClick={() => setAccion("inyectar")}
+          className="flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-600 hover:bg-blue-100">
+          <Store size={11} /> Inyectar a tienda
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
+      {error && <span className="text-red-600">{error}</span>}
+      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo *" autoFocus
+        className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+      <button onClick={confirmar} disabled={guardando}
+        className="shrink-0 rounded-lg bg-slate-900 px-2 py-1 font-medium text-white disabled:opacity-50">
+        {guardando ? "…" : "Confirmar"}
+      </button>
+      <button onClick={() => { setAccion(null); setMotivo(""); setError(null); }} className="shrink-0 text-slate-400 hover:text-slate-600">
+        <X size={13} />
+      </button>
+    </div>
+  );
+}
+
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
 function FilaLinea({
   linea, eventos, habilitado, categoria, saldoLibre, codigos,
-  seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido,
+  seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido, onCambiado,
 }) {
   const usuarioActual = useUsuarioActual();
   const { nombreSucursal } = useSucursal();
@@ -623,9 +780,18 @@ function FilaLinea({
   const [motivoSel, setMotivoSel] = useState("");
   const [motivoLibre, setMotivoLibre] = useState("");
   const [despachandoForzado, setDespachandoForzado] = useState(false);
+  // Brief W-B — Restar/Rechazar/Cambiar: acciones sobre una línea todavía
+  // no despachada (mismas condiciones que puedeDespachar, más abajo).
+  const [restando, setRestando] = useState(false);
+  const [rechazandoLinea, setRechazandoLinea] = useState(false);
+  const [mostrarCambiar, setMostrarCambiar] = useState(false);
 
   const pendiente = Math.max(Number(linea.cantidad_base) - Number(linea.cantidad_despachada), 0);
   const puedeDespachar = linea.estado === "POR_DESPACHAR" || (linea.estado === "PENDIENTE" && habilitado);
+  // Restar/Rechazar/Cambiar (brief W-B): a diferencia de "puedeDespachar",
+  // no exigen `habilitado` — el backend las permite en PENDIENTE aunque
+  // todavía no haya llegado stock nuevo (habilitado solo gatea el pick).
+  const puedeModificar = linea.estado === "POR_DESPACHAR" || linea.estado === "PENDIENTE";
   const cubierto = turno?.cubierto ?? null;
   const sobreTurno = haySobreTurno({ pendiente, cubierto });
 
@@ -750,6 +916,31 @@ function FilaLinea({
     if (error) { showFlash("Error: " + error.message); return; }
     setMostrarComprado(false);
     onLineaPatch(linea.id, { estado: "COMPRADO_DIRECTO", compra_directa_nota: nota.trim(), compra_directa_costo: costo ? Number(costo) : null });
+    if (seleccionada) onToggleSeleccion(linea.id);
+  }
+
+  // Motivo opcional (brief W-B): el prompt hace de "confirm simple" — un
+  // Cancel aborta la acción, un motivo vacío (Aceptar sin escribir nada)
+  // sigue adelante igual.
+  async function restarLinea() {
+    const motivo = window.prompt("Motivo (opcional) para quitar esta línea del pedido:");
+    if (motivo === null) return;
+    setRestando(true);
+    const { error } = await restarPedidoLinea({ lineaId: linea.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
+    setRestando(false);
+    if (error) { showFlash("Error: " + error.message); return; }
+    onLineaPatch(linea.id, { estado: "RETIRADA" });
+    if (seleccionada) onToggleSeleccion(linea.id);
+  }
+
+  async function rechazarLinea() {
+    const motivo = window.prompt("Motivo (opcional) para rechazar esta línea:");
+    if (motivo === null) return;
+    setRechazandoLinea(true);
+    const { error } = await rechazarPedidoLinea({ lineaId: linea.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
+    setRechazandoLinea(false);
+    if (error) { showFlash("Error: " + error.message); return; }
+    onLineaPatch(linea.id, { estado: "RECHAZADO" });
     if (seleccionada) onToggleSeleccion(linea.id);
   }
 
@@ -924,6 +1115,28 @@ function FilaLinea({
             </p>
           )}
 
+          {puedeModificar && (
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={restarLinea} disabled={restando}
+                className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                <Trash2 size={12} /> Quitar del pedido
+              </button>
+              <button onClick={rechazarLinea} disabled={rechazandoLinea}
+                className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50">
+                <Ban size={12} /> Rechazar
+              </button>
+              <button onClick={() => setMostrarCambiar(true)}
+                className="flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50">
+                <Repeat size={12} /> Cambiar
+              </button>
+            </div>
+          )}
+
+          {mostrarCambiar && (
+            <ModalCambiarLinea linea={linea} onClose={() => setMostrarCambiar(false)}
+              onCambiado={() => { setMostrarCambiar(false); onCambiado(); }} />
+          )}
+
           {linea.estado !== "COMPRADO_DIRECTO" && (
             <div>
               {!mostrarComprado ? (
@@ -972,6 +1185,19 @@ function FilaLinea({
               </div>
             );
           })}
+
+          {categoria !== "TIENDA" && (eventos || []).length > 0 && (
+            <div className="space-y-1.5">
+              {(eventos || []).map((e) => (
+                <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs">
+                  <span className="shrink-0 text-slate-500">
+                    Evento #{e.id} · {cantidadFmt(e.cantidad_base)} {linea.producto?.unidad_base} · {fechaFmt(e.creado_en)}
+                  </span>
+                  <EventoAlistadoAcciones evento={e} linea={linea} onLineaPatch={onLineaPatch} onEventoRevertido={onEventoRevertido} />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1181,6 +1407,9 @@ export function DetallePedido({ pedidoId, onBack }) {
   const [picksPorLinea, setPicksPorLinea] = useState(new Map());
   const [despachandoLote, setDespachandoLote] = useState(false);
   const [flashLote, setFlashLote] = useState(null);
+  // Brief W-B — Rechazar pedido completo (pieza 2, nivel pedido).
+  const [rechazandoPedido, setRechazandoPedido] = useState(false);
+  const [flashRechazo, setFlashRechazo] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -1332,6 +1561,23 @@ export function DetallePedido({ pedidoId, onBack }) {
   const lineasPorId = new Map(lineas.map((l) => [l.id, l]));
   const totalUnidades = totalUnidadesSeleccion(seleccion, lineasPorId);
 
+  // Mismo criterio que usa rechazar_pedido en el server para decidir qué
+  // líneas afecta — visible solo si hay algo que de verdad se rechazaría.
+  const TERMINALES_RECHAZO_PEDIDO = new Set(["DESPACHADA", "COMPRADO_DIRECTO", "RECHAZADO"]);
+  const hayLineaPendiente = lineas.some((l) => !TERMINALES_RECHAZO_PEDIDO.has(l.estado));
+
+  async function rechazarPedidoCompleto() {
+    const motivo = window.prompt("Motivo (opcional) para rechazar TODAS las líneas pendientes de este pedido:");
+    if (motivo === null) return;
+    setRechazandoPedido(true);
+    setFlashRechazo(null);
+    const { resultado, error } = await rechazarPedido({ pedidoId: pedido.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
+    setRechazandoPedido(false);
+    if (error) { setFlashRechazo({ type: "error", msg: "Error: " + error.message }); return; }
+    setFlashRechazo({ type: "ok", msg: `${resultado.lineas_rechazadas} línea(s) rechazada(s).` });
+    await cargar();
+  }
+
   async function confirmarDespachoLote() {
     const seleccionCatalogo = new Set([...seleccion].filter((id) => !lineasPorId.get(id)?.es_personalizado));
     const seleccionEspeciales = [...seleccion].filter((id) => lineasPorId.get(id)?.es_personalizado);
@@ -1394,7 +1640,19 @@ export function DetallePedido({ pedidoId, onBack }) {
             className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
             <Printer size={15} /> Imprimir
           </button>
+          {hayLineaPendiente && (
+            <button onClick={rechazarPedidoCompleto} disabled={rechazandoPedido}
+              className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50">
+              {rechazandoPedido ? <Loader size={14} className="animate-spin" /> : <Ban size={15} />}
+              Rechazar pedido
+            </button>
+          )}
         </div>
+        {flashRechazo && (
+          <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${flashRechazo.type === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+            {flashRechazo.type === "error" && <AlertTriangle size={14} />} {flashRechazo.msg}
+          </div>
+        )}
         <p className="text-sm text-slate-500">
           {labelCategoria(pedido.categoria)}
           {pedido.cliente?.nombre && ` · ${pedido.cliente.nombre}`}
@@ -1439,6 +1697,7 @@ export function DetallePedido({ pedidoId, onBack }) {
               onLineaPatch={patchLinea}
               onEventoNuevo={agregarEvento}
               onEventoRevertido={marcarEventoRevertido}
+              onCambiado={cargar}
             />
           ))}
         </div>
