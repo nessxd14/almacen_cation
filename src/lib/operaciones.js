@@ -522,6 +522,21 @@ export async function rechazarPedido({ pedidoId, motivo, usuario }) {
   return { resultado: data, error };
 }
 
+/* ── cerrar la tanda actual: deja en el pedido solo lo que se despachó de
+ * verdad y manda el faltante (líneas PENDIENTE/POR_DESPACHAR) a un pedido
+ * nuevo — la próxima tanda, que entra a la bandeja de Almacén como
+ * cualquier otro pedido -> { pedido_original_id, pedido_nuevo_id,
+ * numero_tanda, lineas_movidas, total_movido }
+ */
+export async function cerrarTandaPedido({ pedidoId, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("cerrar_tanda_pedido", {
+    p_pedido_id: Number(pedidoId),
+    p_motivo: motivo || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
 /* ── cambiar una línea por otro producto: la vieja queda CAMBIADA, se crea
  * una línea nueva POR_DESPACHAR -> { pedido_id, linea_vieja_id, linea_nueva_id }
  */
