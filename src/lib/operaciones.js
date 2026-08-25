@@ -537,6 +537,33 @@ export async function cerrarTandaPedido({ pedidoId, motivo, usuario }) {
   return { resultado: data, error };
 }
 
+/* ── Compras: registrar la entrada real de un faltante de tanda — agrega
+ * stock vía Kardex (registrar_entrada) en la ubicación de recepción de la
+ * sucursal, a diferencia de comprarDirecto que solo cierra la línea.
+ */
+export async function registrarEntradaCompra({ presentacionId, sucursalId, cantidadPres, costoUnitario, referencia, usuario }) {
+  const { data: ubicacion, error: errUbicacion } = await supabase
+    .from("ubicacion")
+    .select("id")
+    .eq("sucursal_id", Number(sucursalId))
+    .eq("es_recepcion", true)
+    .maybeSingle();
+  if (errUbicacion) return { error: errUbicacion };
+  if (!ubicacion) return { error: new Error("La sucursal no tiene una ubicación de recepción configurada") };
+
+  const { data, error } = await supabase.rpc("registrar_entrada", {
+    p_presentacion_id: Number(presentacionId),
+    p_ubicacion_id: ubicacion.id,
+    p_cantidad_pres: Number(cantidadPres),
+    p_referencia: referencia || "Sin referencia",
+    p_usuario: usuario,
+    p_fecha: hoy(),
+    p_costo_unitario: costoUnitario != null ? Number(costoUnitario) : null,
+    p_idempotencia: uuid(),
+  });
+  return { id: data, error };
+}
+
 /* ── cambiar una línea por otro producto: la vieja queda CAMBIADA, se crea
  * una línea nueva POR_DESPACHAR -> { pedido_id, linea_vieja_id, linea_nueva_id }
  */
