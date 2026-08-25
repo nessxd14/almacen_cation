@@ -12,16 +12,18 @@
  * `#<id>`. El escaneo/búsqueda acepta ambos formatos por si circula algún
  * ticket viejo con el id crudo.
  *
- * 3.3 del brief: el WMS NO ejecuta completar_venta / ajustar_venta_abierta /
- * anular_venta — esas mueven caja y las corre la tienda. El check de "lo que
- * entregué" de esta pantalla es puramente local (no persiste, no se manda a
- * ningún lado): diseñar esa comunicación con caja queda fuera de alcance.
+ * 3.3 del brief, actualizado: el WMS SÍ puede ejecutar completar_venta desde
+ * acá (descuenta Kardex, no toca caja/pagos — el cobro ya quedó resuelto al
+ * abrir la venta en Seller) cuando el almacenero marcó todas las líneas como
+ * entregadas. ajustar_venta_abierta / anular_venta siguen siendo exclusivas
+ * de caja — no se ejecutan desde acá. El check de "lo que entregué" sigue
+ * siendo puramente local (no persiste) hasta que se aprieta "Completar".
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
-import { labelUbicacion, registrarDespachoRapido, historialDespachoRapido } from "./lib/operaciones";
+import { labelUbicacion, registrarDespachoRapido, historialDespachoRapido, completarVentaDirecta } from "./lib/operaciones";
 import { useSucursal } from "./lib/useSucursal";
 import { useUsuarioActual } from "./lib/useAuth";
 import { resolverAutores, nombreAutor } from "./lib/autoria";
@@ -173,6 +175,7 @@ export default function VentaDirectaApp() {
         escaneos={escaneos}
         setEscaneos={setEscaneos}
         onVolver={() => setSeleccion(null)}
+        onCompletado={(msg) => { showFlash(msg); setSeleccion(null); cargar(); }}
       />
     );
   }
@@ -286,10 +289,30 @@ export default function VentaDirectaApp() {
   );
 }
 
-function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos, setEscaneos, onVolver }) {
+function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos, setEscaneos, onVolver, onCompletado }) {
   const toggle = (lineaId) => {
     setEntregado((prev) => ({ ...prev, [lineaId]: !prev[lineaId] }));
   };
+
+  // ── Completar VTD desde Almacén ─────────────────────────────────────────
+  // completar_venta descuenta Kardex y no admite entrega parcial: solo se
+  // habilita cuando el almacenero ya marcó todas las líneas como entregadas.
+  // No toca venta_pago/caja (el cobro ya quedó resuelto al abrir la venta).
+  const usuarioActual = useUsuarioActual();
+  const [completando, setCompletando] = useState(false);
+  const [avisoCompletar, setAvisoCompletar] = useState(null);
+  const lineas = venta.venta_linea || [];
+  const todoEntregado = lineas.length > 0 && lineas.every((l) => entregado[l.id]);
+
+  async function completar() {
+    if (!window.confirm(`¿Confirmar descargo de ${identificadorVenta(venta)}? Esto baja el stock de Almacén y no se puede deshacer desde acá.`)) return;
+    setCompletando(true);
+    setAvisoCompletar(null);
+    const { error } = await completarVentaDirecta({ ventaId: venta.id, usuario: usuarioActual?.nombre });
+    setCompletando(false);
+    if (error) { setAvisoCompletar(error.message); return; }
+    onCompletado(`${identificadorVenta(venta)} completada — stock descontado`);
+  }
 
   // ── Escaneo por producto (lector físico USB/Bluetooth) ─────────────────
   // El lector emula un teclado: tipea el código y manda Enter. Este input
@@ -443,10 +466,24 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
         })}
       </div>
 
-      <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-        Esta marca es solo una ayuda visual mientras preparás el pedido — no completa ni anula la venta.
-        El cobro, el ajuste de cantidades y la anulación se hacen desde caja.
-      </p>
+      {todoEntregado ? (
+        <>
+          <button
+            onClick={completar}
+            disabled={completando}
+            className="w-full rounded-xl bg-emerald-600 py-3 text-center font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {completando ? "Descargando…" : "Completar y descontar stock"}
+          </button>
+          {avisoCompletar && (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{avisoCompletar}</p>
+          )}
+        </>
+      ) : (
+        <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          Marcá todos los ítems como entregados para poder descontar el stock. El ajuste de cantidades y la anulación se hacen desde caja.
+        </p>
+      )}
     </div>
   );
 }
