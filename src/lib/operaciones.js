@@ -602,6 +602,21 @@ export async function historialDespachoRapido({ sucursalId, desde, hasta, creado
   return { data: data || [], error };
 }
 
+/* ── completar una venta directa (VTD): descuenta Kardex, NO toca caja/pagos
+ * (confirmado leyendo completar_venta en la base — el cobro ya quedó resuelto
+ * al abrir la venta en Seller). No soporta entrega parcial: descuenta cada
+ * línea completa tal cual está — el llamador debe garantizar que todo lo que
+ * hay en la venta se entregó de verdad antes de invocar esto.
+ * -> { resultado, error }
+ */
+export async function completarVentaDirecta({ ventaId, usuario }) {
+  const { data, error } = await supabase.rpc("completar_venta", {
+    p_venta_id: Number(ventaId),
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
 /* ── cambiar una línea por otro producto: la vieja queda CAMBIADA, se crea
  * una línea nueva POR_DESPACHAR -> { pedido_id, linea_vieja_id, linea_nueva_id }
  */
