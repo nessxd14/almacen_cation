@@ -18,13 +18,13 @@
  * ningún lado): diseñar esa comunicación con caja queda fuera de alcance.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import { labelUbicacion } from "./lib/operaciones";
 import { useSucursal } from "./lib/useSucursal";
 import {
-  PackageCheck, ScanLine, Search, Loader, RefreshCw, ArrowLeft, MapPin, Clock, User, CheckSquare, Square,
+  PackageCheck, ScanLine, Search, Loader, RefreshCw, ArrowLeft, MapPin, Clock, User, CheckSquare, Square, Barcode,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -97,6 +97,12 @@ export default function VentaDirectaApp() {
   const [showScanner, setShowScanner] = useState(false);
   const [flash, setFlash] = useState(null);
   const [entregado, setEntregado] = useState({}); // { [linea_id]: boolean } — local, no persiste
+  // Escaneo por producto (lector físico USB/Bluetooth, emula teclado): cuenta
+  // cuántas veces se escaneó cada línea. Con cantidad_presentacion=1 el
+  // primer escaneo ya la completa; con más de 1, hace falta un escaneo por
+  // bulto. Igual que `entregado`, es local — no persiste, no se manda a
+  // ningún lado (ver comentario de cabecera del archivo).
+  const [escaneos, setEscaneos] = useState({}); // { [linea_id]: number }
   const [busqueda, setBusqueda] = useState("");
 
   const cargar = useCallback(async () => {
@@ -157,6 +163,8 @@ export default function VentaDirectaApp() {
         nombreSucursal={nombreSucursal}
         entregado={entregado}
         setEntregado={setEntregado}
+        escaneos={escaneos}
+        setEscaneos={setEscaneos}
         onVolver={() => setSeleccion(null)}
       />
     );
@@ -254,10 +262,81 @@ export default function VentaDirectaApp() {
   );
 }
 
-function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, onVolver }) {
+function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos, setEscaneos, onVolver }) {
   const toggle = (lineaId) => {
     setEntregado((prev) => ({ ...prev, [lineaId]: !prev[lineaId] }));
   };
+
+  // ── Escaneo por producto (lector físico USB/Bluetooth) ─────────────────
+  // El lector emula un teclado: tipea el código y manda Enter. Este input
+  // siempre está enfocado; on Enter busca el código contra identificador.valor
+  // (tipo='barra' o 'fabrica', el que sea — no filtramos por tipo porque el
+  // almacenero no elige, escanea lo que el producto tenga pegado) y, si
+  // corresponde a un producto de ESTA venta, cuenta un bulto entregado.
+  const [codigo, setCodigo] = useState("");
+  const [buscando, setBuscando] = useState(false);
+  const [avisoEscaneo, setAvisoEscaneo] = useState(null); // { tipo: 'ok'|'error', msg }
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [venta.id]);
+
+  useEffect(() => {
+    if (!avisoEscaneo) return;
+    const t = setTimeout(() => setAvisoEscaneo(null), 2500);
+    return () => clearTimeout(t);
+  }, [avisoEscaneo]);
+
+  async function procesarEscaneo(valorEscaneado) {
+    const valor = valorEscaneado.trim();
+    if (!valor) return;
+    setBuscando(true);
+
+    const { data: ident, error } = await supabase
+      .from("identificador")
+      .select("presentacion:presentacion_id ( producto_id )")
+      .eq("valor", valor)
+      .eq("activo", true)
+      .limit(1)
+      .maybeSingle();
+
+    setBuscando(false);
+
+    if (error || !ident?.presentacion?.producto_id) {
+      setAvisoEscaneo({ tipo: "error", msg: `Código "${valor}" no reconocido.` });
+      return;
+    }
+
+    const productoId = ident.presentacion.producto_id;
+    const lineas = venta.venta_linea || [];
+    // primera línea de ese producto que todavía no llegó a su cantidad
+    let linea = lineas.find((l) => l.producto_id === productoId && !entregado[l.id]);
+    // si ya están todas completas, igual apunta a la primera para avisar "ya completo"
+    if (!linea) linea = lineas.find((l) => l.producto_id === productoId);
+
+    if (!linea) {
+      setAvisoEscaneo({ tipo: "error", msg: `"${valor}" no corresponde a ningún producto de esta venta.` });
+      return;
+    }
+
+    const objetivo = Number(linea.cantidad_presentacion) || 1;
+    const actual = (escaneos[linea.id] || 0) + 1;
+
+    if (entregado[linea.id]) {
+      setAvisoEscaneo({ tipo: "ok", msg: `${linea.producto?.nombre} — ya estaba completo.` });
+      return;
+    }
+
+    setEscaneos((prev) => ({ ...prev, [linea.id]: actual }));
+
+    if (actual >= objetivo) {
+      setEntregado((prev) => ({ ...prev, [linea.id]: true }));
+      setAvisoEscaneo({ tipo: "ok", msg: `${linea.producto?.nombre} — completo (${actual}/${objetivo}).` });
+    } else {
+      setAvisoEscaneo({ tipo: "ok", msg: `${linea.producto?.nombre} — ${actual}/${objetivo} escaneado.` });
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -283,9 +362,39 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, onVolver
         </div>
       </div>
 
+      <div className="relative">
+        <Barcode size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={codigo}
+          onChange={(e) => setCodigo(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const v = codigo;
+            setCodigo("");
+            void procesarEscaneo(v);
+          }}
+          onBlur={() => setTimeout(() => inputRef.current?.focus(), 50)}
+          placeholder="Escaneá el código del producto…"
+          className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-10 text-sm shadow-sm focus:border-slate-400 focus:outline-none"
+        />
+        {buscando && <Loader size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400" />}
+      </div>
+      {avisoEscaneo && (
+        <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+          avisoEscaneo.tipo === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
+        }`}>
+          {avisoEscaneo.msg}
+        </div>
+      )}
+
       <div className="space-y-2">
         {(venta.venta_linea || []).map((l) => {
           const marcada = !!entregado[l.id];
+          const objetivo = Number(l.cantidad_presentacion) || 1;
+          const escaneadas = escaneos[l.id] || 0;
           return (
             <button
               key={l.id}
@@ -299,7 +408,12 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, onVolver
                   {l.producto?.nombre || `Producto ${l.producto_id}`}
                 </span>
               </div>
-              <span className="font-semibold text-slate-700">{textoCantidadLinea(l)}</span>
+              <span className="flex items-center gap-2">
+                {!marcada && objetivo > 1 && escaneadas > 0 && (
+                  <span className="text-xs font-medium text-amber-600">{escaneadas}/{objetivo} escaneado</span>
+                )}
+                <span className="font-semibold text-slate-700">{textoCantidadLinea(l)}</span>
+              </span>
             </button>
           );
         })}
