@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
-  History, ShoppingBag, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
+  History, ShoppingBag, ShoppingCart, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
   AlertTriangle, PackageCheck,
 } from "lucide-react";
 
@@ -17,6 +17,7 @@ import InventarioApp      from "./InventarioApp";
 import HistorialApp       from "./HistorialApp";
 import AdminApp           from "./AdminApp";
 import PedidosApp         from "./PedidosApp";
+import ComprasApp         from "./ComprasApp";
 import PedidoDetallePage  from "./PedidoDetallePage";
 import VentaDirectaApp    from "./VentaDirectaApp";
 import TrasladosApp       from "./TrasladosApp";
@@ -40,6 +41,7 @@ const TABS = [
   { id: "revision",   label: "Revisión",      icon: Images,          Comp: RevisionCapturas },
 
   { id: "pedidos",    label: "Pedidos",       icon: ShoppingBag,     Comp: PedidosApp },
+  { id: "compras",    label: "Compras",       icon: ShoppingCart,    Comp: ComprasApp },
   { id: "ventadirecta", label: "Venta directa", icon: PackageCheck,  Comp: VentaDirectaApp },
   { id: "traslados",  label: "Traslados",     icon: Truck,           Comp: TrasladosApp },
   { id: "historial",  label: "Historial",     icon: History,         Comp: HistorialApp },
@@ -55,7 +57,7 @@ const TABS = [
 const GRUPOS = [
   { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "surtido", "faltantes", "concilia", "huerfanos"] },
   { id: "catalogo-grp", label: "Catálogo",     icon: BookOpen,   tabs: ["catalogo", "precios", "revision"] },
-  { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "ventadirecta", "traslados", "historial", "oper"] },
+  { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "compras", "ventadirecta", "traslados", "historial", "oper"] },
   { id: "admin-grp",    label: "Admin",        icon: Settings,   tabs: ["admin"] },
 ];
 
