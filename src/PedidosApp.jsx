@@ -22,7 +22,7 @@ import {
   entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido, saldoVendible,
   codigosGrisPorProducto, stockPorSucursalProducto,
   rechazarPedidoLinea, rechazarPedido, cambiarPedidoLinea, restarPedidoLinea,
-  devolverAlistadoAAlmacen, inyectarAlistadoATienda,
+  devolverAlistadoAAlmacen, inyectarAlistadoATienda, cerrarTandaPedido,
 } from "./lib/operaciones";
 import {
   armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion, formatoEquivalencia,
@@ -39,7 +39,7 @@ import {
   ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine, RefreshCw,
   ShoppingBag, Clock, Boxes, Printer, CheckSquare,
-  Ban, Repeat, Trash2, Warehouse, Store,
+  Ban, Repeat, Trash2, Warehouse, Store, SplitSquareHorizontal,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -1388,6 +1388,7 @@ function ReporteImpresionPedido({ pedido, lineasCatalogo, lineasEspeciales, codi
 // /pedidos/:id (brief S3 parte A) fuera del shell de pestañas.
 export function DetallePedido({ pedidoId, onBack }) {
   const usuarioActual = useUsuarioActual();
+  const navigate = useNavigate();
   const [pedido, setPedido] = useState(null);
   const [lineas, setLineas] = useState([]);
   const [eventosPorLinea, setEventosPorLinea] = useState({});
@@ -1410,6 +1411,10 @@ export function DetallePedido({ pedidoId, onBack }) {
   // Brief W-B — Rechazar pedido completo (pieza 2, nivel pedido).
   const [rechazandoPedido, setRechazandoPedido] = useState(false);
   const [flashRechazo, setFlashRechazo] = useState(null);
+  // Brief Faltantes/Tandas — Cerrar tanda: corta el pedido en lo ya
+  // despachado + una tanda nueva con el faltante.
+  const [cerrandoTanda, setCerrandoTanda] = useState(false);
+  const [flashTanda, setFlashTanda] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -1565,6 +1570,10 @@ export function DetallePedido({ pedidoId, onBack }) {
   // líneas afecta — visible solo si hay algo que de verdad se rechazaría.
   const TERMINALES_RECHAZO_PEDIDO = new Set(["DESPACHADA", "COMPRADO_DIRECTO", "RECHAZADO"]);
   const hayLineaPendiente = lineas.some((l) => !TERMINALES_RECHAZO_PEDIDO.has(l.estado));
+  // Mismo criterio que usa cerrar_tanda_pedido en el server (líneas
+  // PENDIENTE/POR_DESPACHAR) — solo para no mostrar el botón cuando no hay
+  // nada que cortar.
+  const hayLineaParaCerrarTanda = lineas.some((l) => l.estado === "PENDIENTE" || l.estado === "POR_DESPACHAR");
 
   async function rechazarPedidoCompleto() {
     const motivo = window.prompt("Motivo (opcional) para rechazar TODAS las líneas pendientes de este pedido:");
@@ -1575,6 +1584,29 @@ export function DetallePedido({ pedidoId, onBack }) {
     setRechazandoPedido(false);
     if (error) { setFlashRechazo({ type: "error", msg: "Error: " + error.message }); return; }
     setFlashRechazo({ type: "ok", msg: `${resultado.lineas_rechazadas} línea(s) rechazada(s).` });
+    await cargar();
+  }
+
+  // Corta el pedido en lo ya despachado (queda acá) + una tanda nueva con
+  // el faltante (PENDIENTE/POR_DESPACHAR) — la tanda nueva entra a la
+  // bandeja de Almacén como cualquier otro pedido.
+  async function cerrarTandaCompleta() {
+    const ok = window.confirm(
+      "Esto va a completar este pedido con lo ya despachado y mandar el faltante a un pedido nuevo (la próxima tanda). ¿Continuar?"
+    );
+    if (!ok) return;
+    const motivo = window.prompt("Motivo (opcional) para el faltante:");
+    if (motivo === null) return;
+    setCerrandoTanda(true);
+    setFlashTanda(null);
+    const { resultado, error } = await cerrarTandaPedido({ pedidoId: pedido.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
+    setCerrandoTanda(false);
+    if (error) { setFlashTanda({ type: "error", msg: "Error: " + error.message }); return; }
+    setFlashTanda({
+      type: "ok",
+      msg: `Tanda cerrada: ${resultado.lineas_movidas} línea(s) movida(s) al pedido #${resultado.pedido_nuevo_id}.`,
+      pedidoNuevoId: resultado.pedido_nuevo_id,
+    });
     await cargar();
   }
 
@@ -1647,10 +1679,29 @@ export function DetallePedido({ pedidoId, onBack }) {
               Rechazar pedido
             </button>
           )}
+          {hayLineaParaCerrarTanda && (
+            <button onClick={cerrarTandaCompleta} disabled={cerrandoTanda}
+              className="flex items-center gap-1.5 rounded-lg border border-amber-200 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+              {cerrandoTanda ? <Loader size={14} className="animate-spin" /> : <SplitSquareHorizontal size={15} />}
+              Cerrar tanda
+            </button>
+          )}
         </div>
         {flashRechazo && (
           <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${flashRechazo.type === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
             {flashRechazo.type === "error" && <AlertTriangle size={14} />} {flashRechazo.msg}
+          </div>
+        )}
+        {flashTanda && (
+          <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm ${flashTanda.type === "error" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+            {flashTanda.type === "error" && <AlertTriangle size={14} />}
+            <span>{flashTanda.msg}</span>
+            {flashTanda.pedidoNuevoId != null && (
+              <button onClick={() => navigate(`/pedidos/${flashTanda.pedidoNuevoId}`)}
+                className="font-semibold underline">
+                Ver pedido nuevo →
+              </button>
+            )}
           </div>
         )}
         <p className="text-sm text-slate-500">
