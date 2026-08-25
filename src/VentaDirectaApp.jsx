@@ -21,10 +21,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
-import { labelUbicacion } from "./lib/operaciones";
+import { labelUbicacion, registrarDespachoRapido, historialDespachoRapido } from "./lib/operaciones";
 import { useSucursal } from "./lib/useSucursal";
+import { useUsuarioActual } from "./lib/useAuth";
+import { resolverAutores, nombreAutor } from "./lib/autoria";
 import {
   PackageCheck, ScanLine, Search, Loader, RefreshCw, ArrowLeft, MapPin, Clock, User, CheckSquare, Square, Barcode,
+  Zap, History, X, Filter,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -104,6 +107,10 @@ export default function VentaDirectaApp() {
   // ningún lado (ver comentario de cabecera del archivo).
   const [escaneos, setEscaneos] = useState({}); // { [linea_id]: number }
   const [busqueda, setBusqueda] = useState("");
+  // Modo despacho rápido: escanear el ticket entero lo marca como entregado
+  // de un tirón, sin entrar al detalle — a propósito separado del buscador
+  // de arriba, para no confundir "encontrar una venta" con "descargarla".
+  const [modoRapido, setModoRapido] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!sucursalActivaId) return;
@@ -170,6 +177,16 @@ export default function VentaDirectaApp() {
     );
   }
 
+  if (modoRapido) {
+    return (
+      <ModoDespachoRapido
+        ventas={ventas}
+        sucursalActivaId={sucursalActivaId}
+        onSalir={() => setModoRapido(false)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -194,6 +211,13 @@ export default function VentaDirectaApp() {
             className="flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >
             <ScanLine size={16} /> Escanear ticket
+          </button>
+          <button
+            onClick={() => setModoRapido(true)}
+            title="Escanear varios tickets seguidos para descargarlos, sin abrir cada uno"
+            className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            <Zap size={16} /> Despacho rápido
           </button>
           <button
             onClick={cargar}
@@ -423,6 +447,193 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
         Esta marca es solo una ayuda visual mientras preparás el pedido — no completa ni anula la venta.
         El cobro, el ajuste de cantidades y la anulación se hacen desde caja.
       </p>
+    </div>
+  );
+}
+
+/*
+ * Modo despacho rápido — escanear el ticket entero (venta.numero) lo marca
+ * como "ya entregado" de una: es un registro para el seguimiento del
+ * almacenero, NO toca venta.estado ni completar_venta (esa sigue siendo de
+ * caja). Pensado para escanear varios tickets seguidos sin interrupción —
+ * el aviso dura ~1.5s y el campo nunca pierde el foco.
+ */
+function ModoDespachoRapido({ ventas, sucursalActivaId, onSalir }) {
+  const usuarioActual = useUsuarioActual();
+  const [codigo, setCodigo] = useState("");
+  const [procesando, setProcesando] = useState(false);
+  const [aviso, setAviso] = useState(null); // { tipo: 'ok'|'repetido'|'error', msg }
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 1500);
+    return () => clearTimeout(t);
+  }, [aviso]);
+
+  async function procesar(valor) {
+    const texto = valor.trim();
+    if (!texto) return;
+    setProcesando(true);
+
+    const venta = buscarVentaPorIdentificador(ventas, texto);
+    if (!venta) {
+      setProcesando(false);
+      setAviso({ tipo: "error", msg: `No se encontró "${texto}" en esta sucursal.` });
+      return;
+    }
+
+    const { yaDescargado, error } = await registrarDespachoRapido({ ventaId: venta.id, usuario: usuarioActual.nombre });
+    setProcesando(false);
+
+    if (error) {
+      setAviso({ tipo: "error", msg: `Error al descargar ${identificadorVenta(venta)}: ${error.message}` });
+      return;
+    }
+    if (yaDescargado) {
+      setAviso({ tipo: "repetido", msg: `${identificadorVenta(venta)} ya estaba descargado.` });
+      return;
+    }
+    setAviso({ tipo: "ok", msg: `${identificadorVenta(venta)} descargado ✓` });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <button onClick={onSalir} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+          <ArrowLeft size={16} /> Salir del modo rápido
+        </button>
+        <button
+          onClick={() => setHistorialAbierto((v) => !v)}
+          className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+        >
+          <History size={15} /> Historial
+        </button>
+      </div>
+
+      <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50/40 p-6 text-center">
+        <Zap size={28} className="mx-auto mb-2 text-emerald-600" />
+        <p className="mb-3 text-sm text-emerald-800">
+          Escaneá los tickets uno tras otro — no hace falta tocar nada entre uno y otro.
+        </p>
+        <div className="relative mx-auto max-w-sm">
+          <Barcode size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              const v = codigo;
+              setCodigo("");
+              void procesar(v);
+            }}
+            onBlur={() => setTimeout(() => inputRef.current?.focus(), 50)}
+            placeholder="Escaneá el ticket…"
+            className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-10 text-center text-sm shadow-sm focus:border-emerald-500 focus:outline-none"
+          />
+          {procesando && <Loader size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400" />}
+        </div>
+      </div>
+
+      {aviso && (
+        <div className={`rounded-lg px-4 py-3 text-center text-sm font-medium ${
+          aviso.tipo === "ok" ? "bg-emerald-100 text-emerald-800"
+          : aviso.tipo === "repetido" ? "bg-amber-100 text-amber-800"
+          : "bg-red-100 text-red-700"
+        }`}>
+          {aviso.msg}
+        </div>
+      )}
+
+      {historialAbierto && (
+        <HistorialDespachoRapido sucursalActivaId={sucursalActivaId} onCerrar={() => setHistorialAbierto(false)} />
+      )}
+    </div>
+  );
+}
+
+function HistorialDespachoRapido({ sucursalActivaId, onCerrar }) {
+  const [items, setItems] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [autores, setAutores] = useState(new Map());
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [filtroCreador, setFiltroCreador] = useState("");
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    const { data } = await historialDespachoRapido({
+      sucursalId: sucursalActivaId,
+      desde: desde ? `${desde}T00:00:00` : null,
+      hasta: hasta ? `${hasta}T23:59:59` : null,
+      creadoPor: filtroCreador || null,
+    });
+    setItems(data);
+    setAutores(await resolverAutores(data.map((it) => it.venta?.creado_por)));
+    setCargando(false);
+  }, [sucursalActivaId, desde, hasta, filtroCreador]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const vendedoresUnicos = useMemo(
+    () => [...new Set(items.map((it) => it.venta?.creado_por).filter(Boolean))],
+    [items],
+  );
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+          <History size={15} /> Historial de descargados
+        </h3>
+        <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <Filter size={12} className="text-slate-400" />
+        <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
+          className="rounded-md border border-slate-200 px-2 py-1" />
+        <span className="text-slate-400">a</span>
+        <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
+          className="rounded-md border border-slate-200 px-2 py-1" />
+        <select value={filtroCreador} onChange={(e) => setFiltroCreador(e.target.value)}
+          className="rounded-md border border-slate-200 px-2 py-1">
+          <option value="">Todos los vendedores</option>
+          {vendedoresUnicos.map((email) => (
+            <option key={email} value={email}>{nombreAutor(email, autores)}</option>
+          ))}
+        </select>
+      </div>
+
+      {cargando ? (
+        <div className="py-6 text-center text-slate-400"><Loader size={16} className="mx-auto animate-spin" /></div>
+      ) : items.length === 0 ? (
+        <p className="py-6 text-center text-sm text-slate-400">Sin descargas registradas todavía.</p>
+      ) : (
+        <div className="max-h-80 space-y-1.5 overflow-y-auto">
+          {items.map((it) => (
+            <div key={it.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm">
+              <div>
+                <p className="font-medium text-slate-800">{it.venta?.numero || `#${it.venta_id}`}</p>
+                <p className="text-xs text-slate-500">
+                  {it.venta?.cliente?.nombre && <>{it.venta.cliente.nombre} — </>}
+                  vendió: {nombreAutor(it.venta?.creado_por, autores)}
+                </p>
+              </div>
+              <div className="text-right text-xs text-slate-500">
+                <p>{fechaFmt(it.escaneado_en)}</p>
+                <p>descargó: {it.escaneado_por}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

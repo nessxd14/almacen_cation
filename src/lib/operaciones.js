@@ -564,6 +564,44 @@ export async function registrarEntradaCompra({ presentacionId, sucursalId, canti
   return { id: data, error };
 }
 
+// Registra el escaneo de un ticket en modo despacho rápido (VentaDirectaApp).
+// Escanear dos veces el mismo ticket no es un error del usuario — es
+// informativo — así que un unique_violation (23505, venta ya descargada) se
+// traduce a { yaDescargado: true } en vez de propagar el error.
+export async function registrarDespachoRapido({ ventaId, usuario }) {
+  const { error } = await supabase.from("venta_despacho_rapido").insert({
+    venta_id: Number(ventaId),
+    escaneado_por: usuario,
+  });
+  if (error) {
+    if (error.code === "23505") return { yaDescargado: true, error: null };
+    return { yaDescargado: false, error };
+  }
+  return { yaDescargado: false, error: null };
+}
+
+export async function historialDespachoRapido({ sucursalId, desde, hasta, creadoPor }) {
+  let query = supabase
+    .from("venta_despacho_rapido")
+    .select(`
+      id, venta_id, escaneado_por, escaneado_en,
+      venta:venta_id!inner (
+        numero, creado_por,
+        cliente:cliente_id ( nombre ),
+        ubicacion:ubicacion_id!inner ( sucursal_id )
+      )
+    `)
+    .eq("venta.ubicacion.sucursal_id", Number(sucursalId))
+    .order("escaneado_en", { ascending: false })
+    .limit(200);
+  if (desde) query = query.gte("escaneado_en", desde);
+  if (hasta) query = query.lte("escaneado_en", hasta);
+  if (creadoPor) query = query.eq("venta.creado_por", creadoPor);
+
+  const { data, error } = await query;
+  return { data: data || [], error };
+}
+
 /* ── cambiar una línea por otro producto: la vieja queda CAMBIADA, se crea
  * una línea nueva POR_DESPACHAR -> { pedido_id, linea_vieja_id, linea_nueva_id }
  */
