@@ -755,6 +755,23 @@ export async function despacharTraslado({ solicitudId, lineas, usuario }) {
   return { resultado: data, error };
 }
 
+/* ── confirmar recepción de un traslado EN_TRANSITO: acredita destino ya
+ * pasó al despachar, esto ajusta si lo recibido es menor a lo despachado
+ * (registra el faltante) y marca RECIBIDO. p_lineas es opcional — si se
+ * omite, recibe todo lo despachado tal cual (v_recibida := v_despachada).
+ * -> { resultado: { solicitud_id, estado, ubicacion_destino_id,
+ *      lineas_con_faltante, faltantes: [{linea_id, producto_id,
+ *      despachado, recibido, faltante, ubicacion_id}] }, error }
+ */
+export async function recibirTraslado({ solicitudId, lineas, usuario }) {
+  const { data, error } = await supabase.rpc("recibir_traslado", {
+    p_solicitud_id: Number(solicitudId),
+    p_usuario: usuario,
+    p_lineas: lineas || null,
+  });
+  return { resultado: data, error };
+}
+
 /* ── cerrar una solicitud de traslado (RECHAZADO/CANCELADO, sin mover stock) ── */
 export async function cerrarSolicitudTraslado({ solicitudId, estado, usuario, nota }) {
   const { data, error } = await supabase.rpc("cerrar_solicitud_traslado", {

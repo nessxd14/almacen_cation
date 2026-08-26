@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import {
-  despacharTraslado, cerrarSolicitudTraslado, stockDisponibleSucursal,
+  despacharTraslado, recibirTraslado, cerrarSolicitudTraslado, stockDisponibleSucursal,
   codigosGrisPorProducto,
 } from "./lib/operaciones";
 import {
@@ -58,9 +58,16 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
   const [flash, setFlash] = useState(null);
   const [guardandoBorrador, setGuardandoBorrador] = useState(false);
   const [recuperadoDeBorrador, setRecuperadoDeBorrador] = useState(false);
+  // Confirmar recepción (EN_TRANSITO): por defecto se acepta todo lo
+  // despachado — cantidadesRecepcion arranca prefijada a cantidad_despachada
+  // por línea, editable para reportar faltante en tránsito.
+  const [cantidadesRecepcion, setCantidadesRecepcion] = useState({});
+  const [recibiendo, setRecibiendo] = useState(false);
+  const [resultadoRecepcion, setResultadoRecepcion] = useState(null);
 
   const showFlash = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 5000); };
   const esPendiente = solicitud.estado === "SOLICITADO";
+  const esEnTransito = solicitud.estado === "EN_TRANSITO";
 
   // Las cantidades editables viajan en la unidad que se muestra (presentación
   // si la línea la tiene, si no unidad base) — se convierten a cantidad_base
@@ -90,6 +97,24 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
 
   function actualizarCantidad(lineaId, valor) {
     setCantidades((prev) => ({ ...prev, [lineaId]: valor }));
+  }
+
+  // cantidad_despachada (y por lo tanto cantidad_recibida) siempre viaja en
+  // unidad base — a diferencia de `cantidades` de arriba, acá no hace falta
+  // convertir por presentación. Se seedea al render (no en un efecto) para
+  // no disparar un render en cascada — mismo patrón que React recomienda
+  // para "resetear estado cuando cambia una prop".
+  const [seedRecepcionAbierto, setSeedRecepcionAbierto] = useState(false);
+  if (abierto && esEnTransito && !seedRecepcionAbierto) {
+    setSeedRecepcionAbierto(true);
+    setCantidadesRecepcion(Object.fromEntries(lineas.map((l) => [l.id, String(l.cantidad_despachada ?? 0)])));
+    setResultadoRecepcion(null);
+  } else if (!abierto && seedRecepcionAbierto) {
+    setSeedRecepcionAbierto(false);
+  }
+
+  function actualizarCantidadRecepcion(lineaId, valor) {
+    setCantidadesRecepcion((prev) => ({ ...prev, [lineaId]: valor }));
   }
 
   async function handleGuardarBorrador() {
@@ -142,6 +167,22 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
     setRechazando(false);
     if (error) { showFlash(error.message); return; }
     onRefrescar();
+  }
+
+  async function confirmarRecepcion() {
+    const lineasPayload = lineas.map((l) => ({
+      linea_id: l.id,
+      cantidad_base: Number(cantidadesRecepcion[l.id]),
+    }));
+    if (lineasPayload.some((l) => isNaN(l.cantidad_base) || l.cantidad_base < 0)) { showFlash("Cantidad inválida"); return; }
+    setRecibiendo(true);
+    const { resultado, error } = await recibirTraslado({ solicitudId: solicitud.id, lineas: lineasPayload, usuario: usuarioActual.nombre });
+    setRecibiendo(false);
+    if (error) { showFlash(error.message); return; }
+    // No se refresca todavía — la solicitud pasaría a RECIBIDO y esta card
+    // desaparecería de "En tránsito" antes de que se vea si hubo faltante.
+    // Se refresca recién cuando el usuario confirma haber visto el resultado.
+    setResultadoRecepcion(resultado);
   }
 
   return (
@@ -217,6 +258,10 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
                       <input type="number" min="0" step="any" value={cantidades[l.id] ?? ""}
                         onChange={(e) => actualizarCantidad(l.id, e.target.value)}
                         className="w-24 rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    ) : esEnTransito && !resultadoRecepcion ? (
+                      <input type="number" min="0" max={l.cantidad_despachada} step="any" value={cantidadesRecepcion[l.id] ?? ""}
+                        onChange={(e) => actualizarCantidadRecepcion(l.id, e.target.value)}
+                        className="w-24 rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-300" />
                     ) : (
                       <span className="text-sm font-mono text-slate-600">{cantidadFmt(l.cantidad_despachada)}</span>
                     )}
@@ -233,6 +278,9 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
                           : null}
                       </p>
                     </>
+                  )}
+                  {esEnTransito && !resultadoRecepcion && (
+                    <p className="mt-1 text-xs text-slate-400">Despachado: {cantidadFmt(l.cantidad_despachada)} {l.producto?.unidad_base}</p>
                   )}
                   {!esPendiente && !l.presentacion_id && (
                     <p className="mt-1 text-xs text-slate-400">Pedido: {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}</p>
@@ -295,6 +343,44 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
               )}
             </div>
           )}
+
+          {esEnTransito && !resultadoRecepcion && (
+            <button onClick={confirmarRecepcion} disabled={recibiendo}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
+              {recibiendo && <Loader size={14} className="animate-spin" />}
+              {recibiendo ? "Confirmando…" : "Confirmar recepción"}
+            </button>
+          )}
+
+          {esEnTransito && resultadoRecepcion && (
+            <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-sm font-medium text-emerald-800">
+                Recepción confirmada
+                {resultadoRecepcion.lineas_con_faltante > 0
+                  ? ` — ${resultadoRecepcion.lineas_con_faltante} línea${resultadoRecepcion.lineas_con_faltante === 1 ? "" : "s"} con faltante`
+                  : ", sin faltante"}
+              </p>
+              {resultadoRecepcion.faltantes?.length > 0 && (
+                <ul className="space-y-1 text-xs text-amber-700">
+                  {resultadoRecepcion.faltantes.map((f) => {
+                    const l = lineas.find((x) => x.id === f.linea_id);
+                    return (
+                      <li key={f.linea_id} className="flex items-start gap-1.5">
+                        <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                        <span>
+                          {l?.producto?.nombre || `Línea ${f.linea_id}`}: despachado {cantidadFmt(f.despachado)}, recibido {cantidadFmt(f.recibido)} — faltan {cantidadFmt(f.faltante)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <button onClick={onRefrescar}
+                className="w-full rounded-lg bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500">
+                Listo
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -302,6 +388,7 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
 }
 
 export default function TrasladosApp() {
+  const { sucursalActivaId } = useSucursal();
   const [tab, setTab] = useState("SOLICITADO");
   const [solicitudes, setSolicitudes] = useState([]);
   const [lineasPorSolicitud, setLineasPorSolicitud] = useState({});
@@ -310,10 +397,16 @@ export default function TrasladosApp() {
   const [borradores, setBorradores] = useState([]);
 
   const cargar = useCallback(async () => {
+    if (!sucursalActivaId) return;
     setCargando(true);
+    // Un traslado es relevante para la sucursal activa cuando es origen O
+    // destino — un traslado hacia Tienda tiene que aparecerle a Tienda para
+    // recibirlo y a Almacén para despacharlo, pero no a una tercera
+    // sucursal ajena (incluye el caso Tienda ↔ Almacén, no solo Almacén).
     let consulta = supabase
       .from("solicitud_traslado")
       .select("*")
+      .or(`sucursal_origen_id.eq.${sucursalActivaId},sucursal_destino_id.eq.${sucursalActivaId}`)
       .order("creado_en", { ascending: false });
     consulta = tab === "CERRADOS"
       ? consulta.in("estado", ESTADOS_CERRADOS).limit(50)
@@ -336,7 +429,7 @@ export default function TrasladosApp() {
     setLineasPorSolicitud(grupo);
     setCodigosPorProducto(codigos);
     setCargando(false);
-  }, [tab]);
+  }, [tab, sucursalActivaId]);
 
   const cargarBorradores = useCallback(async () => {
     const { data } = await listarBorradores({ tipo: "TRASLADO" });
