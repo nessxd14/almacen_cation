@@ -71,6 +71,11 @@ function FilaMovimiento({ mov, mostrarProducto, nombreSucursal }) {
           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${COLORES[cfg.color]}`}>
             <Icono size={11} /> {cfg.label}
           </span>
+          {mov.esVentaDirecta && (
+            <span className="inline-flex items-center rounded-full bg-pink-100 px-2 py-0.5 text-xs font-semibold text-pink-700">
+              VTD
+            </span>
+          )}
           <span className="flex items-center gap-1 text-xs text-slate-500">
             <Calendar size={11} className="text-slate-400" />
             {fechaFmt(mov.creado_en)}
@@ -198,6 +203,26 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
         .in("id", ids);
       const mapaSaldo = new Map((saldos || []).map(s => [s.id, s.saldo_base]));
       for (const m of lista) m.saldo_base = mapaSaldo.get(m.id) ?? null;
+    }
+
+    // Venta Directa vs. venta normal de Seller: ambas llegan al Kardex como
+    // SALIDA / "Venta #<id>" indistinguibles — solo venta.numero (prefijo
+    // VTD-, asignado por abrir_venta) las distingue. Una sola consulta
+    // batch acá, puramente para el chip visual — no toca el resto del pipeline.
+    const idsVenta = lista
+      .map(m => m.referencia?.match(/^Venta #(\d+)$/)?.[1])
+      .filter(Boolean)
+      .map(Number);
+    if (idsVenta.length > 0) {
+      const { data: ventas } = await supabase
+        .from("venta")
+        .select("id, numero")
+        .in("id", [...new Set(idsVenta)]);
+      const vtdIds = new Set((ventas || []).filter(v => v.numero?.startsWith("VTD-")).map(v => v.id));
+      for (const m of lista) {
+        const id = Number(m.referencia?.match(/^Venta #(\d+)$/)?.[1]);
+        m.esVentaDirecta = vtdIds.has(id);
+      }
     }
 
     setMovs(lista);
