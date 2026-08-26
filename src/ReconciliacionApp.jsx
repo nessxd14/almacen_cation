@@ -20,16 +20,19 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import { metaProducto } from "./lib/producto";
+import { useUsuarioActual } from "./lib/useAuth";
+import { inyectarConciliacionSesion } from "./lib/operaciones";
 import {
   Scale, CheckCircle, XCircle, AlertTriangle,
-  ChevronDown, ChevronUp, Loader, ArrowLeft,
+  ChevronDown, ChevronUp, Loader, ArrowLeft, PackageCheck,
 } from "lucide-react";
 
-const USUARIO_ACTUAL = "Supervisor";
 const labelUbicacion = (u) =>
   u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
 
 export default function ReconciliacionApp() {
+  const usuarioActual = useUsuarioActual();
+  const esAdmin = usuarioActual?.rol === "admin";
   const [sesiones, setSesiones] = useState([]);
   const [sesionId, setSesionId] = useState(null);
   const [lineas, setLineas] = useState([]);
@@ -41,18 +44,25 @@ export default function ReconciliacionApp() {
   const [cantidadFinal, setCantidadFinal] = useState({});
   const [flash, setFlash] = useState(null);
   const [guardando, setGuardando] = useState(null);
+  const [inyectando, setInyectando] = useState(false);
 
   /* ── cargar sesiones doble ciego abiertas ────────────────────────── */
+  // Consulta compartida entre la carga inicial y el refetch tras inyectar
+  // (una sesión recién cerrada debe salir de este listado).
+  async function fetchSesiones() {
+    const { data, error } = await supabase
+      .from("sesion_conteo")
+      .select("id, nombre, metodo, estado, iniciada_en")
+      .eq("metodo", "DOBLE_CIEGO")
+      .in("estado", ["ABIERTA", "CONCILIADA"])
+      .order("iniciada_en", { ascending: false });
+    return error ? [] : (data || []);
+  }
+
   useEffect(() => {
     async function cargar() {
       setLoadingSesiones(true);
-      const { data, error } = await supabase
-        .from("sesion_conteo")
-        .select("id, nombre, metodo, estado, iniciada_en")
-        .eq("metodo", "DOBLE_CIEGO")
-        .in("estado", ["ABIERTA", "CONCILIADA"])
-        .order("iniciada_en", { ascending: false });
-      if (!error) setSesiones(data || []);
+      setSesiones(await fetchSesiones());
       setLoadingSesiones(false);
     }
     cargar();
@@ -105,7 +115,7 @@ export default function ReconciliacionApp() {
         cantidad_conciliada: cantidadElegida,
         metodo_resolucion: metodo,
         estado: "CONCILIADA",
-        resuelto_por: USUARIO_ACTUAL,
+        resuelto_por: usuarioActual?.nombre,
         resuelto_en: new Date().toISOString(),
       })
       .eq("id", linea.id);
@@ -114,7 +124,7 @@ export default function ReconciliacionApp() {
     else {
       setLineas(prev => prev.map(l => l.id === linea.id
         ? { ...l, cantidad_conciliada: cantidadElegida, metodo_resolucion: metodo,
-            estado: "CONCILIADA", resuelto_por: USUARIO_ACTUAL, resuelto_en: new Date().toISOString() }
+            estado: "CONCILIADA", resuelto_por: usuarioActual?.nombre, resuelto_en: new Date().toISOString() }
         : l));
       setExpanded(null);
       showFlash(`Línea conciliada con ${cantidadElegida} unidades`);
@@ -129,7 +139,7 @@ export default function ReconciliacionApp() {
       .update({
         estado: "DESCARTADA",
         metodo_resolucion: "MANUAL",
-        resuelto_por: USUARIO_ACTUAL,
+        resuelto_por: usuarioActual?.nombre,
         resuelto_en: new Date().toISOString(),
       })
       .eq("id", linea.id);
@@ -137,12 +147,27 @@ export default function ReconciliacionApp() {
     if (error) { showFlash("Error: " + error.message, "error"); }
     else {
       setLineas(prev => prev.map(l => l.id === linea.id
-        ? { ...l, estado: "DESCARTADA", resuelto_por: USUARIO_ACTUAL }
+        ? { ...l, estado: "DESCARTADA", resuelto_por: usuarioActual?.nombre }
         : l));
       setExpanded(null);
       showFlash("Línea descartada", "warn");
     }
     setGuardando(null);
+  };
+
+  /* ── inyectar al stock y cerrar sesión (admin-only, RPC nueva) ───────
+   * El server ya bloquea con líneas PENDIENTE sin resolver y devuelve la
+   * cantidad en el mensaje — se muestra tal cual, sin traducirlo. */
+  const inyectar = async () => {
+    if (!window.confirm("¿Inyectar el resultado conciliado al stock y cerrar esta sesión? No se puede deshacer desde acá.")) return;
+    setInyectando(true);
+    const { error } = await inyectarConciliacionSesion({ sesionId, usuario: usuarioActual?.nombre });
+    setInyectando(false);
+    if (error) { showFlash(error.message, "error"); return; }
+    showFlash("Sesión inyectada al stock y cerrada");
+    setSesiones(await fetchSesiones());
+    setSesionId(null);
+    setLineas([]);
   };
 
   const pendientes = lineas.filter(l => l.estado === "PENDIENTE");
@@ -156,6 +181,15 @@ export default function ReconciliacionApp() {
         <Scale className="text-slate-700" />
         <h1 className="text-xl font-bold text-slate-800">Conciliación</h1>
       </div>
+
+      {flash && (
+        <div className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2
+          ${flash.type === "ok" ? "bg-green-50 text-green-700"
+          : flash.type === "warn" ? "bg-amber-50 text-amber-700"
+          : "bg-red-50 text-red-700"}`}>
+          <CheckCircle size={14} /> {flash.msg}
+        </div>
+      )}
 
       {loadingSesiones && (
         <div className="flex items-center gap-2 text-slate-500 text-sm">
@@ -224,6 +258,15 @@ export default function ReconciliacionApp() {
             </span>
           )}
         </div>
+      )}
+
+      {esAdmin && !loading && lineas.length > 0 && (
+        <button onClick={inyectar} disabled={inyectando || pendientes.length > 0}
+          title={pendientes.length > 0 ? `Resolvé las ${pendientes.length} línea(s) pendiente(s) primero` : undefined}
+          className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed">
+          {inyectando ? <Loader size={14} className="animate-spin" /> : <PackageCheck size={16} />}
+          {inyectando ? "Inyectando…" : "Inyectar al stock y cerrar sesión"}
+        </button>
       )}
 
       {flash && (

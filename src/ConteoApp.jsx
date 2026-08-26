@@ -130,8 +130,13 @@ export default function ConteoApp() {
   const [creandoSesion, setCreandoSesion] = useState(false);
 
   // navegación
-  const [screen, setScreen] = useState("session"); // session|location|capture|review
+  const [screen, setScreen] = useState("session"); // session|contador|location|capture|review
   const [ubicacion, setUbicacion] = useState(null);
+  // DOBLE_CIEGO: qué ronda está haciendo ESTE contador en ESTE dispositivo —
+  // nunca se persiste en sesion_conteo (es compartida entre los dos
+  // contadores), solo vive acá y se usa como numero_conteo al guardar.
+  // null hasta que se pregunta explícitamente "¿primer o segundo contador?".
+  const [numeroContador, setNumeroContador] = useState(null);
 
   // líneas capturadas
   const [lines, setLines] = useState([]);
@@ -241,6 +246,32 @@ export default function ConteoApp() {
     return () => clearInterval(id);
   }, [isOnline, store, runSyncPump]);
 
+  // Después de saber quién es el contador (o directo, en modo SIMPLE):
+  // Brief W3 #3: el botón "Contar" de Inventario llega con producto y
+  // ubicación ya elegidos — saltar location/búsqueda directo a captura.
+  // Si la ubicación llega prefijada, también hay que fijarla en la sesión
+  // (mismo camino que elegirUbicacion) — es la primera vez que se sabe
+  // contra qué ubicación va a correr esta sesión.
+  const entrarCaptura = useCallback(async (sesionActual) => {
+    if (conteoPrefill) {
+      const ubic = ubicaciones.find((u) => u.id === conteoPrefill.ubicacionId);
+      const pres = presentaciones.find((p) => p.producto_id === conteoPrefill.productoId && p.es_base)
+        || presentaciones.find((p) => p.producto_id === conteoPrefill.productoId);
+      setConteoPrefill(null);
+      if (ubic && pres) {
+        setUbicacion(ubic);
+        setSelected(pres);
+        setScreen("capture");
+        if (!sesionActual.ubicacion_id) {
+          const { data } = await supabase.from("sesion_conteo").update({ ubicacion_id: ubic.id }).eq("id", sesionActual.id).select().single();
+          if (data) setSesion(data);
+        }
+        return;
+      }
+    }
+    setScreen("location");
+  }, [conteoPrefill, ubicaciones, presentaciones, setConteoPrefill]);
+
   /* ── crear sesión en Supabase ─────────────────────────────────────── */
   const crearSesion = async (metodo) => {
     setCreandoSesion(true);
@@ -253,26 +284,28 @@ export default function ConteoApp() {
       if (error) throw error;
       setSesion(data);
 
-      // Brief W3 #3: el botón "Contar" de Inventario llega con producto y
-      // ubicación ya elegidos — saltar location/búsqueda directo a captura.
-      if (conteoPrefill) {
-        const ubic = ubicaciones.find((u) => u.id === conteoPrefill.ubicacionId);
-        const pres = presentaciones.find((p) => p.producto_id === conteoPrefill.productoId && p.es_base)
-          || presentaciones.find((p) => p.producto_id === conteoPrefill.productoId);
-        setConteoPrefill(null);
-        if (ubic && pres) {
-          setUbicacion(ubic);
-          setSelected(pres);
-          setScreen("capture");
-          return;
-        }
+      if (metodo === "DOBLE_CIEGO") {
+        setNumeroContador(null);
+        setScreen("contador");
+        return;
       }
-      setScreen("location");
+      setNumeroContador(1);
+      await entrarCaptura(data);
     } catch (e) {
       setFlash({ type: "error", msg: "Error al crear sesión: " + e.message });
     } finally {
       setCreandoSesion(false);
     }
+  };
+
+  // Elegir de qué ronda es este contador — pantalla exclusiva de
+  // DOBLE_CIEGO. Limpia `lines` (vista local de este dispositivo) para que
+  // el segundo contador, si retoma el mismo teléfono, no vea de arranque lo
+  // que cargó el primero.
+  const elegirNumeroContador = async (n) => {
+    setNumeroContador(n);
+    setLines([]);
+    await entrarCaptura(sesion);
   };
 
   /* ── búsqueda de presentaciones (texto: nombre / sku / código de barras) ── */
@@ -349,11 +382,25 @@ export default function ConteoApp() {
     }
   }, [sucursalActivaId, ubicacion]);
 
+  // Fija la sesión a esta ubicación la primera vez que se elige (brief #3:
+  // "por ubicación" — una sesión no puede terminar mezclando conteos de dos
+  // ubicaciones distintas). Sesiones ya fijadas no deberían llegar acá — la
+  // pantalla "location" las bloquea antes — pero el guard es gratis.
+  const elegirUbicacion = async (u) => {
+    setUbicacion(u);
+    if (sesion && !sesion.ubicacion_id) {
+      const { data, error } = await supabase.from("sesion_conteo").update({ ubicacion_id: u.id }).eq("id", sesion.id).select().single();
+      if (!error && data) setSesion(data);
+    }
+    setScreen("capture");
+  };
+
   /* ── guardar línea ────────────────────────────────────────────────── */
   const guardarLinea = async () => {
     if (!store || !sesion || !ubicacion) return;
+    if (!numeroContador) { setFlash({ type:"error", msg:"No se definió qué contador es este dispositivo" }); return; }
     if (!esHuerfano && !selected) { setFlash({ type:"error", msg:"Selecciona una presentación" }); return; }
-    if (!cantidad || isNaN(cantidad) || Number(cantidad) <= 0) { setFlash({ type:"error", msg:"Cantidad inválida" }); return; }
+    if (cantidad === "" || isNaN(cantidad) || Number(cantidad) < 0) { setFlash({ type:"error", msg:"Cantidad inválida" }); return; }
     if (!fotoBlob) { setFlash({ type:"error", msg:"La foto es obligatoria" }); return; }
     if (esHuerfano && !descLibre.trim()) { setFlash({ type:"error", msg:"Describe el artículo huérfano" }); return; }
 
@@ -373,7 +420,7 @@ export default function ConteoApp() {
       descripcion_libre: esHuerfano ? descLibre : null,
       foto_ref: fotoPath,
       factor_a_base_snap: esHuerfano ? null : selected.factor_unidad_base,
-      numero_conteo: 1,
+      numero_conteo: numeroContador,
       contador: usuarioActual.nombre,
       capturado_en: nowISO(),
       estado: "CAPTURADO",
@@ -468,29 +515,76 @@ export default function ConteoApp() {
     </div>
   );
 
-  /* ubicación — filtradas a la sucursal activa: sin esto, Cristian
-     (Tienda) podía contar contra una ubicación de Almacén sin barrera. */
-  if (screen === "location") return (
-    <div className="max-w-md mx-auto pt-6 px-4 space-y-3">
-      <div className="flex items-center gap-2 mb-4">
-        <MapPin className="text-slate-700" />
-        <div>
-          <h2 className="text-lg font-semibold text-slate-800">Selecciona la ubicación</h2>
-          <p className="text-xs text-slate-400">{nombreSucursal(sucursalActivaId) || "…"}</p>
-        </div>
+  /* quién es este contador — solo DOBLE_CIEGO, una vez por dispositivo.
+     No expone nada del otro contador, es puramente "quién sos vos". */
+  if (screen === "contador") return (
+    <div className="max-w-md mx-auto pt-10 px-4 space-y-4">
+      <div className="flex items-center gap-2 mb-6">
+        <ClipboardList className="text-slate-700" />
+        <h1 className="text-xl font-bold text-slate-800">¿Sos el primer o el segundo contador?</h1>
       </div>
-      <PendingBanner pendingCount={pendingCount} isOnline={isOnline} onRetry={runSyncPump} />
-      {ubicacionesSucursal.length === 0 && (
-        <p className="text-sm text-slate-400 text-center py-8">Sin ubicaciones cargadas para esta sucursal.</p>
-      )}
-      {ubicacionesSucursal.map((u) => (
-        <button key={u.id} onClick={() => { setUbicacion(u); setScreen("capture"); }}
-          className="w-full text-left px-4 py-3 bg-white border rounded-xl hover:bg-slate-50 font-mono text-sm">
-          {labelUbicacion(u)}
+      <p className="text-sm text-slate-500">
+        Doble ciego: cada contador cuenta por separado, sin ver lo que cargó el otro. Elegí tu ronda en este dispositivo.
+      </p>
+      <button onClick={() => elegirNumeroContador(1)}
+        className="w-full py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700">
+        Soy el primer contador
+      </button>
+      <button onClick={() => elegirNumeroContador(2)}
+        className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-500">
+        Soy el segundo contador
+      </button>
+      {numeroContador && ubicacion && (
+        <button onClick={() => setScreen("capture")} className="w-full text-center text-xs text-slate-400 underline">
+          Cancelar, seguir como contador {numeroContador}
         </button>
-      ))}
+      )}
     </div>
   );
+
+  /* ubicación — filtradas a la sucursal activa: sin esto, Cristian
+     (Tienda) podía contar contra una ubicación de Almacén sin barrera.
+     Una vez que la sesión fijó ubicacion_id (brief #3, "por ubicación") ya
+     no se puede elegir otra — la pantalla solo deja volver a la fijada. */
+  if (screen === "location") {
+    const ubicFija = sesion?.ubicacion_id ? ubicaciones.find((u) => u.id === sesion.ubicacion_id) : null;
+    return (
+      <div className="max-w-md mx-auto pt-6 px-4 space-y-3">
+        <div className="flex items-center gap-2 mb-4">
+          <MapPin className="text-slate-700" />
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Selecciona la ubicación</h2>
+            <p className="text-xs text-slate-400">{nombreSucursal(sucursalActivaId) || "…"}</p>
+          </div>
+        </div>
+        <PendingBanner pendingCount={pendingCount} isOnline={isOnline} onRetry={runSyncPump} />
+        {ubicFija ? (
+          <>
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              Esta sesión ya quedó fija a esta ubicación — no se puede contar otra mientras esté abierta.
+            </div>
+            <button onClick={() => { setUbicacion(ubicFija); setScreen("capture"); }}
+              className="w-full text-left px-4 py-3 bg-white border-2 border-slate-800 rounded-xl font-mono text-sm">
+              {labelUbicacion(ubicFija)}
+            </button>
+          </>
+        ) : (
+          <>
+            {ubicacionesSucursal.length === 0 && (
+              <p className="text-sm text-slate-400 text-center py-8">Sin ubicaciones cargadas para esta sucursal.</p>
+            )}
+            {ubicacionesSucursal.map((u) => (
+              <button key={u.id} onClick={() => elegirUbicacion(u)}
+                className="w-full text-left px-4 py-3 bg-white border rounded-xl hover:bg-slate-50 font-mono text-sm">
+                {labelUbicacion(u)}
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+    );
+  }
 
   /* captura */
   if (screen === "capture") return (
@@ -504,6 +598,14 @@ export default function ConteoApp() {
         <h2 className="font-semibold text-slate-800">
           Captura — <span className="font-mono text-blue-600">{labelUbicacion(ubicacion)}</span>
         </h2>
+        {sesion?.metodo === "DOBLE_CIEGO" && (
+          <button
+            onClick={() => setScreen("contador")}
+            title="Cambiar de contador (para pasar el dispositivo a la otra ronda)"
+            className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200">
+            Contador {numeroContador} · cambiar
+          </button>
+        )}
         <button onClick={() => setScreen("review")} className="ml-auto text-xs text-slate-500 underline">
           Ver ({lines.length})
         </button>
@@ -581,7 +683,7 @@ export default function ConteoApp() {
 
       {(selected || esHuerfano) && (
         <div className="space-y-2">
-          <input type="number" min="0.001" step="any" value={cantidad}
+          <input type="number" min="0" step="any" value={cantidad}
             onChange={(e) => setCantidad(e.target.value)}
             placeholder="Cantidad contada"
             className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />

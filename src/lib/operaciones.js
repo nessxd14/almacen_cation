@@ -695,6 +695,19 @@ export async function inyectarAlistadoATienda({ eventoId, motivo, usuario, canti
   return { resultado: data, error };
 }
 
+/* ── inyectar el resultado conciliado de una sesión de conteo al stock
+ * (registrar_ajuste por cada línea CONCILIADA) y cerrar la sesión. Admin-only
+ * en el server; bloquea si quedan líneas PENDIENTE sin resolver — ese error
+ * ya trae la cantidad pendiente en el mensaje, no hace falta traducirlo.
+ */
+export async function inyectarConciliacionSesion({ sesionId, usuario }) {
+  const { data, error } = await supabase.rpc("inyectar_conciliacion_sesion", {
+    p_sesion_id: Number(sesionId),
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
 /* ── entregar un ítem personalizado (ESPECIAL -> COMPRADO_DIRECTO) ───── */
 export async function entregarPersonalizado({ lineaId, usuario }) {
   const { data, error } = await supabase.rpc("entregar_personalizado", {
