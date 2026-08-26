@@ -617,6 +617,31 @@ export async function completarVentaDirecta({ ventaId, usuario }) {
   return { resultado: data, error };
 }
 
+/* ── ajustar/rechazar líneas de una venta directa ABIERTA desde Almacén.
+ * Reusa la misma RPC que Caja (ajustar_venta_abierta) — solo permite
+ * reducir cantidad_presentacion, nunca subirla; cantidad 0 borra la línea
+ * (queda registrada como LINEA_RECHAZADA en venta_evento), una reducción
+ * parcial queda LINEA_CAMBIADA. Motivo obligatorio (lo exige el server).
+ * p_sesion_caja_id siempre null: Venta Directa es postcobrada en la
+ * práctica, así que nunca hay devolución que requiera abrir caja desde acá;
+ * si alguna vez la hay, el server la rechaza pidiendo la sesión y ese
+ * caso se resuelve desde Caja, no desde Almacén.
+ * ajustes: [{ lineaId, cantidadPresentacion }] -> { resultado, error }
+ */
+export async function ajustarVentaDirecta({ ventaId, ajustes, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("ajustar_venta_abierta", {
+    p_venta_id: Number(ventaId),
+    p_ajustes: ajustes.map((a) => ({
+      linea_id: Number(a.lineaId),
+      cantidad_presentacion: Number(a.cantidadPresentacion),
+    })),
+    p_sesion_caja_id: null,
+    p_usuario: usuario,
+    p_motivo: motivo,
+  });
+  return { resultado: data, error };
+}
+
 /* ── cambiar una línea por otro producto: la vieja queda CAMBIADA, se crea
  * una línea nueva POR_DESPACHAR -> { pedido_id, linea_vieja_id, linea_nueva_id }
  */
