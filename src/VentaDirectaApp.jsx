@@ -15,21 +15,33 @@
  * 3.3 del brief, actualizado: el WMS SÍ puede ejecutar completar_venta desde
  * acá (descuenta Kardex, no toca caja/pagos — el cobro ya quedó resuelto al
  * abrir la venta en Seller) cuando el almacenero marcó todas las líneas como
- * entregadas. ajustar_venta_abierta / anular_venta siguen siendo exclusivas
- * de caja — no se ejecutan desde acá. El check de "lo que entregué" sigue
- * siendo puramente local (no persiste) hasta que se aprieta "Completar".
+ * entregadas. El check de "lo que entregué" sigue siendo puramente local
+ * (no persiste) hasta que se aprieta "Completar".
+ *
+ * Rechazo/ajuste de líneas (pausa siguiente, mismo criterio que Pedidos):
+ * el WMS también puede ejecutar ajustar_venta_abierta desde "Ajustar /
+ * rechazar" en el detalle — reduce o anula (cantidad_presentacion=0)
+ * líneas puntuales de un ticket ABIERTA con motivo obligatorio, siempre
+ * con p_sesion_caja_id=null (Venta Directa es postcobrada en la práctica,
+ * no hay devolución que gestionar desde acá). Rechazar TODAS las líneas de
+ * una venta lo bloquea el server — ese caso es una anulación completa y
+ * sigue siendo exclusivo de caja (anular_venta). No se persiste ningún
+ * estado nuevo en venta_linea: una línea rechazada se borra, una cambiada
+ * solo actualiza su cantidad — el badge "Rechazada"/"Cambiada" que se ve acá
+ * es local a la sesión de ajuste (no sobrevive un F5), la fuente de verdad
+ * queda en venta_evento.
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
-import { labelUbicacion, registrarDespachoRapido, historialDespachoRapido, completarVentaDirecta } from "./lib/operaciones";
+import { labelUbicacion, registrarDespachoRapido, historialDespachoRapido, completarVentaDirecta, ajustarVentaDirecta } from "./lib/operaciones";
 import { useSucursal } from "./lib/useSucursal";
 import { useUsuarioActual } from "./lib/useAuth";
 import { resolverAutores, nombreAutor } from "./lib/autoria";
 import {
   PackageCheck, ScanLine, Search, Loader, RefreshCw, ArrowLeft, MapPin, Clock, User, CheckSquare, Square, Barcode,
-  Zap, History, X, Filter,
+  Zap, History, X, Filter, SlidersHorizontal, Ban,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -91,6 +103,17 @@ const SELECT_VENTA = `
 function BadgeModo({ modo }) {
   const cls = modo === "PAGADO" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700";
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{modo}</span>;
+}
+
+// Mismo lenguaje visual que ESTADOS_LINEA en PedidosApp para líneas
+// RECHAZADO/CAMBIADA — acá es local (ajustar_venta_abierta no persiste un
+// estado en venta_linea: la rechazada se borra, la cambiada solo baja de
+// cantidad) así que el badge sale de `aplicados`, no de la fila en sí.
+function BadgeAjusteLinea({ estado }) {
+  const cfg = estado === "RECHAZADA"
+    ? { label: "Rechazada", cls: "bg-red-100 text-red-600" }
+    : { label: "Cambiada", cls: "bg-slate-200 text-slate-500" };
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
 
 export default function VentaDirectaApp() {
@@ -176,6 +199,7 @@ export default function VentaDirectaApp() {
         setEscaneos={setEscaneos}
         onVolver={() => setSeleccion(null)}
         onCompletado={(msg) => { showFlash(msg); setSeleccion(null); cargar(); }}
+        onAjustado={(msg) => { showFlash(msg); cargar(); }}
       />
     );
   }
@@ -289,16 +313,103 @@ export default function VentaDirectaApp() {
   );
 }
 
-function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos, setEscaneos, onVolver, onCompletado }) {
+function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos, setEscaneos, onVolver, onCompletado, onAjustado }) {
   const toggle = (lineaId) => {
     setEntregado((prev) => ({ ...prev, [lineaId]: !prev[lineaId] }));
   };
+
+  // ── Ajustar / rechazar líneas desde Almacén ─────────────────────────────
+  // `snapshot` fija el orden y los datos originales de las líneas al entrar
+  // a este ticket — así una línea rechazada (borrada de venta_linea por el
+  // server) sigue teniendo de dónde sacar nombre/cantidad para mostrarse
+  // tachada. `aplicados` guarda el resultado de cada ajuste confirmado
+  // (persiste aunque el padre refetchee y la línea ya no esté en venta_linea).
+  const usuarioActual = useUsuarioActual();
+  const [ventaIdSnapshot, setVentaIdSnapshot] = useState(venta.id);
+  const [snapshot, setSnapshot] = useState(() => venta.venta_linea || []);
+  const [aplicados, setAplicados] = useState({}); // { [lineaId]: { estado, cantidadAnterior, cantidadNueva } }
+  const [modoAjuste, setModoAjuste] = useState(false);
+  const [valoresAjuste, setValoresAjuste] = useState({}); // { [lineaId]: string }
+  const [motivoAjuste, setMotivoAjuste] = useState("");
+  const [ajustando, setAjustando] = useState(false);
+  const [avisoAjuste, setAvisoAjuste] = useState(null);
+
+  // Reset al cambiar de ticket — ajuste de estado durante el render (patrón
+  // recomendado por React para "resetear al cambiar una prop"), no en un
+  // efecto, para no disparar un render en cascada.
+  if (venta.id !== ventaIdSnapshot) {
+    setVentaIdSnapshot(venta.id);
+    setSnapshot(venta.venta_linea || []);
+    setAplicados({});
+    setModoAjuste(false);
+    setValoresAjuste({});
+    setMotivoAjuste("");
+    setAvisoAjuste(null);
+  }
+
+  function abrirAjuste() {
+    setValoresAjuste(Object.fromEntries(
+      (venta.venta_linea || []).map((l) => [l.id, String(l.cantidad_presentacion ?? l.cantidad ?? 0)]),
+    ));
+    setMotivoAjuste("");
+    setAvisoAjuste(null);
+    setModoAjuste(true);
+  }
+
+  async function confirmarAjuste() {
+    if (!motivoAjuste.trim()) { setAvisoAjuste("El motivo es obligatorio para ajustar o rechazar líneas."); return; }
+
+    const cambios = (venta.venta_linea || [])
+      .map((l) => {
+        const actual = Number(l.cantidad_presentacion ?? l.cantidad ?? 0);
+        const nueva = Number(valoresAjuste[l.id]);
+        return { linea: l, actual, nueva };
+      })
+      .filter(({ actual, nueva }) => Number.isFinite(nueva) && nueva >= 0 && nueva < actual);
+
+    if (cambios.length === 0) { setAvisoAjuste("No hay cambios de cantidad para confirmar."); return; }
+
+    setAjustando(true);
+    setAvisoAjuste(null);
+    const { error } = await ajustarVentaDirecta({
+      ventaId: venta.id,
+      ajustes: cambios.map(({ linea, nueva }) => ({ lineaId: linea.id, cantidadPresentacion: nueva })),
+      motivo: motivoAjuste.trim(),
+      usuario: usuarioActual?.nombre,
+    });
+    setAjustando(false);
+
+    if (error) {
+      if (error.message?.includes("sin ninguna unidad")) {
+        setAvisoAjuste("Eso deja el ticket sin ninguna línea — eso ya es anular la venta, y Almacén no puede hacerlo desde acá. Pedile a Caja que anule la venta.");
+      } else {
+        setAvisoAjuste(error.message);
+      }
+      return;
+    }
+
+    setAplicados((prev) => {
+      const next = { ...prev };
+      for (const { linea, actual, nueva } of cambios) {
+        next[linea.id] = { estado: nueva === 0 ? "RECHAZADA" : "CAMBIADA", cantidadAnterior: actual, cantidadNueva: nueva };
+      }
+      return next;
+    });
+    // Las líneas rechazadas ya no están en la venta — no tiene sentido
+    // seguir mostrándolas como "entregado"/escaneadas pendientes.
+    setEntregado((prev) => {
+      const next = { ...prev };
+      for (const { linea, nueva } of cambios) if (nueva === 0) delete next[linea.id];
+      return next;
+    });
+    setModoAjuste(false);
+    onAjustado(`${identificadorVenta(venta)} — ${cambios.length} línea(s) ajustada(s)`);
+  }
 
   // ── Completar VTD desde Almacén ─────────────────────────────────────────
   // completar_venta descuenta Kardex y no admite entrega parcial: solo se
   // habilita cuando el almacenero ya marcó todas las líneas como entregadas.
   // No toca venta_pago/caja (el cobro ya quedó resuelto al abrir la venta).
-  const usuarioActual = useUsuarioActual();
   const [completando, setCompletando] = useState(false);
   const [avisoCompletar, setAvisoCompletar] = useState(null);
   const lineas = venta.venta_linea || [];
@@ -396,7 +507,17 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
           <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
             <PackageCheck size={18} /> {identificadorVenta(venta)}
           </h2>
-          <BadgeModo modo={modoVenta(venta)} />
+          <div className="flex items-center gap-2">
+            <BadgeModo modo={modoVenta(venta)} />
+            {!modoAjuste && (venta.venta_linea || []).length > 0 && (
+              <button
+                onClick={abrirAjuste}
+                className="flex items-center gap-1.5 rounded-md border border-amber-200 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50"
+              >
+                <SlidersHorizontal size={13} /> Ajustar / rechazar
+              </button>
+            )}
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
           <span className="flex items-center gap-1">
@@ -408,6 +529,57 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
           <span>{fechaFmt(venta.creado_en)}</span>
         </div>
       </div>
+
+      {modoAjuste && (
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+              <Ban size={15} /> Ajustar o rechazar líneas
+            </h3>
+            <button onClick={() => setModoAjuste(false)} className="text-slate-400 hover:text-slate-600">
+              <X size={16} />
+            </button>
+          </div>
+          <p className="text-xs text-amber-700">
+            Reducí la cantidad de lo que no se va a despachar. Llevarla a 0 rechaza la línea entera.
+          </p>
+          <div className="space-y-2">
+            {(venta.venta_linea || []).map((l) => {
+              const objetivo = Number(l.cantidad_presentacion ?? l.cantidad ?? 0);
+              return (
+                <div key={l.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-2.5">
+                  <span className="text-sm text-slate-700">{l.producto?.nombre || `Producto ${l.producto_id}`}</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number" min="0" max={objetivo} step="any"
+                      value={valoresAjuste[l.id] ?? ""}
+                      onChange={(e) => setValoresAjuste((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                      className="w-20 rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-300"
+                    />
+                    <span className="text-xs text-slate-400">de {cantidadFmt(objetivo)} {l.presentacion?.nombre || l.producto?.unidad_base}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <input
+            value={motivoAjuste}
+            onChange={(e) => setMotivoAjuste(e.target.value)}
+            placeholder="Motivo (obligatorio) — ej. sin stock, dañado, no se encontró"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+          />
+          {avisoAjuste && (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{avisoAjuste}</p>
+          )}
+          <button
+            onClick={confirmarAjuste}
+            disabled={ajustando}
+            className="w-full rounded-lg bg-amber-600 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {ajustando ? "Guardando…" : "Confirmar ajuste"}
+          </button>
+        </div>
+      )}
 
       <div className="relative">
         <Barcode size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -438,7 +610,29 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
       )}
 
       <div className="space-y-2">
-        {(venta.venta_linea || []).map((l) => {
+        {snapshot.map((s) => {
+          const l = (venta.venta_linea || []).find((x) => x.id === s.id);
+          const aplicado = aplicados[s.id];
+
+          // Rechazada: ya no está en venta_linea (el server la borró). Se
+          // muestra con los datos de `snapshot` — es lo único que queda.
+          if (!l) {
+            return (
+              <div key={s.id} className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50/50 p-3 opacity-60">
+                <div className="flex items-center gap-3">
+                  <Ban size={18} className="text-red-400" />
+                  <span className="font-medium text-red-800 line-through">
+                    {s.producto?.nombre || `Producto ${s.producto_id}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <BadgeAjusteLinea estado="RECHAZADA" />
+                  <span className="text-sm text-slate-400 line-through">{textoCantidadLinea(s)}</span>
+                </div>
+              </div>
+            );
+          }
+
           const marcada = !!entregado[l.id];
           const objetivo = Number(l.cantidad_presentacion) || 1;
           const escaneadas = escaneos[l.id] || 0;
@@ -456,6 +650,7 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
                 </span>
               </div>
               <span className="flex items-center gap-2">
+                {aplicado?.estado === "CAMBIADA" && <BadgeAjusteLinea estado="CAMBIADA" />}
                 {!marcada && objetivo > 1 && escaneadas > 0 && (
                   <span className="text-xs font-medium text-amber-600">{escaneadas}/{objetivo} escaneado</span>
                 )}
@@ -481,7 +676,7 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
         </>
       ) : (
         <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-          Marcá todos los ítems como entregados para poder descontar el stock. El ajuste de cantidades y la anulación se hacen desde caja.
+          Marcá todos los ítems como entregados para poder descontar el stock. Si falta algo, usá "Ajustar / rechazar" arriba — la anulación completa del ticket se hace desde caja.
         </p>
       )}
     </div>
