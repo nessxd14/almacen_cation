@@ -125,6 +125,53 @@ function BadgeLinea({ estado }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
 
+// Desglose de líneas por estado — no cambia ninguna lógica de completado
+// (recalcular_estado_pedido sigue siendo la única fuente de verdad para
+// pedido.estado), es puramente informativo para distinguir un pedido que
+// se completó sin novedades de uno que se completó con rechazos/cambios.
+// Orden estable = el mismo orden en que aparece cada estado en ESTADOS_LINEA.
+function desgloseLineas(lineas) {
+  const conteo = new Map();
+  for (const l of lineas || []) conteo.set(l.estado, (conteo.get(l.estado) || 0) + 1);
+  return Object.keys(ESTADOS_LINEA)
+    .filter((estado) => conteo.get(estado) > 0)
+    .map((estado) => ({ estado, cantidad: conteo.get(estado), ...ESTADOS_LINEA[estado] }));
+}
+
+// Chips compactos junto al badge en la lista — solo cuando hay algo distinto
+// de "todo despachado" (rechazos o cambios), para no ensuciar el caso normal.
+function ChipsDesglosePedido({ lineas }) {
+  const tieneNovedad = (lineas || []).some((l) => l.estado === "RECHAZADO" || l.estado === "CAMBIADA");
+  if (!tieneNovedad) return null;
+
+  const verdes = (lineas || []).filter((l) => l.estado === "DESPACHADA" || l.estado === "COMPRADO_DIRECTO").length;
+  const rechazadas = (lineas || []).filter((l) => l.estado === "RECHAZADO").length;
+  const cambiadas = (lineas || []).filter((l) => l.estado === "CAMBIADA").length;
+
+  return (
+    <span className="flex items-center gap-1">
+      {verdes > 0 && <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ESTADOS_LINEA.DESPACHADA.cls}`}>{verdes} ✓</span>}
+      {rechazadas > 0 && <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ESTADOS_LINEA.RECHAZADO.cls}`}>{rechazadas} rechazada{rechazadas > 1 ? "s" : ""}</span>}
+      {cambiadas > 0 && <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ESTADOS_LINEA.CAMBIADA.cls}`}>{cambiadas} cambiada{cambiadas > 1 ? "s" : ""}</span>}
+    </span>
+  );
+}
+
+// Resumen agregado para el detalle — a diferencia de los chips de la lista,
+// acá se muestra siempre (no solo cuando hay novedades): es la cuenta rápida
+// de "cuántas quedaron en cada estado" sin tener que contar los badges a mano.
+function ResumenLineasPedido({ lineas }) {
+  const desglose = desgloseLineas(lineas);
+  if (desglose.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {desglose.map(({ estado, cantidad, label, cls }) => (
+        <span key={estado} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{cantidad} {label}</span>
+      ))}
+    </div>
+  );
+}
+
 // Indicador informativo de saldo disponible vs. lo pendiente de la línea —
 // no bloquea "Despachar" ni cambia el pick automático, solo avisa si otras
 // líneas (de cualquier pedido) ya comprometieron el stock libre.
@@ -178,7 +225,7 @@ function ListaPedidos({ onNuevo }) {
     setCargando(true);
     const { data } = await supabase
       .from("pedido")
-      .select("id, categoria, referencia, estado, creado_en, cliente:cliente_id ( nombre )")
+      .select("id, categoria, referencia, estado, creado_en, cliente:cliente_id ( nombre ), pedido_linea ( estado )")
       .order("creado_en", { ascending: false })
       .limit(200);
     setPedidos(data || []);
@@ -234,6 +281,7 @@ function ListaPedidos({ onNuevo }) {
               <span className="text-sm font-medium text-slate-800">{labelCategoria(p.categoria)}</span>
               <span className="flex-1 truncate text-sm text-slate-500">{p.cliente?.nombre || p.referencia || "—"}</span>
               <span className="text-xs text-slate-400">{fechaFmt(p.creado_en)}</span>
+              <ChipsDesglosePedido lineas={p.pedido_linea} />
               <BadgePedido estado={p.estado} />
             </Link>
           ))}
@@ -1716,6 +1764,8 @@ export function DetallePedido({ pedidoId, onBack }) {
               : <>Creado por {nombreAutor(pedido.creado_por, autores)}</>}
           </p>
         )}
+
+        <ResumenLineasPedido lineas={lineas} />
 
         {pedido.total != null && (
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 space-y-0.5">

@@ -54,6 +54,10 @@ function etiquetaUbicacion(u, nombreSucursal) {
 
 // ─── Una fila de movimiento ──────────────────────────────────────────────────
 
+// Card apilada — reemplaza la fila de tabla de 8 columnas (desbordaba en
+// anchos normales, forzando scroll horizontal). Fecha+Tipo arriba,
+// Producto/Ubicación/Referencia en el cuerpo con wrap libre, Cant./Saldo
+// destacados a la derecha (abajo en columna en pantallas chicas).
 function FilaMovimiento({ mov, mostrarProducto, nombreSucursal }) {
   const cfg = TIPOS[mov.tipo_movimiento] || { label: mov.tipo_movimiento, icon: FileText, color: "slate", signo: "" };
   const Icono = cfg.icon;
@@ -61,53 +65,62 @@ function FilaMovimiento({ mov, mostrarProducto, nombreSucursal }) {
   const signoColor = cantidad < 0 ? "text-red-600" : cantidad > 0 ? "text-emerald-600" : "text-slate-600";
 
   return (
-    <tr className="hover:bg-slate-50">
-      <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-500">
-        <span className="flex items-center gap-1">
-          <Calendar size={11} className="text-slate-400" />
-          {fechaFmt(mov.creado_en)}
-        </span>
-      </td>
-      <td className="px-3 py-2.5">
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${COLORES[cfg.color]}`}>
-          <Icono size={11} /> {cfg.label}
-        </span>
-      </td>
-      {mostrarProducto && (
-        <td className="px-3 py-2.5">
-          <p className="truncate text-sm font-medium text-slate-800">{mov.producto?.nombre || `#${mov.producto_id}`}</p>
-          {metaProducto(mov.producto) && (
-            <div className="text-xs text-slate-500">{metaProducto(mov.producto)}</div>
-          )}
-        </td>
-      )}
-      <td className="px-3 py-2.5">
-        <span className="flex items-center gap-1 text-sm text-slate-600">
-          <MapPin size={12} className="text-slate-400" />
-          {etiquetaUbicacion(mov.ubicacion, nombreSucursal)}
-        </span>
-      </td>
-      <td className={`px-3 py-2.5 text-right text-sm font-bold ${signoColor}`}>
-        {cantidad > 0 ? "+" : ""}{cantidadFmt(cantidad)}
-      </td>
-      <td className={`px-3 py-2.5 text-right text-sm font-medium ${
-        mov.saldo_base == null ? "text-slate-400" : Number(mov.saldo_base) < 0 ? "text-red-600" : "text-slate-700"
-      }`}>
-        {mov.saldo_base == null ? "—" : cantidadFmt(mov.saldo_base)}
-      </td>
-      <td className="px-3 py-2.5 text-sm text-slate-600">
-        <div className="max-w-xs">
-          <p className="truncate">{mov.referencia}</p>
-          {mov.motivo && <p className="truncate text-xs text-slate-400">{mov.motivo}</p>}
+    <div className="flex flex-col gap-3 px-3 py-3 hover:bg-slate-50 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${COLORES[cfg.color]}`}>
+            <Icono size={11} /> {cfg.label}
+          </span>
+          <span className="flex items-center gap-1 text-xs text-slate-500">
+            <Calendar size={11} className="text-slate-400" />
+            {fechaFmt(mov.creado_en)}
+          </span>
         </div>
-      </td>
-      <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-500">
-        <span className="flex items-center gap-1">
+
+        {mostrarProducto && (
+          <div>
+            <p className="text-sm font-medium text-slate-800">{mov.producto?.nombre || `#${mov.producto_id}`}</p>
+            {metaProducto(mov.producto) && (
+              <p className="text-xs text-slate-500">{metaProducto(mov.producto)}</p>
+            )}
+          </div>
+        )}
+
+        <p className="flex items-center gap-1 text-sm text-slate-600">
+          <MapPin size={12} className="shrink-0 text-slate-400" />
+          {etiquetaUbicacion(mov.ubicacion, nombreSucursal)}
+        </p>
+
+        {(mov.referencia || mov.motivo) && (
+          <div className="text-sm text-slate-600">
+            {mov.referencia && <p>{mov.referencia}</p>}
+            {mov.motivo && <p className="text-xs text-slate-400">{mov.motivo}</p>}
+          </div>
+        )}
+
+        <p className="flex items-center gap-1 text-xs text-slate-500">
           <User size={11} className="text-slate-400" />
           {mov.creado_por || "—"}
-        </span>
-      </td>
-    </tr>
+        </p>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-5 sm:flex-col sm:items-end sm:gap-1.5">
+        <div className="text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cant.</p>
+          <p className={`text-base font-bold leading-tight ${signoColor}`}>
+            {cantidad > 0 ? "+" : ""}{cantidadFmt(cantidad)}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saldo</p>
+          <p className={`text-sm font-medium leading-tight ${
+            mov.saldo_base == null ? "text-slate-400" : Number(mov.saldo_base) < 0 ? "text-red-600" : "text-slate-700"
+          }`}>
+            {mov.saldo_base == null ? "—" : cantidadFmt(mov.saldo_base)}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -248,38 +261,22 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
         </div>
       )}
 
-      {/* Tabla */}
+      {/* Movimientos — cards apiladas, sin scroll horizontal a ningún ancho */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-3 py-2">Fecha</th>
-                <th className="px-3 py-2">Tipo</th>
-                {!productoId && <th className="px-3 py-2">Producto</th>}
-                <th className="px-3 py-2">Ubicación</th>
-                <th className="px-3 py-2 text-right">Cant.</th>
-                <th className="px-3 py-2 text-right">Saldo</th>
-                <th className="px-3 py-2">Referencia</th>
-                <th className="px-3 py-2">Usuario</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {cargando ? (
-                <tr><td colSpan={productoId ? 7 : 8} className="px-3 py-10 text-center text-slate-400">Cargando…</td></tr>
-              ) : movs.length === 0 ? (
-                <tr><td colSpan={productoId ? 7 : 8} className="px-3 py-10 text-center text-slate-400">
-                  <HistoryIcon size={28} className="mx-auto mb-2 text-slate-300" />
-                  Sin movimientos registrados todavía.
-                </td></tr>
-              ) : (
-                movs.map(m => (
-                  <FilaMovimiento key={m.id} mov={m} mostrarProducto={!productoId} nombreSucursal={productoId ? nombreSucursal : undefined} />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {cargando ? (
+          <p className="px-3 py-10 text-center text-slate-400">Cargando…</p>
+        ) : movs.length === 0 ? (
+          <div className="px-3 py-10 text-center text-slate-400">
+            <HistoryIcon size={28} className="mx-auto mb-2 text-slate-300" />
+            Sin movimientos registrados todavía.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {movs.map(m => (
+              <FilaMovimiento key={m.id} mov={m} mostrarProducto={!productoId} nombreSucursal={productoId ? nombreSucursal : undefined} />
+            ))}
+          </div>
+        )}
       </div>
 
       {!cargando && movs.length > 0 && (
