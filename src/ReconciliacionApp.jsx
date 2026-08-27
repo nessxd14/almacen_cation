@@ -269,6 +269,15 @@ export default function ReconciliacionApp() {
         </button>
       )}
 
+      {flash && (
+        <div className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2
+          ${flash.type === "ok" ? "bg-green-50 text-green-700"
+          : flash.type === "warn" ? "bg-amber-50 text-amber-700"
+          : "bg-red-50 text-red-700"}`}>
+          <CheckCircle size={14} /> {flash.msg}
+        </div>
+      )}
+
       {lineas.map(l => {
         const ub = ubicaciones[l.ubicacion_id];
         const pr = presentaciones[l.presentacion_id];
