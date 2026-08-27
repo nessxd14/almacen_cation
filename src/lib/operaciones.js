@@ -564,34 +564,38 @@ export async function registrarEntradaCompra({ presentacionId, sucursalId, canti
   return { id: data, error };
 }
 
-// Registra el escaneo de un ticket en modo despacho rápido (VentaDirectaApp).
-// Escanear dos veces el mismo ticket no es un error del usuario — es
-// informativo — así que un unique_violation (23505, venta ya descargada) se
-// traduce a { yaDescargado: true } en vez de propagar el error.
+// Registra el escaneo de un ticket en modo despacho rápido (VentaDirectaApp)
+// vía la RPC despacho_rapido_venta_directa: si la venta sigue ABIERTA (Almacén
+// llega primero), la completa ella misma en la misma transacción — sin
+// carrera posible con un "Completar" simultáneo de Caja — y descuenta
+// Kardex; si ya estaba COMPLETADA (Caja llegó primero), solo registra el
+// escaneo. Escanear dos veces el mismo ticket no es un error del usuario —
+// es informativo — así que ese caso puntual del server ("ya fue
+// descargada") se traduce a { yaDescargado: true } en vez de propagar el error.
 export async function registrarDespachoRapido({ ventaId, usuario }) {
-  const { error } = await supabase.from("venta_despacho_rapido").insert({
-    venta_id: Number(ventaId),
-    escaneado_por: usuario,
+  const { data, error } = await supabase.rpc("despacho_rapido_venta_directa", {
+    p_venta_id: Number(ventaId),
+    p_usuario: usuario,
   });
   if (error) {
-    if (error.code === "23505") return { yaDescargado: true, error: null };
-    return { yaDescargado: false, error };
+    const yaDescargado = error.message?.includes("ya fue descargada");
+    return { yaDescargado, error: yaDescargado ? null : error };
   }
-  return { yaDescargado: false, error: null };
+  return { yaDescargado: false, disparoCompletado: data?.disparo_completado, error: null };
 }
 
-export async function historialDespachoRapido({ sucursalId, desde, hasta, creadoPor }) {
+// Venta Directa vive fija en la ubicación "VENTAS DIRECTAS" de Almacén
+// Central — filtrar acá por sucursal_id de esa ubicación no representa la
+// sucursal donde se vendió (eso vive en sesion_caja, no en venta) y este
+// panel de todos modos solo se usa desde Almacén, así que no aporta nada:
+// sin filtro de sucursal.
+export async function historialDespachoRapido({ desde, hasta, creadoPor }) {
   let query = supabase
     .from("venta_despacho_rapido")
     .select(`
       id, venta_id, escaneado_por, escaneado_en,
-      venta:venta_id!inner (
-        numero, creado_por,
-        cliente:cliente_id ( nombre ),
-        ubicacion:ubicacion_id!inner ( sucursal_id )
-      )
+      venta:venta_id!inner ( numero, creado_por, cliente:cliente_id ( nombre ) )
     `)
-    .eq("venta.ubicacion.sucursal_id", Number(sucursalId))
     .order("escaneado_en", { ascending: false })
     .limit(200);
   if (desde) query = query.gte("escaneado_en", desde);
