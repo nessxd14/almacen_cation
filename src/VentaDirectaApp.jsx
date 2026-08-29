@@ -208,7 +208,6 @@ export default function VentaDirectaApp() {
     return (
       <ModoDespachoRapido
         ventas={ventas}
-        sucursalActivaId={sucursalActivaId}
         onSalir={() => setModoRapido(false)}
       />
     );
@@ -685,12 +684,16 @@ function DetalleVenta({ venta, nombreSucursal, entregado, setEntregado, escaneos
 
 /*
  * Modo despacho rápido — escanear el ticket entero (venta.numero) lo marca
- * como "ya entregado" de una: es un registro para el seguimiento del
- * almacenero, NO toca venta.estado ni completar_venta (esa sigue siendo de
- * caja). Pensado para escanear varios tickets seguidos sin interrupción —
- * el aviso dura ~1.5s y el campo nunca pierde el foco.
+ * como "ya entregado" de una, vía despacho_rapido_venta_directa: el primero
+ * en llegar (Almacén escaneando o Caja completando) es el que descuenta
+ * Kardex — si la venta sigue ABIERTA cuando Almacén escanea, ese mismo
+ * escaneo dispara completar_venta (misma transacción, sin carrera posible
+ * con un "Completar" simultáneo de Caja); si Caja ya la completó, el
+ * escaneo posterior solo queda como registro de seguimiento. Pensado para
+ * escanear varios tickets seguidos sin interrupción — el aviso dura ~1.5s y
+ * el campo nunca pierde el foco.
  */
-function ModoDespachoRapido({ ventas, sucursalActivaId, onSalir }) {
+function ModoDespachoRapido({ ventas, onSalir }) {
   const usuarioActual = useUsuarioActual();
   const [codigo, setCodigo] = useState("");
   const [procesando, setProcesando] = useState(false);
@@ -718,7 +721,7 @@ function ModoDespachoRapido({ ventas, sucursalActivaId, onSalir }) {
       return;
     }
 
-    const { yaDescargado, error } = await registrarDespachoRapido({ ventaId: venta.id, usuario: usuarioActual.nombre });
+    const { yaDescargado, disparoCompletado, error } = await registrarDespachoRapido({ ventaId: venta.id, usuario: usuarioActual.nombre });
     setProcesando(false);
 
     if (error) {
@@ -727,6 +730,10 @@ function ModoDespachoRapido({ ventas, sucursalActivaId, onSalir }) {
     }
     if (yaDescargado) {
       setAviso({ tipo: "repetido", msg: `${identificadorVenta(venta)} ya estaba descargado.` });
+      return;
+    }
+    if (disparoCompletado) {
+      setAviso({ tipo: "ok", msg: `${identificadorVenta(venta)} — stock descontado ✓ (Caja no necesita completarla)` });
       return;
     }
     setAviso({ tipo: "ok", msg: `${identificadorVenta(venta)} descargado ✓` });
@@ -784,39 +791,49 @@ function ModoDespachoRapido({ ventas, sucursalActivaId, onSalir }) {
       )}
 
       {historialAbierto && (
-        <HistorialDespachoRapido sucursalActivaId={sucursalActivaId} onCerrar={() => setHistorialAbierto(false)} />
+        <HistorialDespachoRapido onCerrar={() => setHistorialAbierto(false)} />
       )}
     </div>
   );
 }
 
-function HistorialDespachoRapido({ sucursalActivaId, onCerrar }) {
+function HistorialDespachoRapido({ onCerrar }) {
   const [items, setItems] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [autores, setAutores] = useState(new Map());
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [filtroCreador, setFiltroCreador] = useState("");
+  // Las opciones del desplegable de vendedor salen de una consulta propia,
+  // sin desde/hasta/creadoPor — si salieran de `items` (ya filtrado), elegir
+  // un vendedor podaba al resto de las opciones y un rango de fechas sin
+  // ventas de alguien lo hacía desaparecer sin aviso. Se calcula una sola
+  // vez al abrir el panel, no en cada cambio de filtro.
+  const [vendedoresUnicos, setVendedoresUnicos] = useState([]);
+
+  useEffect(() => {
+    historialDespachoRapido({ desde: null, hasta: null, creadoPor: null }).then(async ({ data }) => {
+      const emails = [...new Set(data.map((it) => it.venta?.creado_por).filter(Boolean))];
+      setVendedoresUnicos(emails);
+      const resueltos = await resolverAutores(emails);
+      setAutores((prev) => new Map([...prev, ...resueltos]));
+    });
+  }, []);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     const { data } = await historialDespachoRapido({
-      sucursalId: sucursalActivaId,
       desde: desde ? `${desde}T00:00:00` : null,
       hasta: hasta ? `${hasta}T23:59:59` : null,
       creadoPor: filtroCreador || null,
     });
     setItems(data);
-    setAutores(await resolverAutores(data.map((it) => it.venta?.creado_por)));
+    const resueltos = await resolverAutores(data.map((it) => it.venta?.creado_por));
+    setAutores((prev) => new Map([...prev, ...resueltos]));
     setCargando(false);
-  }, [sucursalActivaId, desde, hasta, filtroCreador]);
+  }, [desde, hasta, filtroCreador]);
 
   useEffect(() => { cargar(); }, [cargar]);
-
-  const vendedoresUnicos = useMemo(
-    () => [...new Set(items.map((it) => it.venta?.creado_por).filter(Boolean))],
-    [items],
-  );
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
