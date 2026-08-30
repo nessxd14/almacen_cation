@@ -502,8 +502,9 @@ export default function RevisionCapturas() {
                           {dato.campo === "nombre_sugerido" && sesion.producto?.shopify_variant_id && (
                             <p className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
                               <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-                              Este producto está mapeado a Shopify — el nombre se sobrescribirá en el próximo
-                              bootstrap_catalogo.mjs. El cambio real debe hacerse en Shopify.
+                              Este producto tiene shopify_variant_id de una importación anterior — no hay
+                              sincronización activa con Shopify, pero si alguna vez se vuelve a correr
+                              bootstrap_catalogo.mjs a mano, ese script reimporta el nombre y pisaría este cambio.
                             </p>
                           )}
 
