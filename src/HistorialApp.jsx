@@ -109,21 +109,36 @@ function FilaMovimiento({ mov, mostrarProducto, nombreSucursal }) {
         </p>
       </div>
 
-      <div className="flex shrink-0 items-center gap-5 sm:flex-col sm:items-end sm:gap-1.5">
-        <div className="text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cant.</p>
-          <p className={`text-base font-bold leading-tight ${signoColor}`}>
+      {/* Label + valor en la misma línea, cada renglón en su propio <p>: con 3
+          renglones y labels largos ("Saldo total del almacén"), un contenedor
+          flex con align-items distinto de stretch (items-end, o text-right en
+          cualquier nivel) desbordaba el ancho de la tarjeta en este árbol de
+          contenedores — reproducido de forma aislada y consistente, no es
+          solo una cuestión de espacio disponible. Este bloque no usa flex ni
+          text-align:right para no disparar ese desborde. */}
+      <div className="shrink-0 space-y-1 sm:space-y-1.5">
+        <p>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cant. </span>
+          <span className={`text-base font-bold leading-tight ${signoColor}`}>
             {cantidad > 0 ? "+" : ""}{cantidadFmt(cantidad)}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saldo</p>
-          <p className={`text-sm font-medium leading-tight ${
+          </span>
+        </p>
+        <p>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saldo en esta ubicación </span>
+          <span className={`text-sm font-medium leading-tight ${
             mov.saldo_base == null ? "text-slate-400" : Number(mov.saldo_base) < 0 ? "text-red-600" : "text-slate-700"
           }`}>
             {mov.saldo_base == null ? "—" : cantidadFmt(mov.saldo_base)}
-          </p>
-        </div>
+          </span>
+        </p>
+        <p>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saldo total del almacén </span>
+          <span className={`text-sm font-medium leading-tight ${
+            mov.saldoTotalAlmacen == null ? "text-slate-400" : Number(mov.saldoTotalAlmacen) < 0 ? "text-red-600" : "text-slate-700"
+          }`}>
+            {mov.saldoTotalAlmacen == null ? "—" : cantidadFmt(mov.saldoTotalAlmacen)}
+          </span>
+        </p>
       </div>
     </div>
   );
@@ -203,6 +218,32 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
         .in("id", ids);
       const mapaSaldo = new Map((saldos || []).map(s => [s.id, s.saldo_base]));
       for (const m of lista) m.saldo_base = mapaSaldo.get(m.id) ?? null;
+    }
+
+    // Saldo total del almacén (distinto del "saldo en esta ubicación" de
+    // arriba): suma stock_actual.cantidad_base del producto en TODAS las
+    // ubicaciones de la misma sucursal del movimiento, salvo las marcadas
+    // excluye_disponible = true (VENTAS DIRECTAS y similares — mismo criterio
+    // que saldo_disponible_pedido/saldo_vendible, no se inventa uno nuevo).
+    // Nunca mezcla sucursales: se agrupa por producto_id + sucursal_id.
+    const productoIds = [...new Set(lista.map(m => m.producto_id))];
+    const sucursalIds = [...new Set(lista.map(m => m.ubicacion?.sucursal_id).filter(v => v != null))];
+    if (productoIds.length > 0 && sucursalIds.length > 0) {
+      const { data: stockRows } = await supabase
+        .from("stock_actual")
+        .select("producto_id, cantidad_base, ubicacion:ubicacion_id!inner(sucursal_id, excluye_disponible)")
+        .in("producto_id", productoIds)
+        .in("ubicacion.sucursal_id", sucursalIds)
+        .eq("ubicacion.excluye_disponible", false);
+      const mapaSaldoAlmacen = new Map(); // "productoId:sucursalId" -> suma
+      for (const row of stockRows || []) {
+        const key = `${row.producto_id}:${row.ubicacion.sucursal_id}`;
+        mapaSaldoAlmacen.set(key, (mapaSaldoAlmacen.get(key) || 0) + Number(row.cantidad_base || 0));
+      }
+      for (const m of lista) {
+        const key = `${m.producto_id}:${m.ubicacion?.sucursal_id}`;
+        m.saldoTotalAlmacen = mapaSaldoAlmacen.get(key) ?? 0;
+      }
     }
 
     // Venta Directa vs. venta normal de Seller: ambas llegan al Kardex como
