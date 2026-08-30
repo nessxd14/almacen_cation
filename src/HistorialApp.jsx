@@ -144,6 +144,29 @@ function FilaMovimiento({ mov, mostrarProducto, nombreSucursal }) {
   );
 }
 
+// Filas por página al navegar el Kardex de UN producto vía RPC (ver abajo).
+const PAGE_SIZE = 50;
+
+// Detecta "Venta #<id>" en la referencia y marca esVentaDirecta contra
+// venta.numero (prefijo VTD-) — compartido entre el modo panel (RPC) y el
+// modo global (select directo), es puramente el chip visual, no toca nada más.
+async function marcarVentaDirecta(lista) {
+  const idsVenta = lista
+    .map(m => m.referencia?.match(/^Venta #(\d+)$/)?.[1])
+    .filter(Boolean)
+    .map(Number);
+  if (idsVenta.length === 0) return;
+  const { data: ventas } = await supabase
+    .from("venta")
+    .select("id, numero")
+    .in("id", [...new Set(idsVenta)]);
+  const vtdIds = new Set((ventas || []).filter(v => v.numero?.startsWith("VTD-")).map(v => v.id));
+  for (const m of lista) {
+    const id = Number(m.referencia?.match(/^Venta #(\d+)$/)?.[1]);
+    m.esVentaDirecta = vtdIds.has(id);
+  }
+}
+
 // ─── Componente reutilizable de historial ────────────────────────────────────
 // Si recibe productoId -> historial de ese producto (modo panel).
 // Si no -> historial global con buscador (modo tab).
@@ -152,6 +175,9 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
   const { sucursalActivaId, nombreSucursal } = useSucursal();
   const [movs, setMovs] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [cargandoMas, setCargandoMas] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
   const [showScanner, setShowScanner] = useState(false);
@@ -173,11 +199,74 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
     if (pres?.producto?.nombre) setBusqueda(pres.producto.nombre);
   }, []);
 
-  const cargar = useCallback(async () => {
-    // El panel por producto (dentro de Catálogo) muestra su historial
-    // completo a propósito, incluso entre sucursales — el tab global sí
-    // se filtra por sucursal activa, es la pantalla que hoy es ciega a ella.
-    if (!productoId && !sucursalActivaId) return;
+  // ── Modo panel (un producto): saldo histórico real (punto en el tiempo,
+  // no el stock actual) vía la RPC obtener_kardex_producto — nunca un
+  // SELECT directo a kardex_transacciones acá. El running balance se
+  // calcula dentro de Postgres sobre TODO el historial del producto (sin
+  // el límite de 1000 filas de PostgREST, que solo aplica a lo que se
+  // pide por HTTP a una tabla/vista); el cliente solo pagina de a
+  // PAGE_SIZE con p_limit/p_offset — "Cargar más" pide la siguiente página,
+  // nunca se trae todo de una para paginar en el front.
+  const cargarPaginaProducto = useCallback(async (off, reset) => {
+    if (reset) setCargando(true); else setCargandoMas(true);
+    const { data, error } = await supabase.rpc("obtener_kardex_producto", {
+      p_producto_id: productoId,
+      p_limit: PAGE_SIZE,
+      p_offset: off,
+    });
+    if (error) {
+      console.error("obtener_kardex_producto:", error);
+      if (reset) setCargando(false); else setCargandoMas(false);
+      return;
+    }
+    const filas = data || [];
+
+    // estante/nivel/compartimiento no vienen de la función (solo
+    // codigo_zona + sucursal_id) — batch aparte a `ubicacion`, no a Kardex.
+    const ubicIds = [...new Set(filas.map(f => f.ubicacion_id))];
+    let detalleUbic = new Map();
+    if (ubicIds.length > 0) {
+      const { data: ubs } = await supabase
+        .from("ubicacion")
+        .select("id, estante, nivel, compartimiento")
+        .in("id", ubicIds);
+      detalleUbic = new Map((ubs || []).map(u => [u.id, u]));
+    }
+
+    const normalizadas = filas.map(f => ({
+      id: f.id,
+      producto_id: productoId,
+      cantidad: f.cantidad,
+      tipo_movimiento: f.tipo_movimiento,
+      referencia: f.referencia,
+      motivo: f.motivo,
+      creado_por: f.creado_por,
+      creado_en: f.creado_en,
+      ubicacion: {
+        codigo_zona: f.codigo_zona,
+        sucursal_id: f.sucursal_id,
+        ...(detalleUbic.get(f.ubicacion_id) || {}),
+      },
+      saldo_base: f.saldo_en_ubicacion,
+      saldoTotalAlmacen: f.saldo_total_almacen,
+    }));
+
+    await marcarVentaDirecta(normalizadas);
+
+    setMovs(prev => (reset ? normalizadas : [...prev, ...normalizadas]));
+    setOffset(off + filas.length);
+    setHasMore(filas.length === PAGE_SIZE);
+    if (reset) setCargando(false); else setCargandoMas(false);
+  }, [productoId]);
+
+  // ── Modo global (tab, todas las sucursal activa + búsqueda entre
+  // productos): la RPC nueva es por UN producto — no sirve para navegar el
+  // historial de varios a la vez, así que esta pantalla sigue con el select
+  // directo a kardex_transacciones que ya tenía (acotado a 500 filas), sin
+  // cambios de este brief. "Saldo total del almacén" acá sigue siendo el
+  // valor vigente de stock_actual (no histórico) por la misma razón.
+  const cargarGlobal = useCallback(async () => {
+    if (!sucursalActivaId) return;
     setCargando(true);
     let query = supabase
       .from("kardex_transacciones")
@@ -187,18 +276,16 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
         producto:producto_id(nombre, sku_interno, marca),
         ubicacion:ubicacion_id!inner(codigo_zona, estante, nivel, compartimiento, sucursal_id)
       `)
+      .eq("ubicacion.sucursal_id", sucursalActivaId)
       .order("creado_en", { ascending: false })
       .limit(500);
 
-    if (productoId) query = query.eq("producto_id", productoId);
     if (filtroTipo) query = query.eq("tipo_movimiento", filtroTipo);
-    if (!productoId) query = query.eq("ubicacion.sucursal_id", sucursalActivaId);
 
     const { data } = await query;
     let lista = data || [];
 
-    // Búsqueda por nombre de producto (modo global)
-    if (!productoId && busqueda.trim()) {
+    if (busqueda.trim()) {
       const q = busqueda.trim().toLowerCase();
       lista = lista.filter(m =>
         m.producto?.nombre?.toLowerCase().includes(q) ||
@@ -220,12 +307,11 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
       for (const m of lista) m.saldo_base = mapaSaldo.get(m.id) ?? null;
     }
 
-    // Saldo total del almacén (distinto del "saldo en esta ubicación" de
-    // arriba): suma stock_actual.cantidad_base del producto en TODAS las
-    // ubicaciones de la misma sucursal del movimiento, salvo las marcadas
-    // excluye_disponible = true (VENTAS DIRECTAS y similares — mismo criterio
-    // que saldo_disponible_pedido/saldo_vendible, no se inventa uno nuevo).
-    // Nunca mezcla sucursales: se agrupa por producto_id + sucursal_id.
+    // Saldo total del almacén: suma stock_actual.cantidad_base del producto
+    // en TODAS las ubicaciones de la misma sucursal del movimiento, salvo
+    // las marcadas excluye_disponible = true (VENTAS DIRECTAS y similares —
+    // mismo criterio que saldo_disponible_pedido/saldo_vendible). Nunca
+    // mezcla sucursales: se agrupa por producto_id + sucursal_id.
     const productoIds = [...new Set(lista.map(m => m.producto_id))];
     const sucursalIds = [...new Set(lista.map(m => m.ubicacion?.sucursal_id).filter(v => v != null))];
     if (productoIds.length > 0 && sucursalIds.length > 0) {
@@ -246,34 +332,24 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
       }
     }
 
-    // Venta Directa vs. venta normal de Seller: ambas llegan al Kardex como
-    // SALIDA / "Venta #<id>" indistinguibles — solo venta.numero (prefijo
-    // VTD-, asignado por abrir_venta) las distingue. Una sola consulta
-    // batch acá, puramente para el chip visual — no toca el resto del pipeline.
-    const idsVenta = lista
-      .map(m => m.referencia?.match(/^Venta #(\d+)$/)?.[1])
-      .filter(Boolean)
-      .map(Number);
-    if (idsVenta.length > 0) {
-      const { data: ventas } = await supabase
-        .from("venta")
-        .select("id, numero")
-        .in("id", [...new Set(idsVenta)]);
-      const vtdIds = new Set((ventas || []).filter(v => v.numero?.startsWith("VTD-")).map(v => v.id));
-      for (const m of lista) {
-        const id = Number(m.referencia?.match(/^Venta #(\d+)$/)?.[1]);
-        m.esVentaDirecta = vtdIds.has(id);
-      }
-    }
+    await marcarVentaDirecta(lista);
 
     setMovs(lista);
     setCargando(false);
-  }, [productoId, filtroTipo, busqueda, sucursalActivaId]);
+  }, [filtroTipo, busqueda, sucursalActivaId]);
 
   useEffect(() => {
-    const t = setTimeout(cargar, busqueda ? 300 : 0);
+    const fn = productoId ? () => cargarPaginaProducto(0, true) : cargarGlobal;
+    const t = setTimeout(fn, !productoId && busqueda ? 300 : 0);
     return () => clearTimeout(t);
-  }, [cargar, busqueda]);
+  }, [productoId, cargarPaginaProducto, cargarGlobal, busqueda]);
+
+  // En modo panel, filtroTipo filtra sobre lo ya cargado en vez de volver a
+  // pedirle a la RPC (que no tiene ese parámetro) — "Cargar más" sigue
+  // pidiendo páginas completas sin filtrar por dentro.
+  const movsVisibles = productoId && filtroTipo
+    ? movs.filter(m => m.tipo_movimiento === filtroTipo)
+    : movs;
 
   return (
     <div>
@@ -331,24 +407,41 @@ export function HistorialMovimientos({ productoId = null, compacto = false }) {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {cargando ? (
           <p className="px-3 py-10 text-center text-slate-400">Cargando…</p>
-        ) : movs.length === 0 ? (
+        ) : movsVisibles.length === 0 ? (
           <div className="px-3 py-10 text-center text-slate-400">
             <HistoryIcon size={28} className="mx-auto mb-2 text-slate-300" />
             Sin movimientos registrados todavía.
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {movs.map(m => (
+            {movsVisibles.map(m => (
               <FilaMovimiento key={m.id} mov={m} mostrarProducto={!productoId} nombreSucursal={productoId ? nombreSucursal : undefined} />
             ))}
           </div>
         )}
       </div>
 
-      {!cargando && movs.length > 0 && (
-        <p className="mt-3 text-right text-xs text-slate-400">
-          {movs.length} movimientos{movs.length === 500 ? " (máximo mostrado)" : ""}
-        </p>
+      {productoId ? (
+        !cargando && movs.length > 0 && (
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+            <span>{movsVisibles.length} movimiento{movsVisibles.length === 1 ? "" : "s"} cargado{movsVisibles.length === 1 ? "" : "s"}</span>
+            {hasMore && (
+              <button
+                onClick={() => cargarPaginaProducto(offset, false)}
+                disabled={cargandoMas}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {cargandoMas ? "Cargando…" : "Cargar más"}
+              </button>
+            )}
+          </div>
+        )
+      ) : (
+        !cargando && movs.length > 0 && (
+          <p className="mt-3 text-right text-xs text-slate-400">
+            {movs.length} movimientos{movs.length === 500 ? " (máximo mostrado)" : ""}
+          </p>
+        )
       )}
     </div>
   );
