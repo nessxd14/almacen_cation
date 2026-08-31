@@ -321,7 +321,11 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   const [showScanner, setShowScanner] = useState(false);
   const [flash, setFlash] = useState(null);
   const [creando, setCreando] = useState(false);
-  const [disponibilidadRota, setDisponibilidadRota] = useState(false);
+  // producto_id cuya consulta de disponibilidad falló — no "sin stock", sino
+  // "no sabemos". Un Set en vez de un booleano global: un fallo puntual en
+  // un producto no puede tapar el aviso específico de las demás líneas que
+  // sí tienen dato (ver crear()).
+  const [sinDisponibilidad, setSinDisponibilidad] = useState(() => new Set());
 
   const showFlash = (msg, type = "error") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
@@ -361,10 +365,19 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       if (sucursalActivaId) {
         saldoVendible(ids, sucursalActivaId).then(({ mapa, error }) => {
           if (error) {
-            setDisponibilidadRota(true);
+            setSinDisponibilidad((prev) => {
+              const n = new Set(prev);
+              ids.forEach((id) => n.add(id));
+              return n;
+            });
             showFlash("No se pudo consultar la disponibilidad — el aviso de cobertura no está disponible");
             return;
           }
+          setSinDisponibilidad((prev) => {
+            const n = new Set(prev);
+            ids.forEach((id) => n.delete(id));
+            return n;
+          });
           setLineas((prev) => prev.map((l) => mapa.has(l.producto_id) ? { ...l, disponibilidad: mapa.get(l.producto_id) } : l));
         });
       }
@@ -395,8 +408,15 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       sucursalActivaId ? saldoVendible([p.id], sucursalActivaId) : Promise.resolve({ mapa: new Map(), error: null }),
     ]);
     if (errorDisponibilidad) {
-      setDisponibilidadRota(true);
+      setSinDisponibilidad((prev) => new Set(prev).add(p.id));
       showFlash("No se pudo consultar la disponibilidad — el aviso de cobertura no está disponible");
+    } else {
+      setSinDisponibilidad((prev) => {
+        if (!prev.has(p.id)) return prev;
+        const n = new Set(prev);
+        n.delete(p.id);
+        return n;
+      });
     }
     const lista = pres || [];
     const base = lista.find((x) => x.es_base) || lista[0];
@@ -476,24 +496,33 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
     }
 
     // Aviso final antes de crear (brief W7 "extra"): el punto donde alguien
-    // puede reconsiderar antes de que el pedido exista.
-    if (disponibilidadRota) {
-      const continuar = window.confirm(
-        "No se pudo verificar el stock disponible de las líneas. ¿Guardar el pedido igual?"
-      );
-      if (!continuar) return;
-    } else {
-      const sinCobertura = lineasSinCobertura(lineas.map((l) => {
-        const pres = l.presentaciones.find((p) => p.id === l.presentacionId);
-        const factor = pres ? Number(pres.factor_unidad_base) : 1;
-        return { ...l, cantidadBaseIngresada: Number(l.cantidad || 0) * factor };
-      }));
+    // puede reconsiderar antes de que el pedido exista. Un fallo puntual de
+    // disponibilidad en un producto no debe tapar el aviso específico de
+    // cobertura de las demás líneas que sí tienen dato — se combinan los
+    // dos avisos en vez de que uno reemplace al otro.
+    const lineasConDato = lineas.filter((l) => !sinDisponibilidad.has(l.producto_id));
+    const lineasSinDato = lineas.filter((l) => sinDisponibilidad.has(l.producto_id));
+
+    const sinCobertura = lineasSinCobertura(lineasConDato.map((l) => {
+      const pres = l.presentaciones.find((p) => p.id === l.presentacionId);
+      const factor = pres ? Number(pres.factor_unidad_base) : 1;
+      return { ...l, cantidadBaseIngresada: Number(l.cantidad || 0) * factor };
+    }));
+
+    if (sinCobertura.length > 0 || lineasSinDato.length > 0) {
+      const frases = [];
       if (sinCobertura.length > 0) {
-        const continuar = window.confirm(
-          `${sinCobertura.length} de ${lineas.length} línea${lineas.length === 1 ? "" : "s"} no ${sinCobertura.length === 1 ? "tiene" : "tienen"} stock suficiente. ¿Crear igual?`
+        frases.push(
+          `${sinCobertura.length} de ${lineas.length} línea${lineas.length === 1 ? "" : "s"} no ${sinCobertura.length === 1 ? "tiene" : "tienen"} stock suficiente.`
         );
-        if (!continuar) return;
       }
+      if (lineasSinDato.length > 0) {
+        frases.push(
+          `No se pudo verificar el stock disponible de ${lineasSinDato.length} línea${lineasSinDato.length === 1 ? "" : "s"}.`
+        );
+      }
+      const continuar = window.confirm(`${frases.join(" ")} ¿Crear igual?`);
+      if (!continuar) return;
     }
 
     setCreando(true);
