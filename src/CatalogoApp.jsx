@@ -238,7 +238,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
           </div>
 
           {vistaPanel === "historial" ? (
-            <HistorialMovimientos productoId={producto.id} compacto />
+            <HistorialMovimientos productoId={producto.id} />
           ) : (
           <>
           {/* Stock total destacado + "Presente en X ubicaciones" desplegable */}

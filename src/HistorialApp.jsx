@@ -171,7 +171,8 @@ async function marcarVentaDirecta(lista) {
 // Si recibe productoId -> historial de ese producto (modo panel).
 // Si no -> historial global con buscador (modo tab).
 
-export function HistorialMovimientos({ productoId = null, compacto = false }) {
+// Hubo una prop "compacto" que nunca se implementó; se removió. Si el panel de Catálogo necesita una versión reducida, es una decisión de diseño pendiente.
+export function HistorialMovimientos({ productoId = null }) {
   const { sucursalActivaId, nombreSucursal } = useSucursal();
   const [movs, setMovs] = useState([]);
   const [cargando, setCargando] = useState(true);
