@@ -19,6 +19,7 @@ import AdminApp           from "./AdminApp";
 import PedidosApp         from "./PedidosApp";
 import ComprasApp         from "./ComprasApp";
 import PedidoDetallePage  from "./PedidoDetallePage";
+import TableroAlmacenApp  from "./TableroAlmacenApp";
 import VentaDirectaApp    from "./VentaDirectaApp";
 import TrasladosApp       from "./TrasladosApp";
 import PreciosApp         from "./PreciosApp";
@@ -115,6 +116,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/pedidos/:id" element={<PedidoDetallePage />} />
+      <Route path="/tablero" element={<TableroAlmacenApp />} />
       <Route path="*" element={
         <AppShell
           tab={tab} setTab={setTab} conteoPrefill={conteoPrefill} setConteoPrefill={setConteoPrefill} irAConteo={irAConteo}
