@@ -12,11 +12,11 @@
 
 const BACKOFF_MS = [400, 1200];
 
-// `data` no participa del cálculo (la decisión es 100% sobre `error`), pero
-// se acepta en la firma para que el llamador documente en el call site que
-// está pasando ambos casos de "no reintentar": éxito (data con fila) y
-// "no existe" (data: null, error: null) son cosas distintas aunque acá se
-// resuelvan igual.
+// La decisión es 100% sobre `error`. Cuando maybeSingle() devuelve
+// data: null, error: null, la fila no existe: es una respuesta definitiva
+// y cae en la misma rama que el éxito (no reintentar). `data` no entra
+// como parámetro justamente porque no participa del cálculo — si algún
+// día lo hiciera, la distinción de arriba se rompe.
 // -> { reintentar: boolean, esperaMs: number|null }
 export function decidirReintento({ error, intento, maxIntentos = 3, jitterMs = 0 }) {
   if (!error) return { reintentar: false, esperaMs: null }; // éxito o "no existe" (data: null)
