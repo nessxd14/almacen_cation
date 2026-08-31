@@ -724,10 +724,13 @@ export async function entregarPersonalizado({ lineaId, usuario }) {
 /* ── saldo disponible batch para un array de producto_id -> Map<producto_id, saldo_libre> */
 export async function saldoDisponiblePedido(productoIds) {
   const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
-  if (ids.length === 0) return new Map();
+  if (ids.length === 0) return { mapa: new Map(), error: null };
   const { data, error } = await supabase.rpc('saldo_disponible_pedido', { p_producto_ids: ids });
-  if (error || !data) return new Map();
-  return new Map(data.map((r) => [r.producto_id, Number(r.saldo_libre)]));
+  if (error) {
+    console.error('saldo_disponible_pedido falló:', error);
+    return { mapa: new Map(), error };
+  }
+  return { mapa: new Map((data || []).map((r) => [r.producto_id, Number(r.saldo_libre)])), error: null };
 }
 
 /* ── saldo vendible por sucursal (brief W7) — vendible ya neto de lo
@@ -736,10 +739,20 @@ export async function saldoDisponiblePedido(productoIds) {
  */
 export async function saldoVendible(productoIds, sucursalId) {
   const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
-  if (ids.length === 0 || !sucursalId) return new Map();
-  const { data, error } = await supabase.rpc('saldo_vendible', { p_producto_ids: ids, p_sucursal_id: Number(sucursalId) });
-  if (error || !data) return new Map();
-  return new Map(data.map((r) => [r.producto_id, { vendible: Number(r.vendible), reservado: Number(r.reservado), motivo: r.motivo || null }]));
+  if (ids.length === 0 || !sucursalId) return { mapa: new Map(), error: null };
+  const { data, error } = await supabase.rpc('saldo_vendible', {
+    p_producto_ids: ids, p_sucursal_id: Number(sucursalId),
+  });
+  if (error) {
+    console.error('saldo_vendible falló:', error);
+    return { mapa: new Map(), error };
+  }
+  return {
+    mapa: new Map((data || []).map((r) => [r.producto_id, {
+      vendible: Number(r.vendible), reservado: Number(r.reservado), motivo: r.motivo || null,
+    }])),
+    error: null,
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════════════

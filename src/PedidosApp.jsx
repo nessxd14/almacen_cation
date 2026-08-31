@@ -181,7 +181,14 @@ const ESTILOS_SALDO = {
   rojo:  { cls: "bg-red-100 text-red-600",         icon: "✕" },
 };
 
-function BadgeSaldoLinea({ saldoLibre, pendienteLinea }) {
+function BadgeSaldoLinea({ saldoLibre, pendienteLinea, saldoIndisponible }) {
+  if (saldoIndisponible) {
+    return (
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+        ? Saldo no disponible
+      </span>
+    );
+  }
   if (saldoLibre == null) return null; // aún no llegó el primer polling
   const estado = estadoSaldoLinea(saldoLibre, pendienteLinea);
   const s = ESTILOS_SALDO[estado];
@@ -194,7 +201,8 @@ function BadgeSaldoLinea({ saldoLibre, pendienteLinea }) {
 
 // Texto explicativo para ámbar/rojo — solo se muestra colapsado (expandido,
 // el pick automático ya trae el detalle vía "Total asignado: X / Y pendiente").
-function textoSaldoLinea(saldoLibre, pendienteLinea) {
+function textoSaldoLinea(saldoLibre, pendienteLinea, saldoIndisponible) {
+  if (saldoIndisponible) return null;
   if (saldoLibre == null) return null;
   const estado = estadoSaldoLinea(saldoLibre, pendienteLinea);
   if (estado === "verde") return null;
@@ -313,6 +321,9 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   const [showScanner, setShowScanner] = useState(false);
   const [flash, setFlash] = useState(null);
   const [creando, setCreando] = useState(false);
+  const [disponibilidadRota, setDisponibilidadRota] = useState(false);
+
+  const showFlash = (msg, type = "error") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
   // Líneas precargadas (borrador desde Catálogo) no pasan por agregarProducto
   // — se resuelven acá, una sola vez.
@@ -348,15 +359,18 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       // no una por producto — a diferencia del stock por sucursal de
       // arriba, saldo_vendible sí acepta un array.
       if (sucursalActivaId) {
-        saldoVendible(ids, sucursalActivaId).then((mapa) => {
+        saldoVendible(ids, sucursalActivaId).then(({ mapa, error }) => {
+          if (error) {
+            setDisponibilidadRota(true);
+            showFlash("No se pudo consultar la disponibilidad — el aviso de cobertura no está disponible");
+            return;
+          }
           setLineas((prev) => prev.map((l) => mapa.has(l.producto_id) ? { ...l, disponibilidad: mapa.get(l.producto_id) } : l));
         });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const showFlash = (msg, type = "error") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
   const agregarProducto = useCallback(async (p) => {
     setLineas((prev) => {
@@ -371,15 +385,19 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
       }];
     });
 
-    const [{ data: pres }, { data: prod }, stockMapa, disponibilidadMapa] = await Promise.all([
+    const [{ data: pres }, { data: prod }, stockMapa, { mapa: disponibilidadMapa, error: errorDisponibilidad }] = await Promise.all([
       supabase.from("presentacion")
         .select("id, nombre, factor_unidad_base, es_base")
         .eq("producto_id", p.id).eq("activo", true)
         .order("es_base", { ascending: false }),
       supabase.from("producto").select("precio_base, precio_mayoreo").eq("id", p.id).single(),
       stockPorSucursalProducto(p.id),
-      sucursalActivaId ? saldoVendible([p.id], sucursalActivaId) : Promise.resolve(new Map()),
+      sucursalActivaId ? saldoVendible([p.id], sucursalActivaId) : Promise.resolve({ mapa: new Map(), error: null }),
     ]);
+    if (errorDisponibilidad) {
+      setDisponibilidadRota(true);
+      showFlash("No se pudo consultar la disponibilidad — el aviso de cobertura no está disponible");
+    }
     const lista = pres || [];
     const base = lista.find((x) => x.es_base) || lista[0];
     setLineas((prev) => prev.map((l) => l.producto_id === p.id
@@ -459,16 +477,23 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
 
     // Aviso final antes de crear (brief W7 "extra"): el punto donde alguien
     // puede reconsiderar antes de que el pedido exista.
-    const sinCobertura = lineasSinCobertura(lineas.map((l) => {
-      const pres = l.presentaciones.find((p) => p.id === l.presentacionId);
-      const factor = pres ? Number(pres.factor_unidad_base) : 1;
-      return { ...l, cantidadBaseIngresada: Number(l.cantidad || 0) * factor };
-    }));
-    if (sinCobertura.length > 0) {
+    if (disponibilidadRota) {
       const continuar = window.confirm(
-        `${sinCobertura.length} de ${lineas.length} línea${lineas.length === 1 ? "" : "s"} no ${sinCobertura.length === 1 ? "tiene" : "tienen"} stock suficiente. ¿Crear igual?`
+        "No se pudo verificar el stock disponible de las líneas. ¿Guardar el pedido igual?"
       );
       if (!continuar) return;
+    } else {
+      const sinCobertura = lineasSinCobertura(lineas.map((l) => {
+        const pres = l.presentaciones.find((p) => p.id === l.presentacionId);
+        const factor = pres ? Number(pres.factor_unidad_base) : 1;
+        return { ...l, cantidadBaseIngresada: Number(l.cantidad || 0) * factor };
+      }));
+      if (sinCobertura.length > 0) {
+        const continuar = window.confirm(
+          `${sinCobertura.length} de ${lineas.length} línea${lineas.length === 1 ? "" : "s"} no ${sinCobertura.length === 1 ? "tiene" : "tienen"} stock suficiente. ¿Crear igual?`
+        );
+        if (!continuar) return;
+      }
     }
 
     setCreando(true);
@@ -803,7 +828,7 @@ function EventoAlistadoAcciones({ evento, linea, onLineaPatch, onEventoRevertido
 
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
 function FilaLinea({
-  linea, eventos, habilitado, categoria, saldoLibre, codigos,
+  linea, eventos, habilitado, categoria, saldoLibre, saldoIndisponible, codigos,
   seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido, onCambiado,
 }) {
   const usuarioActual = useUsuarioActual();
@@ -1020,15 +1045,15 @@ function FilaLinea({
         <span className="text-sm font-mono text-slate-600">{textoCantidadLinea(linea)}</span>
         <BadgeLinea estado={linea.estado} />
         {puedeDespachar && (
-          <BadgeSaldoLinea saldoLibre={saldoLibre} pendienteLinea={pendiente} />
+          <BadgeSaldoLinea saldoLibre={saldoLibre} pendienteLinea={pendiente} saldoIndisponible={saldoIndisponible} />
         )}
         {linea.estado === "PENDIENTE" && (
           <span className="text-xs text-amber-600">pend. {cantidadFmt(pendiente)}</span>
         )}
       </button>
 
-      {!abierto && puedeDespachar && textoSaldoLinea(saldoLibre, pendiente) && (
-        <p className="px-4 pb-3 text-xs text-slate-400">{textoSaldoLinea(saldoLibre, pendiente)}</p>
+      {!abierto && puedeDespachar && textoSaldoLinea(saldoLibre, pendiente, saldoIndisponible) && (
+        <p className="px-4 pb-3 text-xs text-slate-400">{textoSaldoLinea(saldoLibre, pendiente, saldoIndisponible)}</p>
       )}
 
       {abierto && (
@@ -1443,6 +1468,7 @@ export function DetallePedido({ pedidoId, onBack }) {
   const [habilitadas, setHabilitadas] = useState(new Set());
   const [cargando, setCargando] = useState(true);
   const [saldoPorProducto, setSaldoPorProducto] = useState(new Map());
+  const [saldoIndisponible, setSaldoIndisponible] = useState(false);
   const [codigosPorProducto, setCodigosPorProducto] = useState(new Map());
   const [desglosePorLinea, setDesglosePorLinea] = useState(new Map());
   const [autores, setAutores] = useState(new Map());
@@ -1565,8 +1591,10 @@ export function DetallePedido({ pedidoId, onBack }) {
     let activo = true;
 
     async function refrescar() {
-      const mapa = await saldoDisponiblePedido(productoIdsActivos);
-      if (activo) setSaldoPorProducto(mapa);
+      const { mapa, error } = await saldoDisponiblePedido(productoIdsActivos);
+      if (!activo) return;
+      setSaldoIndisponible(!!error);
+      if (!error) setSaldoPorProducto(mapa);
     }
 
     refrescar(); // fetch inmediato, no esperar el primer intervalo
@@ -1782,6 +1810,12 @@ export function DetallePedido({ pedidoId, onBack }) {
           </label>
         )}
 
+        {saldoIndisponible && (
+          <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+            <AlertTriangle size={12} /> No se pudo consultar el saldo disponible — los indicadores de color no son confiables
+          </div>
+        )}
+
         <div className="space-y-2">
           {lineasCatalogo.map((l) => (
             <FilaLinea
@@ -1791,6 +1825,7 @@ export function DetallePedido({ pedidoId, onBack }) {
               habilitado={habilitadas.has(l.id)}
               categoria={pedido.categoria}
               saldoLibre={saldoPorProducto.get(l.producto_id)}
+              saldoIndisponible={saldoIndisponible}
               codigos={codigosPorProducto.get(l.producto_id)}
               seleccionada={seleccion.has(l.id)}
               onToggleSeleccion={toggleSeleccion}
