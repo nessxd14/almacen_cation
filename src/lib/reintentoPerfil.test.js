@@ -31,4 +31,15 @@ describe("decidirReintento", () => {
     expect(decidirReintento({ error: { message: "429" }, data: null, intento: 1, jitterMs: 75 }))
       .toEqual({ reintentar: true, esperaMs: 475 });
   });
+
+  it("error presente CON data presente -> reintentar igual (la decisión no mira data)", () => {
+    expect(decidirReintento({ error: { message: "429" }, data: { id: 1 }, intento: 1 }))
+      .toEqual({ reintentar: true, esperaMs: 400 });
+  });
+
+  it("sin error y sin fila -> NO reintentar: 'no existe' es una respuesta, no un fallo", () => {
+    expect(decidirReintento({ error: null, data: null, intento: 1 }).reintentar).toBe(false);
+    // si esto se rompe, un usuario sin fila en `perfil` reintentaría hasta agotar
+    // los intentos y terminaría bloqueado en vez de entrar como operario.
+  });
 });
