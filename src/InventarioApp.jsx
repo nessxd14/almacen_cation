@@ -165,6 +165,18 @@ function TarjetaResumen({ icono: Icono, etiqueta, valor, sub, acento = "slate" }
   );
 }
 
+function ThOrden({ campo, children, className = "", orden, alternarOrden }) {
+  return (
+    <th className={`px-3 py-2 text-left ${className}`}>
+      <button onClick={() => alternarOrden(campo)}
+        className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-800">
+        {children}
+        <ArrowUpDown size={11} className={orden.campo === campo ? "text-slate-800" : "text-slate-300"} />
+      </button>
+    </th>
+  );
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export default function InventarioApp() {
@@ -345,16 +357,6 @@ export default function InventarioApp() {
     [filas, bajoFila]
   );
 
-  const ThOrden = ({ campo, children, className = "" }) => (
-    <th className={`px-3 py-2 text-left ${className}`}>
-      <button onClick={() => alternarOrden(campo)}
-        className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-800">
-        {children}
-        <ArrowUpDown size={11} className={orden.campo === campo ? "text-slate-800" : "text-slate-300"} />
-      </button>
-    </th>
-  );
-
   // El agrupamiento por familia solo tiene sentido con el orden por defecto
   // (Producto) — con cualquier otro criterio se desactiva para no producir
   // un agrupamiento incoherente con el orden pedido.
@@ -463,10 +465,10 @@ export default function InventarioApp() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                <ThOrden campo="producto_nombre">Producto</ThOrden>
-                <ThOrden campo="codigo_zona">Ubicación</ThOrden>
-                <ThOrden campo="cantidad_base" className="text-right">Cantidad ({nombreSucursal(sucursalActivaId) || "…"})</ThOrden>
-                <ThOrden campo="valor_linea" className="text-right">Valor</ThOrden>
+                <ThOrden campo="producto_nombre" orden={orden} alternarOrden={alternarOrden}>Producto</ThOrden>
+                <ThOrden campo="codigo_zona" orden={orden} alternarOrden={alternarOrden}>Ubicación</ThOrden>
+                <ThOrden campo="cantidad_base" className="text-right" orden={orden} alternarOrden={alternarOrden}>Cantidad ({nombreSucursal(sucursalActivaId) || "…"})</ThOrden>
+                <ThOrden campo="valor_linea" className="text-right" orden={orden} alternarOrden={alternarOrden}>Valor</ThOrden>
                 <th className="px-3 py-2 text-right" />
               </tr>
             </thead>
