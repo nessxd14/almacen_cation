@@ -86,13 +86,26 @@ export default function App() {
   if (!usuario) return <LoginScreen />;
 
   if (usuario.activo === false) {
+    const esErrorPerfil = usuario.bloqueadoPor === "error_perfil";
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-4 text-center">
-        <p className="text-lg font-medium text-slate-700">Usuario inactivo — contactá a un administrador</p>
-        <button onClick={signOut}
-          className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
-          <LogOut size={16} /> Cerrar sesión
-        </button>
+        <p className="text-lg font-medium text-slate-700">
+          {esErrorPerfil
+            ? "No se pudo verificar tu perfil — reintentá en un momento"
+            : "Usuario inactivo — contactá a un administrador"}
+        </p>
+        <div className="flex gap-2">
+          {esErrorPerfil && (
+            <button onClick={() => window.location.reload()}
+              className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
+              Reintentar
+            </button>
+          )}
+          <button onClick={signOut}
+            className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
+            <LogOut size={16} /> Cerrar sesión
+          </button>
+        </div>
       </div>
     );
   }

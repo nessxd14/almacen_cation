@@ -151,10 +151,14 @@ export default function NuevoProducto({ onClose, onCreado }) {
     }
 
     if (codigosAValidar.length > 0) {
-      const { data: existentes } = await supabase
+      const { data: existentes, error: errorExistentes } = await supabase
         .from("identificador")
         .select("valor")
         .in("valor", codigosAValidar.map((c) => c.valor));
+      if (errorExistentes) {
+        setError("No se pudo verificar si el código ya existe en otro producto. Revisá la conexión e intentá de nuevo.");
+        return;
+      }
       if (existentes?.length) {
         const repetidos = [...new Set(existentes.map((e) => e.valor))].join(", ");
         const continuar = window.confirm(

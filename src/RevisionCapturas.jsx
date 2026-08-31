@@ -194,7 +194,7 @@ export default function RevisionCapturas() {
       // addendum_imagen_principal_edge_function.md) — se resuelve
       // server-side con service_role vía esta función.
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch("https://zxoxougwgstrarwymlvd.supabase.co/functions/v1/promover-imagen-principal", {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/promover-imagen-principal`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

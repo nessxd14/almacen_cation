@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import { sanearFiltro } from "./lib/filtroTexto";
+import { fetchAll } from "./lib/fetchAll";
 import EscanerCodigo from "./EscanerCodigo";
 import {
   MapPin, Package, Plus, Pencil, Trash2, Check, X,
@@ -229,10 +230,17 @@ function TabUbicaciones() {
     if (error) show("Error al cargar ubicaciones", "err");
     else setUbicaciones(data || []);
     // conteo de productos por ubicación (best-effort, no bloquea la carga)
-    const { data: pus } = await supabase.from("producto_ubicacion").select("ubicacion_id");
-    const c = {};
-    (pus || []).forEach(r => { c[r.ubicacion_id] = (c[r.ubicacion_id] || 0) + 1; });
-    setConteos(c);
+    try {
+      const pus = await fetchAll(() =>
+        supabase.from("producto_ubicacion").select("ubicacion_id").order("id")
+      );
+      const c = {};
+      pus.forEach(r => { c[r.ubicacion_id] = (c[r.ubicacion_id] || 0) + 1; });
+      setConteos(c);
+    } catch {
+      show("No se pudieron contar los productos por ubicación", "err");
+      setConteos({});
+    }
     setCargando(false);
   }, []);
 

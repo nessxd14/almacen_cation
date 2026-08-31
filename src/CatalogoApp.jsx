@@ -16,6 +16,7 @@ import { useSucursal } from "./lib/useSucursal";
 import { metaProducto, marcaFmt } from "./lib/producto";
 import { sumaStockPorSucursal, desgloseStockPorSucursal, textoDesgloseSucursal } from "./lib/stockSucursal";
 import { labelUbicacionConSucursal } from "./lib/despacho";
+import { fetchAll } from "./lib/fetchAll";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -237,7 +238,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
           </div>
 
           {vistaPanel === "historial" ? (
-            <HistorialMovimientos productoId={producto.id} compacto />
+            <HistorialMovimientos productoId={producto.id} />
           ) : (
           <>
           {/* Stock total destacado + "Presente en X ubicaciones" desplegable */}
@@ -843,11 +844,14 @@ export default function CatalogoApp() {
 
   // Cargar lista de valores de atributo para el filtro
   useEffect(() => {
-    supabase
-      .from("atributo_valor")
-      .select("id, valor, atributo:atributo_id(nombre)")
-      .order("valor")
-      .then(({ data }) => setAtributos(data || []));
+    fetchAll(() =>
+      supabase.from("atributo_valor").select("id, valor, atributo:atributo_id(nombre)").order("valor")
+    )
+      .then(setAtributos)
+      .catch(() => {
+        setVentaFlash({ msg: "No se pudo cargar el filtro de atributos completo", type: "error" });
+        setTimeout(() => setVentaFlash(null), 4000);
+      });
   }, []);
 
   // Completa las variantes que devuelve buscarAgrupado (solo id/nombre/sku/atributos)

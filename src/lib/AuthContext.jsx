@@ -71,9 +71,10 @@ export function AuthProvider({ children }) {
       .select("id, nombre, email, rol, activo, sucursal_id")
       .eq("id", userId)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
         if (!activo) return;
-        setPerfilCargado({ userId, perfil: data || null });
+        if (error) console.error("perfil: no se pudo consultar", error);
+        setPerfilCargado({ userId, perfil: data || null, error: error || null });
         setCargandoPerfil(false);
       });
     return () => { activo = false; };
@@ -82,7 +83,11 @@ export function AuthProvider({ children }) {
   // Perfil "válido" solo si corresponde al usuario actual — así un logout o
   // un cambio de usuario no necesita un setState explícito de reseteo: el
   // valor derivado ya deja de coincidir en cuanto userId cambia.
-  const perfil = perfilCargado?.userId === userId ? perfilCargado.perfil : null;
+  const perfilVigente = perfilCargado?.userId === userId ? perfilCargado : null;
+  const perfil = perfilVigente?.perfil ?? null;
+  // Si la consulta de perfil falló (red/RLS/429), no hay forma de saber si
+  // el usuario está activo — no se puede caer a "activo: true" por defecto.
+  const errorPerfil = perfilVigente?.error ?? null;
 
   const signIn = (email, password) => supabase.auth.signInWithPassword({ email, password });
 
@@ -109,7 +114,11 @@ export function AuthProvider({ children }) {
         email: session.user.email,
         nombre: perfil?.nombre || session.user.email,
         rol: perfil?.rol || "operario",
-        activo: perfil?.activo !== false,
+        // Si el fetch de perfil falló no se puede asumir "activo": un usuario
+        // dado de baja cuyo fetch falla por rate-limit no puede colarse como
+        // operario activo por defecto.
+        activo: errorPerfil ? false : perfil?.activo !== false,
+        bloqueadoPor: errorPerfil ? "error_perfil" : perfil?.activo === false ? "inactivo" : null,
         // Encargado de una sucursal fija (null = ve todas, elige en el header).
         sucursalId: perfil?.sucursal_id ?? null,
       }
