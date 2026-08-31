@@ -68,7 +68,7 @@ const GRUPOS = [
 const TABS_SOLO_ADMIN = new Set(["admin", "concilia", "huerfanos", "revision"]);
 
 export default function App() {
-  const { cargando, usuario, signOut } = useAuth();
+  const { cargando, usuario, signOut, reintentarPerfil, cargandoPerfil } = useAuth();
   const { sucursales, sucursalActivaId, setSucursalActiva, puedeElegir, nombreSucursal } = useSucursal();
   const [tab, setTab] = useState("inventario");
   const [conteoPrefill, setConteoPrefill] = useState(null);
@@ -96,9 +96,10 @@ export default function App() {
         </p>
         <div className="flex gap-2">
           {esErrorPerfil && (
-            <button onClick={() => window.location.reload()}
-              className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
-              Reintentar
+            <button onClick={reintentarPerfil} disabled={cargandoPerfil}
+              className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+              {cargandoPerfil ? <Loader size={14} className="animate-spin" /> : null}
+              {cargandoPerfil ? "Reintentando…" : "Reintentar"}
             </button>
           )}
           <button onClick={signOut}

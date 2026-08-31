@@ -29,6 +29,11 @@ export function AuthProvider({ children }) {
   // usuario: el valor mostrado se deriva más abajo, no se fuerza a null acá.
   const [perfilCargado, setPerfilCargado] = useState(null); // { userId, perfil } | null
   const [cargandoPerfil, setCargandoPerfil] = useState(false);
+  // Incrementar esto vuelve a disparar el efecto de carga de perfil sin
+  // tocar la sesión — lo usa reintentarPerfil() para la pantalla de
+  // bloqueo por error, en vez de recargar la página entera (que vuelve a
+  // levantar toda la app y agrega más carga sobre el recurso saturado).
+  const [intentoManual, setIntentoManual] = useState(0);
   const refreshesRecientes = useRef([]);
 
   useEffect(() => {
@@ -109,7 +114,7 @@ export function AuthProvider({ children }) {
     })();
 
     return () => { vigente = false; };
-  }, [userId]);
+  }, [userId, intentoManual]);
 
   // Perfil "válido" solo si corresponde al usuario actual — así un logout o
   // un cambio de usuario no necesita un setState explícito de reseteo: el
@@ -121,6 +126,15 @@ export function AuthProvider({ children }) {
   const errorPerfil = perfilVigente?.error ?? null;
 
   const signIn = (email, password) => supabase.auth.signInWithPassword({ email, password });
+
+  // Reintento manual desde la pantalla de bloqueo por error de perfil — no
+  // toca la sesión ni hace signOut, solo vuelve a disparar el efecto de
+  // arriba. Si el motivo del bloqueo no fue un error (perfil realmente
+  // inactivo), no hay nada que reintentar.
+  const reintentarPerfil = () => {
+    if (!errorPerfil) return;
+    setIntentoManual((n) => n + 1);
+  };
 
   // Brief W4 tarea 3: cerrar sesión tiene que funcionar incluso si Supabase
   // está devolviendo 429/errores de red — si no, la persona queda sin forma
@@ -158,11 +172,19 @@ export function AuthProvider({ children }) {
   const value = {
     // cargando: todavía no sabemos si hay sesión, o hay sesión pero su
     // perfil aún no llegó (evita un parpadeo mostrando rol "operario" por
-    // defecto antes de tiempo).
-    cargando: session === undefined || (!!session?.user && cargandoPerfil && !perfil),
+    // defecto antes de tiempo). Excluye el caso de reintento manual tras
+    // un error: ahí ya se mostró la pantalla de bloqueo y cargandoPerfil
+    // vuelve a true mientras reintentarPerfil() corre — no debe taparla
+    // con el spinner de carga inicial.
+    cargando: session === undefined || (!!session?.user && cargandoPerfil && !perfil && !errorPerfil),
+    // Estado de carga para el botón de "Reintentar" de la pantalla de
+    // bloqueo por error — distinto del `cargando` de arriba, que solo
+    // cubre la carga inicial.
+    cargandoPerfil,
     usuario,
     signIn,
     signOut,
+    reintentarPerfil,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
