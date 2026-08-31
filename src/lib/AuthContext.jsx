@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { AuthContext } from "./authContext";
+import { decidirReintento, jitter } from "./reintentoPerfil";
 
 // Brief W4 #4: si el token se renueva más de N veces en una ventana corta,
 // algo está mal (bucle) y hoy solo se ve en el mostrador, no en desarrollo.
@@ -28,6 +29,11 @@ export function AuthProvider({ children }) {
   // usuario: el valor mostrado se deriva más abajo, no se fuerza a null acá.
   const [perfilCargado, setPerfilCargado] = useState(null); // { userId, perfil } | null
   const [cargandoPerfil, setCargandoPerfil] = useState(false);
+  // Incrementar esto vuelve a disparar el efecto de carga de perfil sin
+  // tocar la sesión — lo usa reintentarPerfil() para la pantalla de
+  // bloqueo por error, en vez de recargar la página entera (que vuelve a
+  // levantar toda la app y agrega más carga sobre el recurso saturado).
+  const [intentoManual, setIntentoManual] = useState(0);
   const refreshesRecientes = useRef([]);
 
   useEffect(() => {
@@ -61,24 +67,54 @@ export function AuthProvider({ children }) {
   const userId = session?.user?.id ?? null;
   useEffect(() => {
     if (!userId) return; // nada que buscar; no hay setState de "reseteo" acá
-    let activo = true;
+    // Bandera de cancelación del efecto — nombrada distinto del campo
+    // `activo` de la fila `perfil` a propósito: son dos cosas separadas y
+    // es fácil escribir la equivocada en medio de un bucle de reintentos.
+    let vigente = true;
     // Arranca el estado de carga antes del fetch — patrón estándar de
     // efecto de datos, no una derivación de estado de React.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCargandoPerfil(true);
-    supabase
-      .from("perfil")
-      .select("id, nombre, email, rol, activo, sucursal_id")
-      .eq("id", userId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!activo) return;
-        if (error) console.error("perfil: no se pudo consultar", error);
-        setPerfilCargado({ userId, perfil: data || null, error: error || null });
-        setCargandoPerfil(false);
-      });
-    return () => { activo = false; };
-  }, [userId]);
+
+    const consultarPerfil = () =>
+      supabase
+        .from("perfil")
+        .select("id, nombre, email, rol, activo, sucursal_id")
+        .eq("id", userId)
+        .maybeSingle();
+
+    // El caso realista de falla acá no es el usuario dado de baja: es un
+    // 429 de Supabase (ver comentario de signOut más abajo). Sin
+    // reintentos, una ráfaga de rate limit bloquea a todo el equipo hasta
+    // que alguien recarga. Se reintenta solo cuando la consulta FALLÓ
+    // (error) — "no existe la fila" (data: null, error: null) es una
+    // respuesta definitiva, no se reintenta (ver lib/reintentoPerfil.js).
+    (async () => {
+      let intento = 1;
+      while (true) {
+        const { data, error } = await consultarPerfil();
+        if (!vigente) return;
+        if (!error) {
+          setPerfilCargado({ userId, perfil: data || null, error: null });
+          setCargandoPerfil(false);
+          return;
+        }
+        const { reintentar, esperaMs } = decidirReintento({ error, intento, jitterMs: jitter() });
+        if (!reintentar) {
+          console.error(`perfil: falló tras ${intento} intento(s), se deja de reintentar`, error);
+          setPerfilCargado({ userId, perfil: null, error });
+          setCargandoPerfil(false);
+          return;
+        }
+        console.warn(`perfil: intento ${intento} falló, reintentando en ${esperaMs}ms`, error);
+        await new Promise((resolve) => setTimeout(resolve, esperaMs));
+        if (!vigente) return;
+        intento += 1;
+      }
+    })();
+
+    return () => { vigente = false; };
+  }, [userId, intentoManual]);
 
   // Perfil "válido" solo si corresponde al usuario actual — así un logout o
   // un cambio de usuario no necesita un setState explícito de reseteo: el
@@ -90,6 +126,15 @@ export function AuthProvider({ children }) {
   const errorPerfil = perfilVigente?.error ?? null;
 
   const signIn = (email, password) => supabase.auth.signInWithPassword({ email, password });
+
+  // Reintento manual desde la pantalla de bloqueo por error de perfil — no
+  // toca la sesión ni hace signOut, solo vuelve a disparar el efecto de
+  // arriba. Si el motivo del bloqueo no fue un error (perfil realmente
+  // inactivo), no hay nada que reintentar.
+  const reintentarPerfil = () => {
+    if (!errorPerfil) return;
+    setIntentoManual((n) => n + 1);
+  };
 
   // Brief W4 tarea 3: cerrar sesión tiene que funcionar incluso si Supabase
   // está devolviendo 429/errores de red — si no, la persona queda sin forma
@@ -127,11 +172,19 @@ export function AuthProvider({ children }) {
   const value = {
     // cargando: todavía no sabemos si hay sesión, o hay sesión pero su
     // perfil aún no llegó (evita un parpadeo mostrando rol "operario" por
-    // defecto antes de tiempo).
-    cargando: session === undefined || (!!session?.user && cargandoPerfil && !perfil),
+    // defecto antes de tiempo). Excluye el caso de reintento manual tras
+    // un error: ahí ya se mostró la pantalla de bloqueo y cargandoPerfil
+    // vuelve a true mientras reintentarPerfil() corre — no debe taparla
+    // con el spinner de carga inicial.
+    cargando: session === undefined || (!!session?.user && cargandoPerfil && !perfil && !errorPerfil),
+    // Estado de carga para el botón de "Reintentar" de la pantalla de
+    // bloqueo por error — distinto del `cargando` de arriba, que solo
+    // cubre la carga inicial.
+    cargandoPerfil,
     usuario,
     signIn,
     signOut,
+    reintentarPerfil,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
