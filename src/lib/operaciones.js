@@ -646,17 +646,20 @@ export async function ajustarVentaDirecta({ ventaId, ajustes, motivo, usuario })
   return { resultado: data, error };
 }
 
-/* ── cambiar una línea por otro producto: la vieja queda CAMBIADA, se crea
- * una línea nueva POR_DESPACHAR -> { pedido_id, linea_vieja_id, linea_nueva_id }
+/* ── cambiar una línea por otro producto (o por un ítem personalizado
+ * nuevo, si productoId es null y descripcion trae texto): la vieja queda
+ * CAMBIADA, se crea una línea nueva POR_DESPACHAR (catálogo) o ESPECIAL
+ * (personalizado) -> { pedido_id, linea_vieja_id, linea_nueva_id }
  */
-export async function cambiarPedidoLinea({ lineaId, productoId, cantidadBase, precioUnitario, motivo, usuario }) {
+export async function cambiarPedidoLinea({ lineaId, productoId, cantidadBase, precioUnitario, motivo, usuario, descripcion }) {
   const { data, error } = await supabase.rpc("cambiar_pedido_linea", {
     p_pedido_linea_id: Number(lineaId),
-    p_producto_id: Number(productoId),
+    p_producto_id: productoId != null ? Number(productoId) : null,
     p_cantidad_base: Number(cantidadBase),
     p_precio_unitario: precioUnitario != null && precioUnitario !== "" ? Number(precioUnitario) : null,
     p_motivo: motivo || null,
     p_usuario: usuario,
+    p_descripcion: descripcion || null,
   });
   return { resultado: data, error };
 }
