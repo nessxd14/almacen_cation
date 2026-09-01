@@ -19,7 +19,7 @@ import TypeaheadProducto from "./TypeaheadProducto";
 import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones, armarDesglose,
   crearPedido, despacharLinea, despacharLineaForzado, turnoLinea, despacharLineas, revertirEvento, comprarDirecto,
-  entregarPersonalizado, estadoSaldoLinea, saldoDisponiblePedido, saldoVendible,
+  estadoSaldoLinea, saldoDisponiblePedido, saldoVendible,
   codigosGrisPorProducto, stockPorSucursalProducto,
   rechazarPedidoLinea, rechazarPedido, cambiarPedidoLinea, restarPedidoLinea,
   devolverAlistadoAAlmacen, inyectarAlistadoATienda, cerrarTandaPedido,
@@ -713,15 +713,22 @@ function ArmadorPedido({ lineasIniciales, onCreado, onCancelar }) {
   );
 }
 
-/* ── Modal de Cambiar línea (brief W-B, pieza 3) — reusa TypeaheadProducto
-   del catálogo (mismo buscador que Armador de pedido) en vez de uno nuevo.
-   La línea vieja se resuelve en el server (queda CAMBIADA) y se crea una
-   línea nueva POR_DESPACHAR — recarga completa del pedido al confirmar,
-   no hay forma de patchear localmente sin conocer los datos de la nueva. */
+/* ── Modal de Cambiar línea (brief W-B, pieza 3; ampliado para ítems
+   personalizados) — reusa TypeaheadProducto del catálogo (mismo buscador
+   que Armador de pedido) en modo catálogo, o un textarea de descripción
+   libre en modo personalizado (mismo campo que crear_pedido/
+   agregar_lineas_pedido usan para ítems especiales). Compartido por
+   FilaLinea y FilaEspecial — se levantó a nivel de DetallePedido para no
+   duplicar el componente. La línea vieja se resuelve en el server (queda
+   CAMBIADA) y se crea una línea nueva POR_DESPACHAR o ESPECIAL — recarga
+   completa del pedido al confirmar, no hay forma de patchear localmente
+   sin conocer los datos de la nueva. */
 function ModalCambiarLinea({ linea, onClose, onCambiado }) {
   const usuarioActual = useUsuarioActual();
+  const [modoReemplazo, setModoReemplazo] = useState("catalogo"); // "catalogo" | "personalizado"
   const [query, setQuery] = useState("");
   const [producto, setProducto] = useState(null);
+  const [descripcion, setDescripcion] = useState("");
   const [cantidad, setCantidad] = useState(String(linea.cantidad_base ?? 1));
   const [precio, setPrecio] = useState(linea.precio_unitario != null ? String(linea.precio_unitario) : "");
   const [motivo, setMotivo] = useState("");
@@ -729,11 +736,15 @@ function ModalCambiarLinea({ linea, onClose, onCambiado }) {
   const [flash, setFlash] = useState(null);
 
   async function confirmar() {
-    if (!producto) { setFlash("Elegí un producto de reemplazo"); return; }
+    if (modoReemplazo === "catalogo" && !producto) { setFlash("Elegí un producto de reemplazo"); return; }
+    if (modoReemplazo === "personalizado" && !descripcion.trim()) { setFlash("La descripción es obligatoria"); return; }
     if (!cantidad || Number(cantidad) <= 0) { setFlash("Cantidad inválida"); return; }
     setGuardando(true);
     const { error } = await cambiarPedidoLinea({
-      lineaId: linea.id, productoId: producto.id, cantidadBase: Number(cantidad),
+      lineaId: linea.id,
+      productoId: modoReemplazo === "catalogo" ? producto.id : null,
+      descripcion: modoReemplazo === "personalizado" ? descripcion.trim() : null,
+      cantidadBase: Number(cantidad),
       precioUnitario: precio !== "" ? precio : null, motivo: motivo.trim() || null,
       usuario: usuarioActual.nombre,
     });
@@ -750,7 +761,7 @@ function ModalCambiarLinea({ linea, onClose, onCambiado }) {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
         </div>
         <p className="text-xs text-slate-500">
-          Reemplazando: <span className="font-medium text-slate-700">{linea.producto?.nombre}</span> · {textoCantidadLinea(linea)}
+          Reemplazando: <span className="font-medium text-slate-700">{linea.producto?.nombre ?? linea.descripcion}</span> · {textoCantidadLinea(linea)}
         </p>
 
         {flash && (
@@ -759,23 +770,42 @@ function ModalCambiarLinea({ linea, onClose, onCambiado }) {
           </div>
         )}
 
-        {!producto ? (
-          <TypeaheadProducto value={query} onChange={setQuery}
-            onSeleccionar={(p) => { setProducto(p); setQuery(""); }}
-            placeholder="Buscar producto de reemplazo…" />
-        ) : (
-          <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-slate-800">{producto.nombre}</p>
-              {producto.sku_interno && <p className="text-xs text-slate-400">{producto.sku_interno}</p>}
+        <div className="flex gap-1.5">
+          <button type="button" onClick={() => { setModoReemplazo("catalogo"); setDescripcion(""); }}
+            className={`flex-1 rounded-lg border py-1.5 text-xs font-medium ${modoReemplazo === "catalogo" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+            Producto de catálogo
+          </button>
+          <button type="button" onClick={() => { setModoReemplazo("personalizado"); setProducto(null); setQuery(""); }}
+            className={`flex-1 rounded-lg border py-1.5 text-xs font-medium ${modoReemplazo === "personalizado" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+            Descripción libre
+          </button>
+        </div>
+
+        {modoReemplazo === "catalogo" ? (
+          !producto ? (
+            <TypeaheadProducto value={query} onChange={setQuery}
+              onSeleccionar={(p) => { setProducto(p); setQuery(""); }}
+              placeholder="Buscar producto de reemplazo…" />
+          ) : (
+            <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-slate-800">{producto.nombre}</p>
+                {producto.sku_interno && <p className="text-xs text-slate-400">{producto.sku_interno}</p>}
+              </div>
+              <button onClick={() => setProducto(null)} className="shrink-0 text-slate-300 hover:text-red-500"><X size={16} /></button>
             </div>
-            <button onClick={() => setProducto(null)} className="shrink-0 text-slate-300 hover:text-red-500"><X size={16} /></button>
-          </div>
+          )
+        ) : (
+          <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={2}
+            placeholder="Descripción del ítem personalizado *"
+            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
         )}
 
         <div className="flex gap-2">
           <div className="flex-1">
-            <label className="mb-1 block text-xs font-medium text-slate-500">Cantidad ({linea.producto?.unidad_base})</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Cantidad {linea.producto?.unidad_base ? `(${linea.producto.unidad_base})` : ""}
+            </label>
             <input type="number" min="0.001" step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)}
               className="w-full rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
           </div>
@@ -867,7 +897,7 @@ function EventoAlistadoAcciones({ evento, linea, onLineaPatch, onEventoRevertido
 /* ── Fila de línea (expandible: pick auto editable + acciones) ──────────── */
 function FilaLinea({
   linea, eventos, habilitado, categoria, saldoLibre, saldoIndisponible, codigos,
-  seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido, onCambiado,
+  seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido, onAbrirCambiar,
 }) {
   const usuarioActual = useUsuarioActual();
   const { nombreSucursal } = useSucursal();
@@ -895,7 +925,6 @@ function FilaLinea({
   // no despachada (mismas condiciones que puedeDespachar, más abajo).
   const [restando, setRestando] = useState(false);
   const [rechazandoLinea, setRechazandoLinea] = useState(false);
-  const [mostrarCambiar, setMostrarCambiar] = useState(false);
 
   const pendiente = Math.max(Number(linea.cantidad_base) - Number(linea.cantidad_despachada), 0);
   const puedeDespachar = linea.estado === "POR_DESPACHAR" || (linea.estado === "PENDIENTE" && habilitado);
@@ -1236,16 +1265,11 @@ function FilaLinea({
                 className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50">
                 <Ban size={12} /> Rechazar
               </button>
-              <button onClick={() => setMostrarCambiar(true)}
+              <button onClick={() => onAbrirCambiar(linea)}
                 className="flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50">
                 <Repeat size={12} /> Cambiar
               </button>
             </div>
-          )}
-
-          {mostrarCambiar && (
-            <ModalCambiarLinea linea={linea} onClose={() => setMostrarCambiar(false)}
-              onCambiado={() => { setMostrarCambiar(false); onCambiado(); }} />
           )}
 
           {linea.estado !== "COMPRADO_DIRECTO" && (
@@ -1316,39 +1340,55 @@ function FilaLinea({
 }
 
 /* ── Fila de ítem especial/personalizado — no pasa por FilaLinea (no hay
-   pick ni Kardex): solo "marcar entregado" cierra la línea. También
-   despachable en lote (brief W5 #1: catálogo y personalizados por igual),
-   aunque en lote no pasa por despachar_lineas — no tiene pick, se
-   entrega vía entregar_personalizado como cualquier entrega individual. */
-function FilaEspecial({ linea, seleccionada, onToggleSeleccion, onLineaPatch }) {
+   pick ni Kardex), pero ahora tiene las mismas acciones de fondo:
+   Rechazar, Cambiar (por catálogo o por otra descripción libre, vía el
+   mismo ModalCambiarLinea que FilaLinea) y cerrar la línea con nota +
+   costo (comprar_directo, no entregar_personalizado — unifica el cierre
+   con "Comprado directo" de FilaLinea en vez de un cierre sin rastro de
+   qué se compró).
+   Ya NO participa del despacho por lote (brief: sacarlos del lote es más
+   simple que pedir una nota común para todas las líneas de la tanda, que
+   perdería el detalle de qué se compró en cada una) — se cierran de a
+   uno, acá mismo, donde sí se pide la nota. */
+function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar }) {
   const usuarioActual = useUsuarioActual();
-  const [entregando, setEntregando] = useState(false);
+  const [rechazando, setRechazando] = useState(false);
+  const [mostrarComprado, setMostrarComprado] = useState(false);
+  const [nota, setNota] = useState("");
+  const [costo, setCosto] = useState("");
+  const [guardandoCompra, setGuardandoCompra] = useState(false);
   const [flash, setFlash] = useState(null);
-  const despachable = linea.estado === "ESPECIAL";
 
   const showFlash = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 3000); };
 
-  async function marcarEntregado() {
-    if (!window.confirm("¿Confirmar entrega de este ítem especial? Esta acción cierra la línea.")) return;
-    setEntregando(true);
-    const { error } = await entregarPersonalizado({ lineaId: linea.id, usuario: usuarioActual.nombre });
-    setEntregando(false);
+  async function rechazar() {
+    const motivo = window.prompt("Motivo (opcional) para rechazar este ítem:");
+    if (motivo === null) return;
+    setRechazando(true);
+    const { error } = await rechazarPedidoLinea({ lineaId: linea.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
+    setRechazando(false);
     if (error) { showFlash("Error: " + error.message); return; }
-    onLineaPatch(linea.id, { estado: "COMPRADO_DIRECTO" });
-    if (seleccionada) onToggleSeleccion(linea.id);
+    onLineaPatch(linea.id, { estado: "RECHAZADO" });
+  }
+
+  async function confirmarCompraDirecta() {
+    if (!nota.trim()) { showFlash("La nota es obligatoria"); return; }
+    setGuardandoCompra(true);
+    const { error } = await comprarDirecto({ lineaId: linea.id, nota: nota.trim(), costo: costo ? Number(costo) : null, usuario: usuarioActual.nombre });
+    setGuardandoCompra(false);
+    if (error) { showFlash("Error: " + error.message); return; }
+    setMostrarComprado(false);
+    onLineaPatch(linea.id, { estado: "COMPRADO_DIRECTO", compra_directa_nota: nota.trim(), compra_directa_costo: costo ? Number(costo) : null });
   }
 
   return (
-    <div className={`rounded-xl border bg-white px-4 py-3 space-y-2 ${seleccionada ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-200"}`}>
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 space-y-2">
       {flash && (
         <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
           <AlertTriangle size={12} /> {flash}
         </div>
       )}
       <div className="flex items-start gap-3">
-        {despachable && (
-          <input type="checkbox" checked={seleccionada} onChange={() => onToggleSeleccion(linea.id)} className="mt-1 shrink-0" />
-        )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-800">{linea.descripcion || linea.producto?.nombre || "Ítem especial"}</p>
           <CodigosLinea esPersonalizado />
@@ -1360,12 +1400,52 @@ function FilaEspecial({ linea, seleccionada, onToggleSeleccion, onLineaPatch }) 
       {linea.precio_unitario != null && (
         <p className="text-xs text-slate-500">Precio unitario: {fmtDinero(linea.precio_unitario)}</p>
       )}
+
+      {linea.estado === "COMPRADO_DIRECTO" && (
+        <div className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700">
+          <p className="font-medium">Comprado directo</p>
+          <p>{linea.compra_directa_nota}</p>
+          {linea.compra_directa_costo != null && <p className="text-xs">Costo: {linea.compra_directa_costo}</p>}
+        </div>
+      )}
+
       {linea.estado === "ESPECIAL" && (
-        <button onClick={marcarEntregado} disabled={entregando}
-          className="flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-50">
-          {entregando && <Loader size={14} className="animate-spin" />}
-          {entregando ? "Guardando…" : "Marcar entregado"}
-        </button>
+        <>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => setMostrarComprado(true)}
+              className="flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-500">
+              Marcar entregado
+            </button>
+            <button onClick={() => onAbrirCambiar(linea)}
+              className="flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50">
+              <Repeat size={12} /> Cambiar
+            </button>
+            <button onClick={rechazar} disabled={rechazando}
+              className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50">
+              <Ban size={12} /> Rechazar
+            </button>
+          </div>
+
+          {mostrarComprado && (
+            <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <input value={nota} onChange={(e) => setNota(e.target.value)}
+                placeholder="Nota (proveedor / variante / fabricante) *"
+                className="w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+              <input type="number" min="0" step="any" value={costo} onChange={(e) => setCosto(e.target.value)}
+                placeholder="Costo (opcional)"
+                className="w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+              <div className="flex gap-2">
+                <button onClick={confirmarCompraDirecta} disabled={guardandoCompra}
+                  className="flex-1 rounded-lg bg-amber-600 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50">
+                  {guardandoCompra ? "Guardando…" : "Confirmar"}
+                </button>
+                <button onClick={() => setMostrarComprado(false)} className="rounded-lg border px-3 py-1.5 text-sm text-slate-500">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1532,6 +1612,9 @@ export function DetallePedido({ pedidoId, onBack }) {
   // despachado + una tanda nueva con el faltante.
   const [cerrandoTanda, setCerrandoTanda] = useState(false);
   const [flashTanda, setFlashTanda] = useState(null);
+  // Modal de Cambiar línea — compartido por FilaLinea y FilaEspecial, se
+  // levanta acá para no duplicar el componente. null = cerrado.
+  const [lineaCambiando, setLineaCambiando] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -1738,11 +1821,12 @@ export function DetallePedido({ pedidoId, onBack }) {
     await cargar();
   }
 
+  // Los ítems especiales ya no participan del lote (brief: comprar_directo
+  // exige nota obligatoria por línea, y una nota "para todas" perdería el
+  // detalle de qué se compró en cada una) — se cierran de a uno desde
+  // FilaEspecial, así que `seleccion` acá adentro solo trae catálogo.
   async function confirmarDespachoLote() {
-    const seleccionCatalogo = new Set([...seleccion].filter((id) => !lineasPorId.get(id)?.es_personalizado));
-    const seleccionEspeciales = [...seleccion].filter((id) => lineasPorId.get(id)?.es_personalizado);
-
-    const faltantes = lineasConFaltante(seleccionCatalogo, picksPorLinea);
+    const faltantes = lineasConFaltante(seleccion, picksPorLinea);
     if (faltantes.length > 0) {
       const ok = window.confirm(
         `${faltantes.length} línea${faltantes.length === 1 ? "" : "s"} quedará${faltantes.length === 1 ? "" : "n"} parcialmente pendiente${faltantes.length === 1 ? "" : "s"} (el pick no cubre lo pendiente). ¿Despachar igual?`
@@ -1750,8 +1834,8 @@ export function DetallePedido({ pedidoId, onBack }) {
       if (!ok) return;
     }
 
-    const payload = armarPayloadDespacho(seleccionCatalogo, picksPorLinea);
-    if (payload.length === 0 && seleccionEspeciales.length === 0) {
+    const payload = armarPayloadDespacho(seleccion, picksPorLinea);
+    if (payload.length === 0) {
       setFlashLote({ type: "error", msg: "Nada para despachar todavía — abrí o dejá calcular el pick de al menos una línea." });
       return;
     }
@@ -1763,20 +1847,8 @@ export function DetallePedido({ pedidoId, onBack }) {
       // que colapsa las N recargas de un despacho de a una en una sola
       // (brief W5). Atómica en el server: si una línea falla, ninguna
       // queda despachada — el mensaje de error dice cuál.
-      if (payload.length > 0) {
-        const { error } = await despacharLineas({ lineas: payload, usuario: usuarioActual.nombre });
-        if (error) { setFlashLote({ type: "error", msg: "Despacho por lote falló, ninguna línea quedó despachada: " + error.message }); return; }
-      }
-      // Los especiales no tienen pick — se entregan como cualquier entrega
-      // individual, en paralelo (son pocos frente al volumen de catálogo,
-      // que es lo que generaba la ráfaga de peticiones).
-      if (seleccionEspeciales.length > 0) {
-        const resultados = await Promise.all(
-          seleccionEspeciales.map((id) => entregarPersonalizado({ lineaId: id, usuario: usuarioActual.nombre }))
-        );
-        const conError = resultados.find((r) => r.error);
-        if (conError) setFlashLote({ type: "error", msg: "El despacho por lote se hizo, pero algunos ítems especiales no se pudieron entregar: " + conError.error.message });
-      }
+      const { error } = await despacharLineas({ lineas: payload, usuario: usuarioActual.nombre });
+      if (error) { setFlashLote({ type: "error", msg: "Despacho por lote falló, ninguna línea quedó despachada: " + error.message }); return; }
       setSeleccion(new Set());
       setPicksPorLinea(new Map());
       await cargar(); // única recarga completa, al final del lote
@@ -1898,7 +1970,7 @@ export function DetallePedido({ pedidoId, onBack }) {
               onLineaPatch={patchLinea}
               onEventoNuevo={agregarEvento}
               onEventoRevertido={marcarEventoRevertido}
-              onCambiado={cargar}
+              onAbrirCambiar={setLineaCambiando}
             />
           ))}
         </div>
@@ -1910,14 +1982,18 @@ export function DetallePedido({ pedidoId, onBack }) {
               <FilaEspecial
                 key={l.id}
                 linea={l}
-                seleccionada={seleccion.has(l.id)}
-                onToggleSeleccion={toggleSeleccion}
                 onLineaPatch={patchLinea}
+                onAbrirCambiar={setLineaCambiando}
               />
             ))}
           </div>
         )}
       </div>
+
+      {lineaCambiando && (
+        <ModalCambiarLinea linea={lineaCambiando} onClose={() => setLineaCambiando(null)}
+          onCambiado={() => { setLineaCambiando(null); cargar(); }} />
+      )}
 
       {seleccion.size > 0 && (
         <BarraSeleccion
