@@ -94,6 +94,15 @@ function labelCategoria(categoria) {
   return CATEGORIA_LABELS[categoria] || categoria;
 }
 
+// Historial de pedido_evento en DetallePedido — cambios post-armado hechos
+// desde Seller (o desde Almacén mismo) sobre líneas ya existentes.
+const ETIQUETA_EVENTO_PEDIDO = {
+  LINEAS_AGREGADAS: "Ítems agregados",
+  LINEA_RECHAZADA: "Línea rechazada",
+  LINEA_CAMBIADA: "Línea cambiada",
+  LINEA_RETIRADA: "Línea retirada",
+};
+
 function fmtDinero(v) {
   if (v == null) return "—";
   return Number(v).toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1501,6 +1510,11 @@ export function DetallePedido({ pedidoId, onBack }) {
   const [codigosPorProducto, setCodigosPorProducto] = useState(new Map());
   const [desglosePorLinea, setDesglosePorLinea] = useState(new Map());
   const [autores, setAutores] = useState(new Map());
+  // Historial de pedido_evento (a nivel de pedido completo, no por línea —
+  // no se pisa con eventosPorLinea, que es pedido_despacho_evento). Avisa
+  // cuando Seller agregó ítems o modificó una línea después de armado el
+  // pedido — de solo lectura, no hace falta "marcar como visto".
+  const [eventosPedido, setEventosPedido] = useState([]);
 
   // Despacho por lote (brief W5): una casilla por línea despachable +
   // barra de acción, en vez de despachar de a una y recargar el pedido
@@ -1532,7 +1546,7 @@ export function DetallePedido({ pedidoId, onBack }) {
     ]);
     const lineaIds = (ls || []).map((l) => l.id);
     const productoIdsCatalogo = (ls || []).filter((l) => !l.es_personalizado).map((l) => l.producto_id);
-    const [{ data: eventos }, { data: hab }, codigos, { data: pres }] = await Promise.all([
+    const [{ data: eventos }, { data: hab }, codigos, { data: pres }, { data: eventosPedidoData }] = await Promise.all([
       lineaIds.length
         ? supabase.from("pedido_despacho_evento").select("*").in("pedido_linea_id", lineaIds).order("id", { ascending: false })
         : Promise.resolve({ data: [] }),
@@ -1547,6 +1561,14 @@ export function DetallePedido({ pedidoId, onBack }) {
         ? supabase.from("presentacion").select("id, nombre, factor_unidad_base, producto_id")
             .in("producto_id", productoIdsCatalogo).eq("activo", true).order("factor_unidad_base", { ascending: false })
         : Promise.resolve({ data: [] }),
+      // Historial de cambios post-armado (brief: avisar en Almacén cuando
+      // Seller agrega ítems) — ANULADO/RESTAURADO quedan afuera, tienen su
+      // propio tratamiento en otro lado de la UI.
+      supabase.from("pedido_evento")
+        .select("*")
+        .eq("pedido_id", pedidoId)
+        .in("accion", ["LINEAS_AGREGADAS", "LINEA_RECHAZADA", "LINEA_CAMBIADA", "LINEA_RETIRADA"])
+        .order("creado_en", { ascending: false }),
     ]);
     const grupo = {};
     for (const e of eventos || []) (grupo[e.pedido_linea_id] ||= []).push(e);
@@ -1569,6 +1591,7 @@ export function DetallePedido({ pedidoId, onBack }) {
     setHabilitadas(new Set((hab || []).map((h) => h.id)));
     setCodigosPorProducto(codigos);
     setDesglosePorLinea(desglose);
+    setEventosPedido(eventosPedidoData || []);
     setCargando(false);
     // creado_por es un solo email acá (no hace falta el batch de la lista),
     // pero se reusa resolverAutores para no duplicar la consulta a perfil.
@@ -1820,6 +1843,19 @@ export function DetallePedido({ pedidoId, onBack }) {
               ? <>Convertido por {nombreAutor(pedido.creado_por, autores)} · desde cotización #{pedido.cotizacion_origen_id}</>
               : <>Creado por {nombreAutor(pedido.creado_por, autores)}</>}
           </p>
+        )}
+
+        {eventosPedido.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+            <p className="text-xs font-semibold text-amber-800">Cambios desde que se armó el pedido</p>
+            {eventosPedido.map((e) => (
+              <p key={e.id} className="text-xs text-amber-700">
+                <span className="font-medium">{ETIQUETA_EVENTO_PEDIDO[e.accion] ?? e.accion}</span>
+                {" — "}{e.usuario}{e.motivo ? `: ${e.motivo}` : ""}
+                {" · "}{fechaFmt(e.creado_en)}
+              </p>
+            ))}
+          </div>
         )}
 
         <ResumenLineasPedido lineas={lineas} />
