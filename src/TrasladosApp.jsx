@@ -36,6 +36,35 @@ function fechaFmt(iso) {
 
 const MOTIVO_LABELS = { VENTA_DIRECTA: "Venta directa", REPOSICION: "Reposición", DEVOLUCION: "Devolución" };
 
+const ETIQUETA_ESTADO_LINEA = { RECHAZADO: "Rechazada", CAMBIADA: "Movida a faltante", RETIRADA: "Retirada" };
+
+// Una línea "resuelta" (RECHAZADO/CAMBIADA/RETIRADA) ya no participa del
+// despacho — no se reenvía al RPC ni se le ofrece el selector de acción.
+function lineaResuelta(l) {
+  return !!l.estado && l.estado !== "POR_DESPACHAR";
+}
+
+// Selector Despachar/Rechazar/Faltante por línea — a nivel de módulo (no
+// dentro del render de SolicitudCard) para no recrear el tipo en cada
+// pasada, mismo criterio que ThOrden en InventarioApp.jsx.
+function SelectorAccionLinea({ accion, onChange }) {
+  const opciones = [
+    { id: "DESPACHAR", label: "Despachar" },
+    { id: "RECHAZAR", label: "Rechazar" },
+    { id: "FALTANTE", label: "Faltante" },
+  ];
+  return (
+    <div className="flex gap-1">
+      {opciones.map((o) => (
+        <button key={o.id} type="button" onClick={() => onChange(o.id)}
+          className={`rounded-full px-2 py-0.5 text-xs font-medium ${accion === o.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const TABS = [
   { id: "SOLICITADO", label: "Pendientes" },
   { id: "EN_TRANSITO", label: "En tránsito" },
@@ -44,11 +73,17 @@ const TABS = [
 ];
 const ESTADOS_CERRADOS = ["RECIBIDO", "RECHAZADO", "CANCELADO"];
 
-function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefrescar, onBorradorGuardado, onBorradorDescartado }) {
+function SolicitudCard({
+  solicitud, lineas, codigosPorProducto, borrador, onRefrescar,
+  onAplicarDespacho, onCerrarSolicitud, onBorradorGuardado, onBorradorDescartado,
+}) {
   const usuarioActual = useUsuarioActual();
   const { nombreSucursal } = useSucursal();
   const [abierto, setAbierto] = useState(false);
   const [cantidades, setCantidades] = useState({});
+  // Decisión por línea pendiente: Despachar (default)/Rechazar/Faltante —
+  // se resetea junto con `cantidades` cada vez que se abre la card.
+  const [acciones, setAcciones] = useState({});
   const [stockAlmacen, setStockAlmacen] = useState(new Map());
   const [cargandoStock, setCargandoStock] = useState(false);
   const [despachando, setDespachando] = useState(false);
@@ -86,6 +121,7 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
       setCantidades(Object.fromEntries(lineas.map((l) => [l.id, l.presentacion_id ? l.cantidad_presentacion : l.cantidad_base])));
       setRecuperadoDeBorrador(false);
     }
+    setAcciones({});
     if (!esPendiente) return;
     let activo = true;
     setCargandoStock(true);
@@ -97,6 +133,13 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
 
   function actualizarCantidad(lineaId, valor) {
     setCantidades((prev) => ({ ...prev, [lineaId]: valor }));
+  }
+
+  function accionDe(lineaId) {
+    return acciones[lineaId] || "DESPACHAR";
+  }
+  function setAccionLinea(lineaId, accion) {
+    setAcciones((prev) => ({ ...prev, [lineaId]: accion }));
   }
 
   // cantidad_despachada (y por lo tanto cantidad_recibida) siempre viaja en
@@ -147,16 +190,34 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
   }
 
   async function confirmarDespacho() {
-    const lineasPayload = lineas.map((l) => ({ linea_id: l.id, cantidad_base: cantidadBaseDe(l) }));
-    if (lineasPayload.some((l) => l.cantidad_base < 0)) { showFlash("Cantidad inválida"); return; }
+    // Una línea ya resuelta (de un intento previo dentro de la misma
+    // apertura de la card, p.ej. bloqueada por stock la vez pasada y ahora
+    // sí) no se reenvía — "no incluida en el array" la deja intacta del
+    // lado del RPC, así que ni la mandamos.
+    const pendientes = lineas.filter((l) => !lineaResuelta(l));
+    const invalidas = pendientes.filter((l) => accionDe(l.id) === "DESPACHAR" && (Number.isNaN(cantidadBaseDe(l)) || cantidadBaseDe(l) < 0));
+    if (invalidas.length > 0) { showFlash("Cantidad inválida"); return; }
+    const sinDecidir = pendientes.filter((l) => accionDe(l.id) === "DESPACHAR" && cantidadBaseDe(l) === 0);
+    if (sinDecidir.length > 0) { showFlash("Elegí Rechazar o Faltante para las líneas en 0"); return; }
+    if (pendientes.length === 0) return;
+
+    const lineasPayload = pendientes.map((l) => {
+      const accion = accionDe(l.id);
+      if (accion !== "DESPACHAR") return { linea_id: l.id, accion };
+      return { linea_id: l.id, accion: "DESPACHAR", cantidad_base: cantidadBaseDe(l) };
+    });
     setDespachando(true);
-    const { error } = await despacharTraslado({ solicitudId: solicitud.id, lineas: lineasPayload, usuario: usuarioActual.nombre });
+    const { resultado, error } = await despacharTraslado({ solicitudId: solicitud.id, lineas: lineasPayload, usuario: usuarioActual.nombre });
     setDespachando(false);
     if (error) { showFlash(error.message); return; }
-    // El despacho resuelve la solicitud (sale de "Pendientes") — el borrador
-    // ya cumplió su función, no queda nada que retomar.
+    // El borrador cubre "cantidades a despachar" — una vez que se manda el
+    // despacho (aunque haya quedado algo bloqueado por stock) ya cumplió su
+    // función, no queda nada que retomar de él.
     if (borrador) await eliminarBorrador(borrador.id);
-    onRefrescar();
+
+    const accionesPorLinea = Object.fromEntries(pendientes.map((l) => [l.id, accionDe(l.id)]));
+    const cantidadesBasePorLinea = Object.fromEntries(pendientes.map((l) => [l.id, cantidadBaseDe(l)]));
+    onAplicarDespacho(solicitud.id, resultado, { accionesPorLinea, cantidadesBasePorLinea });
   }
 
   async function confirmarRechazo() {
@@ -166,7 +227,7 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
     const { error } = await cerrarSolicitudTraslado({ solicitudId: solicitud.id, estado: "RECHAZADO", usuario: usuarioActual.nombre, nota: notaRechazo.trim() });
     setRechazando(false);
     if (error) { showFlash(error.message); return; }
-    onRefrescar();
+    onCerrarSolicitud(solicitud.id, "RECHAZADO");
   }
 
   async function confirmarRecepcion() {
@@ -236,15 +297,17 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
 
           <div className="space-y-2">
             {lineas.map((l) => {
+              const resuelta = lineaResuelta(l);
+              const accionLinea = accionDe(l.id);
               const stock = stockAlmacen.get(l.producto_id);
               const cantidadBaseIngresada = cantidadBaseDe(l);
-              const noAlcanza = esPendiente && stock != null && cantidadBaseIngresada > stock;
+              const noAlcanza = esPendiente && !resuelta && accionLinea === "DESPACHAR" && stock != null && cantidadBaseIngresada > stock;
               const unidadEditable = l.presentacion_id ? l.presentacion?.nombre : l.producto?.unidad_base;
               return (
-                <div key={l.id} className="rounded-lg border border-slate-200 px-3 py-2">
+                <div key={l.id} className={`rounded-lg border border-slate-200 px-3 py-2 ${resuelta ? "opacity-50" : ""}`}>
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-800">{l.producto?.nombre}</p>
+                      <p className={`text-sm font-medium text-slate-800 ${resuelta ? "line-through" : ""}`}>{l.producto?.nombre}</p>
                       {l.producto?.sku_interno && <p className="text-xs text-slate-400">{l.producto.sku_interno}</p>}
                       <CodigosLinea codigos={codigosPorProducto?.get(l.producto_id)} marca={l.producto?.marca} />
                       {l.presentacion_id && l.presentacion && (
@@ -254,10 +317,20 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
                         </p>
                       )}
                     </div>
-                    {esPendiente ? (
-                      <input type="number" min="0" step="any" value={cantidades[l.id] ?? ""}
-                        onChange={(e) => actualizarCantidad(l.id, e.target.value)}
-                        className="w-24 rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    {resuelta ? (
+                      <span className="text-sm font-mono text-slate-500 line-through">
+                        {cantidadFmt(l.cantidad_despachada ?? l.cantidad_base)}
+                      </span>
+                    ) : esPendiente ? (
+                      accionLinea === "DESPACHAR" ? (
+                        <input type="number" min="0" step="any" value={cantidades[l.id] ?? ""}
+                          onChange={(e) => actualizarCantidad(l.id, e.target.value)}
+                          className="w-24 rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                      ) : (
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${accionLinea === "RECHAZAR" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                          {accionLinea === "RECHAZAR" ? "Se rechaza" : "Va a faltante"}
+                        </span>
+                      )
                     ) : esEnTransito && !resultadoRecepcion ? (
                       <input type="number" min="0" max={l.cantidad_despachada} step="any" value={cantidadesRecepcion[l.id] ?? ""}
                         onChange={(e) => actualizarCantidadRecepcion(l.id, e.target.value)}
@@ -265,9 +338,29 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
                     ) : (
                       <span className="text-sm font-mono text-slate-600">{cantidadFmt(l.cantidad_despachada)}</span>
                     )}
-                    <span className="text-xs text-slate-400">{esPendiente ? unidadEditable : l.producto?.unidad_base}</span>
+                    <span className="text-xs text-slate-400">{esPendiente && !resuelta ? unidadEditable : l.producto?.unidad_base}</span>
                   </div>
-                  {esPendiente && (
+
+                  {resuelta && (
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                        {ETIQUETA_ESTADO_LINEA[l.estado] || l.estado}
+                      </span>
+                      {l.estado === "CAMBIADA" && (
+                        <span className="text-xs text-slate-400">
+                          {l.tandaFaltanteId ? `→ va en el traslado #${l.tandaFaltanteId}` : "→ movida a faltante"}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {esPendiente && !resuelta && (
+                    <div className="mt-2">
+                      <SelectorAccionLinea accion={accionLinea} onChange={(a) => setAccionLinea(l.id, a)} />
+                    </div>
+                  )}
+
+                  {esPendiente && !resuelta && accionLinea === "DESPACHAR" && (
                     <>
                       {l.presentacion_id && (
                         <p className="mt-1 text-xs text-slate-400">= {cantidadFmt(cantidadBaseIngresada)} {l.producto?.unidad_base}</p>
@@ -279,13 +372,20 @@ function SolicitudCard({ solicitud, lineas, codigosPorProducto, borrador, onRefr
                       </p>
                     </>
                   )}
+
+                  {esPendiente && !resuelta && l.bloqueoStock && (
+                    <p className="mt-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">
+                      No se pudo despachar: faltan {cantidadFmt(l.bloqueoStock.faltan)} {l.producto?.unidad_base}. Ajustá el inventario e intentá de nuevo.
+                    </p>
+                  )}
+
                   {esEnTransito && !resultadoRecepcion && (
                     <p className="mt-1 text-xs text-slate-400">Despachado: {cantidadFmt(l.cantidad_despachada)} {l.producto?.unidad_base}</p>
                   )}
-                  {!esPendiente && !l.presentacion_id && (
+                  {!esPendiente && !resuelta && !l.presentacion_id && (
                     <p className="mt-1 text-xs text-slate-400">Pedido: {cantidadFmt(l.cantidad_base)} {l.producto?.unidad_base}</p>
                   )}
-                  {!esPendiente && l.cantidad_recibida != null && (
+                  {!esPendiente && !resuelta && l.cantidad_recibida != null && (
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
                       Recibido: {cantidadFmt(l.cantidad_recibida)} {l.producto?.unidad_base}
                       {Number(l.cantidad_recibida) < Number(l.cantidad_despachada) && (
@@ -436,6 +536,80 @@ export default function TrasladosApp() {
     setBorradores(data);
   }, []);
 
+  // Consulta puntual de UNA solicitud (la tanda de faltantes recién creada
+  // por un despacho) — no un cargar() completo, solo para que la tanda
+  // nueva aparezca sin esperar al próximo refresco manual/cambio de tab.
+  const cargarSolicitudPuntual = useCallback(async (solicitudId) => {
+    const { data: sol } = await supabase
+      .from("solicitud_traslado").select("*").eq("id", solicitudId).maybeSingle();
+    if (!sol) return;
+    const { data: lineas } = await supabase
+      .from("solicitud_traslado_linea")
+      .select("*, producto:producto_id(id, nombre, sku_interno, unidad_base, marca), presentacion:presentacion_id(nombre, factor_unidad_base)")
+      .eq("solicitud_id", solicitudId)
+      .order("id");
+    setSolicitudes((prev) => (prev.some((s) => s.id === sol.id) ? prev : [sol, ...prev]));
+    setLineasPorSolicitud((prev) => ({ ...prev, [sol.id]: lineas || [] }));
+    const codigosNuevos = await codigosGrisPorProducto((lineas || []).map((l) => l.producto_id));
+    setCodigosPorProducto((prev) => new Map([...prev, ...codigosNuevos]));
+  }, []);
+
+  // Saca la solicitud de la lista en memoria si su nuevo estado ya no
+  // pertenece a la pestaña activa, o la deja con el estado actualizado si
+  // sigue perteneciendo — sin volver a golpear la red.
+  const patchEstadoSolicitud = useCallback((solicitudId, estado) => {
+    setSolicitudes((prev) => {
+      const sigueEnTab = estado === tab || (tab === "CERRADOS" && ESTADOS_CERRADOS.includes(estado));
+      if (!sigueEnTab) return prev.filter((s) => s.id !== solicitudId);
+      return prev.map((s) => (s.id === solicitudId ? { ...s, estado } : s));
+    });
+  }, [tab]);
+
+  // Parche local tras un despacho (parcial o total) — arregla el problema
+  // de fondo de este brief: onRefrescar() en cada acción encadenaba
+  // consultas de sobra y, si el token vencía en medio de una ráfaga de
+  // despachos seguidos, la renovación chocaba con el rate-limit de
+  // Supabase y expulsaba al usuario al login. despachar_traslado ya
+  // devuelve todo lo necesario para actualizar en memoria: no hace falta
+  // un select nuevo salvo, opcionalmente, por la tanda de faltantes nueva.
+  const aplicarResultadoAccion = useCallback((solicitudId, resultado, contexto = {}) => {
+    const { accionesPorLinea = {}, cantidadesBasePorLinea = {} } = contexto;
+    const rechazadasIds = new Set((resultado.rechazadas || []).map((r) => r.linea_id));
+    const bloqueadasPorLinea = new Map((resultado.bloqueadas_por_stock || []).map((b) => [b.linea_id, b]));
+
+    setLineasPorSolicitud((prev) => {
+      const actuales = prev[solicitudId];
+      if (!actuales) return prev;
+      return {
+        ...prev,
+        [solicitudId]: actuales.map((l) => {
+          if (l.estado && l.estado !== "POR_DESPACHAR") return l; // ya resuelta antes, no tocar
+          if (rechazadasIds.has(l.id)) return { ...l, estado: "RECHAZADO", bloqueoStock: null };
+          if (bloqueadasPorLinea.has(l.id)) return { ...l, bloqueoStock: bloqueadasPorLinea.get(l.id) };
+          const accion = accionesPorLinea[l.id];
+          if (accion === "FALTANTE") {
+            return { ...l, estado: "CAMBIADA", tandaFaltanteId: resultado.tanda_faltante_id ?? null, bloqueoStock: null };
+          }
+          if (accion === "DESPACHAR") {
+            return {
+              ...l,
+              estado: "DESPACHADA",
+              cantidad_despachada: cantidadesBasePorLinea[l.id] ?? l.cantidad_despachada,
+              bloqueoStock: null,
+            };
+          }
+          return l; // línea que no se mandó en esta pasada (ya resuelta o no incluida)
+        }),
+      };
+    });
+
+    patchEstadoSolicitud(solicitudId, resultado.estado);
+
+    if (resultado.tanda_faltante_id && tab === "SOLICITADO") {
+      cargarSolicitudPuntual(resultado.tanda_faltante_id);
+    }
+  }, [tab, patchEstadoSolicitud, cargarSolicitudPuntual]);
+
   useEffect(() => { cargar(); }, [cargar]);
   // Independiente de la pestaña activa: el badge "borrador" en Pendientes
   // necesita el mapa aunque el usuario haya abierto Traslados en Cerrados.
@@ -505,6 +679,8 @@ export default function TrasladosApp() {
               codigosPorProducto={codigosPorProducto}
               borrador={borradorPorSolicitud.get(s.id)}
               onRefrescar={cargar}
+              onAplicarDespacho={aplicarResultadoAccion}
+              onCerrarSolicitud={patchEstadoSolicitud}
               onBorradorGuardado={actualizarBorrador}
               onBorradorDescartado={quitarBorrador}
             />
