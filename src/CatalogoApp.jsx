@@ -154,7 +154,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
       // Stock por ubicación (incluye virtuales — necesario para el total real)
       const { data: stock } = await supabase
         .from("stock_actual")
-        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento, sucursal_id, sucursal:sucursal_id(nombre, tipo))")
+        .select("cantidad_base, ubicacion:ubicacion_id(codigo_zona, estante, nivel, compartimiento, sucursal_id, excluye_disponible, sucursal:sucursal_id(nombre, tipo))")
         .eq("producto_id", producto.id);
       // Ficha técnica — texto pesado, no viene en el producto de la grilla.
       const { data: ficha } = await supabase
@@ -246,11 +246,15 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
             const ubicacionesConStock = detalle.stock.filter(
               s => s.ubicacion?.sucursal?.tipo !== "virtual" && Number(s.cantidad_base) !== 0
             );
-            const stockTotal = detalle.stock.reduce((s, r) => s + Number(r.cantidad_base || 0), 0);
+            const stockTotal = detalle.stock.reduce((s, r) => {
+              if (r.ubicacion?.excluye_disponible === true) return s;
+              return s + Number(r.cantidad_base || 0);
+            }, 0);
             // Brief W9 tarea 2: mismo desglose por sucursal que la tarjeta del
             // Catálogo, agregado acá desde las filas de stock por ubicación.
             const mapaPorSucursal = new Map();
             for (const r of detalle.stock) {
+              if (r.ubicacion?.excluye_disponible === true) continue;
               const sid = r.ubicacion?.sucursal_id;
               if (sid == null) continue;
               mapaPorSucursal.set(sid, (mapaPorSucursal.get(sid) || 0) + Number(r.cantidad_base || 0));

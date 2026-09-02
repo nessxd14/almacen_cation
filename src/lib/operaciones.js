@@ -847,11 +847,12 @@ export async function stockPorSucursalBatch(productoIds) {
   if (ids.length === 0) return new Map();
   const { data } = await supabase
     .from("stock_actual")
-    .select("producto_id, cantidad_base, ubicacion:ubicacion_id(sucursal_id)")
+    .select("producto_id, cantidad_base, ubicacion:ubicacion_id(sucursal_id, excluye_disponible)")
     .in("producto_id", ids);
   const mapa = new Map();
   for (const row of data || []) {
     if (!row.ubicacion) continue;
+    if (row.ubicacion.excluye_disponible === true) continue;
     if (!mapa.has(row.producto_id)) mapa.set(row.producto_id, new Map());
     const porSucursal = mapa.get(row.producto_id);
     const sid = row.ubicacion.sucursal_id;
