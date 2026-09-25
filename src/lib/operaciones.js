@@ -24,6 +24,7 @@
 
 import { supabase } from "../supabaseClient";
 import { sanearFiltro } from "./filtroTexto";
+import { stockDespachable } from "./stockSucursal";
 
 const uuid = () =>
   crypto.randomUUID ? crypto.randomUUID() : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -821,22 +822,22 @@ export async function stockPorSucursalProducto(productoId) {
   return mapa;
 }
 
-/* ── stock actual por sucursal para un array de producto_id ───────────
- * -> Map<producto_id, cantidad_base total en la sucursal>
+/* ── stock DESPACHABLE por sucursal para un array de producto_id — mismo
+ * criterio que usa despachar_traslado para chequear disponibilidad (solo
+ * bins positivos en ubicaciones con excluye_disponible = false). Antes esto
+ * sumaba todo, incluidas VENTAS DIRECTAS y SOBREGIRO ONLINE (grandes
+ * negativos): la tarjeta mostraba "Stock: −400 — no alcanza" cuando el RPC
+ * en verdad veía +200 disponibles.
+ * -> Map<producto_id, cantidad_base>
  */
 export async function stockDisponibleSucursal(productoIds, sucursalId) {
   const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
   if (ids.length === 0 || !sucursalId) return new Map();
   const { data } = await supabase
     .from("stock_actual")
-    .select("producto_id, cantidad_base, ubicacion:ubicacion_id(sucursal_id)")
+    .select("producto_id, cantidad_base, ubicacion:ubicacion_id(sucursal_id, excluye_disponible)")
     .in("producto_id", ids);
-  const mapa = new Map();
-  for (const row of data || []) {
-    if (!row.ubicacion || row.ubicacion.sucursal_id !== Number(sucursalId)) continue;
-    mapa.set(row.producto_id, (mapa.get(row.producto_id) || 0) + Number(row.cantidad_base || 0));
-  }
-  return mapa;
+  return stockDespachable(data || [], sucursalId);
 }
 
 /* ── stock por sucursal para un lote de producto_id (una página de tabla,

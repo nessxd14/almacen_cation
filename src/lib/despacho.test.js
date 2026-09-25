@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion,
-  formatoEquivalencia, labelUbicacionConSucursal,
+  formatoEquivalencia, labelUbicacionConSucursal, lineasNoSaldranCompletas,
 } from "./despacho";
 
 describe("armarPayloadDespacho", () => {
@@ -87,5 +87,33 @@ describe("labelUbicacionConSucursal", () => {
 
   it("sin resolver no antepone nada (nunca hardcodea un nombre)", () => {
     expect(labelUbicacionConSucursal("PISO", 2, undefined)).toBe("PISO");
+  });
+});
+
+describe("lineasNoSaldranCompletas", () => {
+  it("detecta líneas bloqueadas por stock (noAlcanza)", () => {
+    const lineas = [
+      { id: 1, cantidadIngresada: 10, cantidadPedida: 10, noAlcanza: true },
+      { id: 2, cantidadIngresada: 5, cantidadPedida: 5, noAlcanza: false },
+    ];
+    expect(lineasNoSaldranCompletas(lineas)).toEqual([lineas[0]]);
+  });
+
+  it("detecta líneas con cantidad cargada menor a lo pedido (parcial)", () => {
+    const lineas = [
+      { id: 1, cantidadIngresada: 3, cantidadPedida: 10, noAlcanza: false },
+      { id: 2, cantidadIngresada: 5, cantidadPedida: 5, noAlcanza: false },
+    ];
+    expect(lineasNoSaldranCompletas(lineas)).toEqual([lineas[0]]);
+  });
+
+  it("sin líneas afectadas devuelve vacío", () => {
+    const lineas = [{ id: 1, cantidadIngresada: 10, cantidadPedida: 10, noAlcanza: false }];
+    expect(lineasNoSaldranCompletas(lineas)).toEqual([]);
+  });
+
+  it("no duplica una línea que es a la vez noAlcanza y parcial", () => {
+    const lineas = [{ id: 1, cantidadIngresada: 3, cantidadPedida: 10, noAlcanza: true }];
+    expect(lineasNoSaldranCompletas(lineas)).toEqual([lineas[0]]);
   });
 });

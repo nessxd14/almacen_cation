@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sumaStockPorSucursal, desgloseStockPorSucursal, textoDesgloseSucursal } from "./stockSucursal";
+import { sumaStockPorSucursal, desgloseStockPorSucursal, textoDesgloseSucursal, stockDespachable } from "./stockSucursal";
 
 const SUCURSALES = [
   { id: 1, nombre: "Almacén Central", tipo: "fisica" },
@@ -80,5 +80,46 @@ describe("textoDesgloseSucursal", () => {
     ];
     const fmt = (n) => n.toLocaleString("es-BO");
     expect(textoDesgloseSucursal(desglose, fmt)).toBe("Almacén 51.011 · Tienda 566");
+  });
+});
+
+describe("stockDespachable", () => {
+  it("suma cantidad_base por producto en la sucursal pedida", () => {
+    const rows = [
+      { producto_id: 10, cantidad_base: 100, ubicacion: { sucursal_id: 1, excluye_disponible: false } },
+      { producto_id: 10, cantidad_base: 50, ubicacion: { sucursal_id: 1, excluye_disponible: false } },
+    ];
+    expect(stockDespachable(rows, 1)).toEqual(new Map([[10, 150]]));
+  });
+
+  it("omite filas con cantidad_base negativa o cero", () => {
+    const rows = [
+      { producto_id: 10, cantidad_base: 200, ubicacion: { sucursal_id: 1, excluye_disponible: false } },
+      { producto_id: 10, cantidad_base: -400, ubicacion: { sucursal_id: 1, excluye_disponible: false } },
+      { producto_id: 10, cantidad_base: 0, ubicacion: { sucursal_id: 1, excluye_disponible: false } },
+    ];
+    expect(stockDespachable(rows, 1)).toEqual(new Map([[10, 200]]));
+  });
+
+  it("omite ubicaciones con excluye_disponible = true (VENTAS DIRECTAS, SOBREGIRO ONLINE)", () => {
+    const rows = [
+      { producto_id: 10, cantidad_base: 200, ubicacion: { sucursal_id: 1, excluye_disponible: false } },
+      { producto_id: 10, cantidad_base: 9999, ubicacion: { sucursal_id: 1, excluye_disponible: true } },
+    ];
+    expect(stockDespachable(rows, 1)).toEqual(new Map([[10, 200]]));
+  });
+
+  it("omite filas de otra sucursal", () => {
+    const rows = [
+      { producto_id: 10, cantidad_base: 200, ubicacion: { sucursal_id: 1, excluye_disponible: false } },
+      { producto_id: 10, cantidad_base: 999, ubicacion: { sucursal_id: 2, excluye_disponible: false } },
+    ];
+    expect(stockDespachable(rows, 1)).toEqual(new Map([[10, 200]]));
+    expect(stockDespachable(rows, 2)).toEqual(new Map([[10, 999]]));
+  });
+
+  it("sin filas -> mapa vacío", () => {
+    expect(stockDespachable([], 1)).toEqual(new Map());
+    expect(stockDespachable(undefined, 1)).toEqual(new Map());
   });
 });

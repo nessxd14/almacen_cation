@@ -40,3 +40,30 @@ export function textoDesgloseSucursal(desglose, formatearCantidad = String) {
   if (!desglose || desglose.length < 2) return null;
   return desglose.map((d) => `${d.nombre} ${formatearCantidad(d.cantidad)}`).join(" · ");
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Brief — Traslados: stock despachable por sucursal (debe coincidir con lo
+ * que ve despachar_traslado, no con el total crudo de stock_actual)
+ * ══════════════════════════════════════════════════════════════════════ */
+
+// Suma de cantidad_base por producto_id en UNA sucursal, contando solo bins
+// positivos en ubicaciones con excluye_disponible = false — mismo criterio
+// que despachar_traslado usa para chequear disponibilidad (F2 de la
+// migración 2026-09-25). Sin este filtro el total incluye VENTAS DIRECTAS y
+// SOBREGIRO ONLINE, que viven en grandes negativos y hacían ver "Stock:
+// −400" en la tarjeta cuando el RPC en verdad tenía +200 disponibles.
+// rows: [{ producto_id, cantidad_base, ubicacion: { sucursal_id, excluye_disponible } }]
+// -> Map<producto_id, cantidad_base>
+export function stockDespachable(rows, sucursalId) {
+  const mapa = new Map();
+  const sid = Number(sucursalId);
+  for (const row of rows || []) {
+    if (!row.ubicacion) continue;
+    if (row.ubicacion.sucursal_id !== sid) continue;
+    if (row.ubicacion.excluye_disponible === true) continue;
+    const cantidad = Number(row.cantidad_base) || 0;
+    if (cantidad <= 0) continue;
+    mapa.set(row.producto_id, (mapa.get(row.producto_id) || 0) + cantidad);
+  }
+  return mapa;
+}
