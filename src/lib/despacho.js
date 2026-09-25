@@ -75,6 +75,18 @@ export function formatoEquivalencia({ cantidadPresentacion, nombrePresentacion, 
   return `${cantidadPresentacion} ${nombrePresentacion} x${f} · ${cantidadBase} ${unidad}`.trim();
 }
 
+// Líneas DESPACHAR (de las pendientes de un traslado) que no van a salir
+// completas al confirmar el despacho: sin stock suficiente en el almacén de
+// origen (noAlcanza, ya calculado en el render con el mismo stock que se le
+// muestra al usuario) o con una cantidad cargada menor a lo pedido (despacho
+// parcial). Se usa para el aviso previo al RPC (avisar antes de despachar,
+// no después) — el RPC de todos modos manda lo que no salga a la tanda de
+// faltante, este aviso es solo para que el usuario lo sepa antes de confirmar.
+// lineas: [{ id, cantidadIngresada, cantidadPedida, noAlcanza }]
+export function lineasNoSaldranCompletas(lineas) {
+  return lineas.filter((l) => l.noAlcanza || l.cantidadIngresada < l.cantidadPedida);
+}
+
 // "Tienda · PISO" — antepone la sucursal cuando el contexto no la deja
 // clara (brief W5 #5): Tienda hoy tiene una sola ubicación (PISO) y sin el
 // prefijo un traslado ahí se lee como "se movió a otro lado" en vez de "se

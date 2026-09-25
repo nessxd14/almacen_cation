@@ -1,0 +1,272 @@
+-- =====================================================================
+-- 2026-09-25_fix_traslados_lineas_colgadas.sql
+-- Proyecto: supabase_db_almacen_roari (zxoxougwgstrarwymlvd)
+--
+-- Arregla:
+--  F1  despachar_traslado dejaba líneas POR_DESPACHAR colgadas (bloqueadas por
+--      stock u omitidas en p_lineas) y la solicitud pasaba a EN_TRANSITO igual.
+--      -> ahora van a la tanda de faltante.
+--  F2  El chequeo de disponibilidad sumaba ubicaciones negativas/virtuales
+--      (VENTAS DIRECTAS, SOBREGIRO ONLINE) y bloqueaba traslados con stock real.
+--      -> ahora solo cuenta bins positivos con excluye_disponible = false,
+--         igual que el loop que descuenta.
+--  F3  recibir_traslado procesaba líneas no despachadas.
+--      -> ahora solo procesa DESPACHADA y devuelve las demás como aviso.
+--  F4  Despacho parcial perdía el saldo.
+--      -> el saldo va como línea nueva en la tanda de faltante.
+--
+-- Firmas SIN cambio (CREATE OR REPLACE reemplaza, no crea overload):
+--   despachar_traslado(bigint,text,jsonb)
+--   recibir_traslado(bigint,text,jsonb)
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.despachar_traslado(p_solicitud_id bigint, p_usuario text DEFAULT NULL::text, p_lineas jsonb DEFAULT NULL::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_sol solicitud_traslado%rowtype; v_ubic_destino bigint; v_l record;
+  v_accion text; v_pedido numeric; v_restante numeric; v_toma numeric; v_ub record;
+  v_pres_base bigint; v_total numeric := 0; v_disponible numeric;
+  v_bloqueadas jsonb := '[]'::jsonb; v_rechazadas jsonb := '[]'::jsonb;
+  v_omitidas jsonb := '[]'::jsonb;   v_parciales jsonb := '[]'::jsonb;
+  v_faltante_ids bigint[] := '{}';
+  v_tanda_id bigint; v_numero_tanda int; v_nueva_linea_id bigint; v_p jsonb;
+begin
+  select * into v_sol from solicitud_traslado where id = p_solicitud_id for update;
+  if not found then raise exception 'Solicitud % no existe', p_solicitud_id; end if;
+  if v_sol.estado <> 'SOLICITADO' then
+    raise exception 'La solicitud % está en estado % y no se puede despachar', p_solicitud_id, v_sol.estado;
+  end if;
+  v_ubic_destino := ubicacion_recepcion(v_sol.sucursal_destino_id);
+  if v_ubic_destino is null then raise exception 'La sucursal destino % no tiene ubicaciones', v_sol.sucursal_destino_id; end if;
+
+  for v_l in select * from solicitud_traslado_linea
+              where solicitud_id = p_solicitud_id and estado = 'POR_DESPACHAR' order by id
+  loop
+    v_accion := 'DESPACHAR'; v_pedido := v_l.cantidad_base;
+    if p_lineas is not null then
+      select coalesce(x->>'accion','DESPACHAR'), coalesce((x->>'cantidad_base')::numeric, v_l.cantidad_base)
+        into v_accion, v_pedido
+        from jsonb_array_elements(p_lineas) x
+       where (x->>'linea_id')::bigint = v_l.id
+       limit 1;
+      if not found then
+        -- F1: una línea omitida ya no queda colgada; pasa a la tanda de faltante
+        v_faltante_ids := array_append(v_faltante_ids, v_l.id);
+        v_omitidas := v_omitidas || jsonb_build_object('linea_id', v_l.id, 'producto_id', v_l.producto_id);
+        continue;
+      end if;
+    end if;
+
+    if v_accion = 'RECHAZAR' then
+      update solicitud_traslado_linea set estado = 'RECHAZADO', modificado_por = p_usuario, modificado_en = now() where id = v_l.id;
+      v_rechazadas := v_rechazadas || jsonb_build_object('linea_id', v_l.id);
+      continue;
+    end if;
+
+    if v_accion = 'FALTANTE' then
+      v_faltante_ids := array_append(v_faltante_ids, v_l.id);
+      continue;
+    end if;
+
+    if v_pedido is null or v_pedido <= 0 then
+      raise exception 'La línea % necesita una acción (RECHAZAR o FALTANTE) si la cantidad es 0', v_l.id;
+    end if;
+
+    select id into v_pres_base from presentacion where producto_id = v_l.producto_id and es_base and coalesce(activo, true) limit 1;
+    if v_pres_base is null then raise exception 'Producto % sin presentación base', v_l.producto_id; end if;
+
+    -- F2: mismo criterio que el loop de descuento: solo bins positivos y no excluidos
+    select coalesce(sum(sa.cantidad_base), 0) into v_disponible
+      from stock_actual sa join ubicacion u on u.id = sa.ubicacion_id
+     where sa.producto_id = v_l.producto_id
+       and u.sucursal_id = v_sol.sucursal_origen_id
+       and sa.cantidad_base > 0
+       and not coalesce(u.excluye_disponible, false);
+
+    if v_disponible < v_pedido then
+      -- F1: la línea bloqueada pasa a la tanda de faltante en vez de quedar colgada
+      v_bloqueadas := v_bloqueadas || jsonb_build_object('linea_id', v_l.id, 'producto_id', v_l.producto_id,
+        'pedido', v_pedido, 'disponible', v_disponible, 'faltan', v_pedido - v_disponible);
+      v_faltante_ids := array_append(v_faltante_ids, v_l.id);
+      continue;
+    end if;
+
+    v_restante := v_pedido;
+    for v_ub in
+      select sa.ubicacion_id, sa.cantidad_base
+        from stock_actual sa join ubicacion u on u.id = sa.ubicacion_id
+       where sa.producto_id = v_l.producto_id
+         and u.sucursal_id = v_sol.sucursal_origen_id
+         and sa.cantidad_base > 0
+         and not coalesce(u.excluye_disponible, false)
+       order by sa.cantidad_base desc
+    loop
+      exit when v_restante <= 0;
+      v_toma := least(v_restante, v_ub.cantidad_base);
+      perform registrar_traslado(v_pres_base, v_ub.ubicacion_id, v_ubic_destino, v_toma, 'Traslado #' || p_solicitud_id, p_usuario, current_date);
+      v_restante := v_restante - v_toma;
+    end loop;
+
+    if v_restante > 0 then
+      raise exception 'Línea %: quedaron % sin descontar tras recorrer las ubicaciones (inconsistencia de stock)', v_l.id, v_restante;
+    end if;
+
+    update solicitud_traslado_linea
+       set cantidad_despachada = coalesce(cantidad_despachada,0) + v_pedido, estado = 'DESPACHADA'
+     where id = v_l.id;
+    v_total := v_total + v_pedido;
+
+    -- F4: el saldo de un despacho parcial va a la tanda de faltante
+    if v_pedido < v_l.cantidad_base then
+      v_parciales := v_parciales || jsonb_build_object('linea_id', v_l.id, 'producto_id', v_l.producto_id,
+        'pedido', v_l.cantidad_base, 'despachado', v_pedido, 'saldo', v_l.cantidad_base - v_pedido);
+    end if;
+  end loop;
+
+  if coalesce(array_length(v_faltante_ids, 1), 0) > 0 or jsonb_array_length(v_parciales) > 0 then
+    v_numero_tanda := coalesce(v_sol.numero_tanda, 1) + 1;
+    insert into solicitud_traslado (motivo, sucursal_origen_id, sucursal_destino_id, referencia, nota, solicitado_por, tanda_de_id, numero_tanda)
+    values (v_sol.motivo, v_sol.sucursal_origen_id, v_sol.sucursal_destino_id, v_sol.referencia,
+            'Faltante de tanda ' || coalesce(v_sol.numero_tanda,1), p_usuario, p_solicitud_id, v_numero_tanda)
+    returning id into v_tanda_id;
+
+    for v_l in select * from solicitud_traslado_linea where id = any(v_faltante_ids) loop
+      insert into solicitud_traslado_linea (solicitud_id, producto_id, presentacion_id, cantidad_presentacion, cantidad_base, estado)
+      values (v_tanda_id, v_l.producto_id, v_l.presentacion_id, v_l.cantidad_presentacion, v_l.cantidad_base, 'POR_DESPACHAR')
+      returning id into v_nueva_linea_id;
+      update solicitud_traslado_linea set estado = 'CAMBIADA', reemplazada_por_id = v_nueva_linea_id, modificado_por = p_usuario, modificado_en = now() where id = v_l.id;
+    end loop;
+
+    for v_p in select * from jsonb_array_elements(v_parciales) loop
+      insert into solicitud_traslado_linea (solicitud_id, producto_id, presentacion_id, cantidad_presentacion, cantidad_base, estado, nota)
+      values (v_tanda_id, (v_p->>'producto_id')::bigint, null, (v_p->>'saldo')::numeric, (v_p->>'saldo')::numeric, 'POR_DESPACHAR',
+              'Saldo de despacho parcial de la línea ' || (v_p->>'linea_id'));
+    end loop;
+  end if;
+
+  -- Guardia: ninguna línea puede quedar POR_DESPACHAR en la solicitud despachada
+  if exists (select 1 from solicitud_traslado_linea where solicitud_id = p_solicitud_id and estado = 'POR_DESPACHAR') then
+    raise exception 'La solicitud % quedaría con líneas POR_DESPACHAR sin resolver', p_solicitud_id;
+  end if;
+
+  if v_total > 0 then
+    update solicitud_traslado set estado = 'EN_TRANSITO', despachado_por = p_usuario, despachado_en = now(),
+           reversible_hasta = now() + interval '30 minutes', ubicacion_destino_id = v_ubic_destino
+     where id = p_solicitud_id;
+  else
+    update solicitud_traslado set estado = 'CANCELADO',
+           nota = trim(both ' ' from coalesce(nota,'') || ' [cerrado sin envío: todas las líneas rechazadas o movidas a faltante]')
+     where id = p_solicitud_id;
+  end if;
+
+  return jsonb_build_object(
+    'solicitud_id', p_solicitud_id,
+    'estado', (select estado from solicitud_traslado where id = p_solicitud_id),
+    'cantidad_despachada', v_total,
+    'ubicacion_destino_id', v_ubic_destino,
+    'rechazadas', v_rechazadas,
+    'bloqueadas_por_stock', v_bloqueadas,
+    'omitidas', v_omitidas,
+    'parciales', v_parciales,
+    'tanda_faltante_id', v_tanda_id
+  );
+end; $function$;
+
+REVOKE ALL ON FUNCTION public.despachar_traslado(bigint,text,jsonb) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.despachar_traslado(bigint,text,jsonb) TO authenticated, service_role;
+
+
+CREATE OR REPLACE FUNCTION public.recibir_traslado(p_solicitud_id bigint, p_usuario text DEFAULT NULL::text, p_lineas jsonb DEFAULT NULL::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_sol           solicitud_traslado%rowtype;
+  v_ubic_destino  bigint;
+  v_l             record;
+  v_despachada    numeric;
+  v_recibida      numeric;
+  v_falta         numeric;
+  v_stock_actual  numeric;
+  v_faltantes     int   := 0;
+  v_detalle       jsonb := '[]'::jsonb;
+  v_no_despachadas jsonb;
+begin
+  select * into v_sol from solicitud_traslado where id = p_solicitud_id for update;
+  if not found then
+    raise exception 'Solicitud % no existe', p_solicitud_id;
+  end if;
+  if v_sol.estado <> 'EN_TRANSITO' then
+    raise exception 'La solicitud % está en estado % y no se puede recibir', p_solicitud_id, v_sol.estado;
+  end if;
+
+  v_ubic_destino := coalesce(v_sol.ubicacion_destino_id, ubicacion_recepcion(v_sol.sucursal_destino_id));
+  if v_ubic_destino is null then
+    raise exception 'La sucursal destino % no tiene ubicación de recepción configurada', v_sol.sucursal_destino_id;
+  end if;
+
+  -- F3: aviso de líneas que nunca salieron (casos heredados antes de este fix)
+  select coalesce(jsonb_agg(jsonb_build_object('linea_id', id, 'producto_id', producto_id, 'cantidad_base', cantidad_base) order by id), '[]'::jsonb)
+    into v_no_despachadas
+    from solicitud_traslado_linea
+   where solicitud_id = p_solicitud_id and estado = 'POR_DESPACHAR';
+
+  -- F3: solo se reciben líneas realmente despachadas
+  for v_l in select * from solicitud_traslado_linea
+              where solicitud_id = p_solicitud_id and estado = 'DESPACHADA' order by id
+  loop
+    v_despachada := coalesce(v_l.cantidad_despachada, 0);
+
+    v_recibida := v_despachada;
+    if p_lineas is not null then
+      select (x->>'cantidad_base')::numeric into v_recibida
+        from jsonb_array_elements(p_lineas) x
+       where (x->>'linea_id')::bigint = v_l.id;
+      v_recibida := coalesce(v_recibida, v_despachada);
+    end if;
+
+    if v_recibida < 0 or v_recibida > v_despachada then
+      raise exception 'Cantidad recibida inválida en la línea % (recibido %, despachado %)', v_l.id, v_recibida, v_despachada;
+    end if;
+
+    v_falta := v_despachada - v_recibida;
+
+    if v_falta > 0 then
+      perform pg_advisory_xact_lock(hashtext('stock:' || v_l.producto_id || ':' || v_ubic_destino));
+
+      select coalesce(sum(sa.cantidad_base), 0) into v_stock_actual
+        from stock_actual sa
+       where sa.producto_id = v_l.producto_id and sa.ubicacion_id = v_ubic_destino;
+
+      perform registrar_ajuste(v_l.producto_id, v_ubic_destino, v_stock_actual - v_falta,
+                               'Faltante en traslado', 'Traslado #' || p_solicitud_id, p_usuario, current_date);
+
+      v_faltantes := v_faltantes + 1;
+      v_detalle := v_detalle || jsonb_build_object(
+        'linea_id', v_l.id, 'producto_id', v_l.producto_id, 'despachado', v_despachada,
+        'recibido', v_recibida, 'faltante', v_falta, 'ubicacion_id', v_ubic_destino);
+    end if;
+
+    update solicitud_traslado_linea set cantidad_recibida = v_recibida where id = v_l.id;
+  end loop;
+
+  update solicitud_traslado
+     set estado = 'RECIBIDO', recibido_por = p_usuario, recibido_en = now()
+   where id = p_solicitud_id;
+
+  return jsonb_build_object(
+    'solicitud_id',          p_solicitud_id,
+    'estado',                'RECIBIDO',
+    'ubicacion_destino_id',  v_ubic_destino,
+    'lineas_con_faltante',   v_faltantes,
+    'faltantes',             v_detalle,
+    'lineas_no_despachadas', v_no_despachadas);
+end;
+$function$;
+
+REVOKE ALL ON FUNCTION public.recibir_traslado(bigint,text,jsonb) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.recibir_traslado(bigint,text,jsonb) TO authenticated, service_role;
