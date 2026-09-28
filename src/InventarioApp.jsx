@@ -124,19 +124,19 @@ function FilaInventario({ f, estado, bajo, onContar }) {
           </div>
         </div>
       </td>
-      <td className="px-3 py-2.5">
+      <td className="inventory-location px-3 py-2.5" data-label="Ubicación">
         <span className="flex items-center gap-1 text-slate-600">
           <MapPin size={12} className="text-slate-400" />
           {etiquetaUbicacion(f.codigo_zona, f.estante, f.nivel, f.compartimiento)}
         </span>
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">
+      <td className="inventory-quantity px-3 py-2.5 text-right tabular-nums" data-label="Cantidad">
         <CeldaCantidad f={f} estado={estado} bajo={bajo} />
       </td>
-      <td className="px-3 py-2.5 text-right font-medium text-slate-700 tabular-nums">
+      <td className="inventory-value px-3 py-2.5 text-right font-medium text-slate-700 tabular-nums" data-label="Valor">
         {precioFmt(f.valor_linea)}
       </td>
-      <td className="px-3 py-2.5 text-right">
+      <td className="inventory-action px-3 py-2.5 text-right">
         <button onClick={onContar} aria-label={`Contar ${f.producto_nombre}`}
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
           <ClipboardList size={12} /> Contar
@@ -380,7 +380,7 @@ export default function InventarioApp() {
           </p>
         </div>
         {/* Ajuste de umbral por defecto */}
-        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+        <div className="inventory-threshold flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
           <SlidersHorizontal size={14} className="text-slate-400" />
           <label htmlFor="inventario-umbral" className="text-xs text-slate-500">Umbral por defecto (para productos sin mínimo definido)</label>
           <input
@@ -450,7 +450,7 @@ export default function InventarioApp() {
           <ScanLine size={15} /> Escanear
         </button>
         {/* Filtros de alerta */}
-        <div className="flex rounded-lg border border-slate-300 p-0.5 text-sm">
+        <div className="inventory-alert-filters flex rounded-lg border border-slate-300 p-0.5 text-sm">
           {[
             { id: "todos", label: "Todos" },
             { id: "bajo",  label: "Stock bajo" },
@@ -474,8 +474,24 @@ export default function InventarioApp() {
 
       {/* Tabla */}
       <div className="cation-table-card">
-        <div className="cation-table-toolbar"><div><strong>Inventario actual</strong><span>{cargando ? "Cargando…" : `${filasFiltradas.length} líneas visibles`}</span></div></div>
-        <div className="cation-table-scroll" tabIndex={0} aria-label="Tabla de inventario, desplázate horizontalmente para ver todas las columnas">
+        <div className="cation-table-toolbar">
+          <div><strong>Inventario actual</strong><span>{cargando ? "Cargando…" : `${filasFiltradas.length} líneas visibles`}</span></div>
+          <div className="inventory-mobile-sort">
+            <label htmlFor="inventario-orden">Ordenar por</label>
+            <div>
+              <select id="inventario-orden" value={orden.campo}
+                onChange={e => setOrden(o => ({ ...o, campo: e.target.value }))}>
+                {Object.entries(ETIQUETA_CAMPO).map(([campo, etiqueta]) => <option key={campo} value={campo}>{etiqueta}</option>)}
+              </select>
+              <button type="button" onClick={() => setOrden(o => ({ ...o, asc: !o.asc }))}
+                aria-label={orden.asc ? "Cambiar a orden descendente" : "Cambiar a orden ascendente"}>
+                {orden.asc ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
+                <span>{orden.asc ? "Ascendente" : "Descendente"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="cation-table-scroll" tabIndex={0} aria-label="Inventario por producto y ubicación">
           <table className="cation-data-table cation-table-estado w-full text-sm">
             <caption className="sr-only">Estado del inventario por producto y ubicación</caption>
             <thead>

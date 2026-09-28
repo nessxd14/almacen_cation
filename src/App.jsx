@@ -29,6 +29,7 @@ import LoginScreen        from "./LoginScreen";
 import { useAuth } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
 import { AppNavContext } from "./lib/appNavContext";
+import "./ux.css";
 
 const TABS = [
   { id: "inventario", label: "Estado",        icon: Warehouse,       Comp: InventarioApp },
@@ -67,6 +68,7 @@ const GRUPOS = [
 // no ampliar esta lista sin volver a confirmar. ("revision" agregado por
 // brief_formulario_revision_capturas.md, que pide admin-only explícito.)
 const TABS_SOLO_ADMIN = new Set(["admin", "concilia", "huerfanos", "revision"]);
+const ACCESOS_MOVILES = ["inventario", "conteo", "catalogo", "pedidos"];
 
 export default function App() {
   const { cargando, usuario, signOut, reintentarPerfil, cargandoPerfil } = useAuth();
@@ -154,10 +156,20 @@ function AppShell({
   const [menuAbierto, setMenuAbierto] = useState(false);
   const menuButtonRef = useRef(null);
   const sidebarRef = useRef(null);
+  const mainRef = useRef(null);
+  const previousTabRef = useRef(tab);
+  const navigationRef = useRef(false);
+  useEffect(() => {
+    if (previousTabRef.current === tab) return;
+    previousTabRef.current = tab;
+    window.scrollTo({ top: 0, behavior: "instant" });
+    mainRef.current?.focus({ preventScroll: true });
+  }, [tab]);
   useEffect(() => {
     if (!menuAbierto) return undefined;
     const sidebar = sidebarRef.current;
     const menuButton = menuButtonRef.current;
+    const main = mainRef.current;
     const previo = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const focusables = () => [...sidebar.querySelectorAll('button:not(:disabled), a[href], select')]
@@ -189,12 +201,14 @@ function AppShell({
       document.removeEventListener("keydown", cerrarConEscape);
       window.removeEventListener("resize", cerrarEnEscritorio);
       requestAnimationFrame(() => {
+        if (navigationRef.current) { navigationRef.current = false; main?.focus({ preventScroll: true }); return; }
         if (window.innerWidth <= 760) menuButton?.focus();
         else sidebar?.querySelector('[aria-current="page"]')?.focus();
       });
     };
   }, [menuAbierto]);
   const seleccionarTab = (id) => {
+    navigationRef.current = menuAbierto && tab !== id;
     setTab(id);
     setMenuAbierto(false);
   };
@@ -250,7 +264,7 @@ function AppShell({
             <div className="glass-topbar-actions">
               {puedeElegir && sucursales.length > 0 && (
                 <label className="glass-branch"><Building2 size={17} /><span className="sr-only">Sucursal activa</span>
-                  <select value={sucursalActivaId ?? ""} onChange={(e) => setSucursalActiva(Number(e.target.value))}>
+                  <select aria-label="Sucursal activa" value={sucursalActivaId ?? ""} onChange={(e) => setSucursalActiva(Number(e.target.value))}>
                     {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                   </select>
                 </label>
@@ -258,8 +272,16 @@ function AppShell({
               {!puedeElegir && sucursalActivaId != null && <div className="glass-branch"><Building2 size={17} /><span>{nombreSucursal(sucursalActivaId)}</span></div>}
               <div className="glass-topbar-user"><span className="glass-avatar" aria-hidden="true">{usuario.nombre?.trim().charAt(0).toUpperCase() || "U"}</span><span>{usuario.nombre}</span></div>
             </div>
+            <nav className="glass-mobile-shortcuts" aria-label="Accesos rápidos">
+              {tabsVisibles.filter(item => ACCESOS_MOVILES.includes(item.id)).map(item => (
+                <button key={item.id} type="button" onClick={() => seleccionarTab(item.id)}
+                  aria-current={tabActivo.id === item.id ? "page" : undefined}>
+                  <item.icon size={18} /><span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
           </header>
-          <main className="glass-content" id="contenido-principal" tabIndex={-1}><Active /></main>
+          <main ref={mainRef} className="glass-content" id="contenido-principal" tabIndex={-1}><Active /></main>
         </div>
       </div>
     </AppNavContext.Provider>

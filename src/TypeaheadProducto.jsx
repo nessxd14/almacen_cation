@@ -16,16 +16,17 @@
  * se llama con un segundo argumento {presentacionIdPreferida}; los
  * consumidores que no lo esperan simplemente lo ignoran.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { Search } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { buscarAgrupado } from "./lib/operaciones";
 
-export default function TypeaheadProducto({ value, onChange, onSeleccionar, placeholder, className = "" }) {
+export default function TypeaheadProducto({ value, onChange, onSeleccionar, placeholder, className = "", label = "Buscar producto", id }) {
   const [grupos, setGrupos] = useState([]);
   const [buscando, setBuscando] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [errorResolver, setErrorResolver] = useState(null);
+  const listId = useId();
 
   // activeIndex se resetea acá, síncrono con cada cambio de value (no solo
   // cuando el debounce de abajo termina): si no se reseteara acá, un índice
@@ -33,16 +34,23 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
   // escribe/escanea un código nuevo, y el Enter terminaba seleccionando esa
   // fila vieja en vez de intentar resolver el código nuevo.
   useEffect(() => {
+    let activo = true;
+    // Reinicia el cursor al sincronizar una nueva búsqueda con el servidor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveIndex(-1);
     setErrorResolver(null);
-    if (!value.trim()) { setGrupos([]); return; }
+    setGrupos([]);
+    if (!value.trim()) { setGrupos([]); setBuscando(false); return; }
     setBuscando(true);
     const t = setTimeout(async () => {
-      const g = await buscarAgrupado(value);
-      setGrupos(g);
-      setBuscando(false);
+      try {
+        const g = await buscarAgrupado(value);
+        if (activo) { setGrupos(g); setBuscando(false); }
+      } catch {
+        if (activo) { setGrupos([]); setBuscando(false); setErrorResolver("No se pudieron buscar productos. Intenta nuevamente."); }
+      }
     }, 300);
-    return () => clearTimeout(t);
+    return () => { activo = false; clearTimeout(t); };
   }, [value]);
 
   // Lista plana de variantes seleccionables, en el mismo orden en que se
@@ -129,16 +137,20 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
     <div className={`relative ${className}`}>
       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
       <input
+        id={id || `${listId}-input`}
+        role="combobox" aria-label={label} aria-autocomplete="list" aria-controls={listId}
+        aria-expanded={variantesFlat.length > 0 || buscando}
+        aria-activedescendant={activeIndex >= 0 && variantesFlat[activeIndex] ? `${listId}-${variantesFlat[activeIndex].producto_id}` : undefined}
         value={value}
         onChange={e => onChange(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
       />
-      {errorResolver && <p className="mt-1 text-xs text-red-600">{errorResolver}</p>}
+      {errorResolver && <p role="alert" className="mt-1 text-xs text-red-600">{errorResolver}</p>}
       {(variantesFlat.length > 0 || buscando) && (
-        <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border bg-white shadow-lg divide-y">
-          {buscando && <p className="px-3 py-2 text-sm text-slate-400">Buscando…</p>}
+        <div id={listId} role="listbox" aria-label="Productos encontrados" aria-busy={buscando} className="ui-combobox-list absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border bg-white shadow-lg divide-y">
+          {buscando && <p role="status" className="px-3 py-2 text-sm text-slate-400">Buscando…</p>}
           {grupos.map(g => (
             <div key={g.familia_id ?? `p:${g.variantes[0].producto_id}`}>
               {g.variantes.length > 1 && (
@@ -151,9 +163,10 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
                   : v.nombre;
                 return (
                   <button key={v.producto_id}
+                    type="button" role="option" id={`${listId}-${v.producto_id}`} aria-selected={idx === activeIndex} tabIndex={-1}
                     onMouseEnter={() => setActiveIndex(idx)}
                     onClick={() => seleccionar(v)}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50
+                    className={`ui-combobox-result flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50
                       ${idx === activeIndex ? "bg-slate-100" : ""}`}>
                     <span className="flex-1 font-medium">{texto}</span>
                     {v.sku_interno && <span className="text-xs text-slate-400">{v.sku_interno}</span>}
