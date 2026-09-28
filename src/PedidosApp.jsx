@@ -32,14 +32,14 @@ import { objetivoPick, haySobreTurno, MOTIVOS_DESPACHO_FORZADO, MOTIVO_OTRO, mot
 import CodigosLinea from "./CodigosLinea";
 import BarraSeleccion from "./BarraSeleccion";
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
-import { resolverAutores, nombreAutor } from "./lib/autoria";
+import { resolverAutores, nombreAutor, solicitantePedido } from "./lib/autoria";
 import { useUsuarioActual } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
 import {
   ClipboardList, Plus, ChevronDown, ChevronUp, ChevronRight, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine, RefreshCw,
   ShoppingBag, Clock, Boxes, Printer, CheckSquare,
-  Ban, Repeat, Trash2, Warehouse, Store, SplitSquareHorizontal,
+  Ban, Repeat, Trash2, Warehouse, Store, SplitSquareHorizontal, Search,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -229,35 +229,54 @@ function textoSaldoLinea(saldoLibre, pendienteLinea, saldoIndisponible) {
 function ListaPedidos({ onNuevo }) {
   const [pedidos, setPedidos] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [autores, setAutores] = useState(new Map());
+  const [errorCarga, setErrorCarga] = useState(null);
   // El filtro vive en la URL (?categoria=MAYOR), no en estado local: así el
   // botón "volver" desde /pedidos/:id (brief S3) lo recupera solo, al volver
   // a esta misma entrada del historial — no hace falta cargarlo a mano.
   const [searchParams, setSearchParams] = useSearchParams();
   const filtroCategoria = searchParams.get("categoria") || "TODAS";
+  const busqueda = searchParams.get("buscar") || "";
+  const setBusqueda = value => {
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set("buscar", value); else params.delete("buscar");
+    setSearchParams(params, { replace: true });
+  };
   const setFiltroCategoria = (id) => {
-    setSearchParams(id === "TODAS" ? {} : { categoria: id }, { replace: true });
+    const params = new URLSearchParams(searchParams);
+    if (id === "TODAS") params.delete("categoria"); else params.set("categoria", id);
+    setSearchParams(params, { replace: true });
   };
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const { data } = await supabase
+    setErrorCarga(null);
+    const { data, error } = await supabase
       .from("pedido")
-      .select("id, categoria, referencia, estado, creado_en, cliente:cliente_id ( nombre ), pedido_linea ( estado )")
+      .select("id, categoria, referencia, estado, creado_en, creado_por, solicitado_por, cliente:cliente_id ( nombre ), pedido_linea ( estado )")
       .order("creado_en", { ascending: false })
       .limit(200);
-    setPedidos(data || []);
+    if (error) { setErrorCarga("No se pudieron cargar los pedidos."); setCargando(false); return; }
+    const lista = data || [];
+    setPedidos(lista);
+    setAutores(await resolverAutores(lista.flatMap(p => [p.creado_por, p.solicitado_por])));
     setCargando(false);
   }, []);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  useEffect(() => {
+    // Sincroniza la bandeja con el servidor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    cargar();
+  }, [cargar]);
 
-  const pedidosFiltrados = filtroCategoria === "TODAS"
-    ? pedidos
-    : pedidos.filter((p) => p.categoria === filtroCategoria);
+  const textoBusqueda = busqueda.trim().toLowerCase();
+  const pedidosFiltrados = pedidos.filter(p => (filtroCategoria === "TODAS" || p.categoria === filtroCategoria)
+    && (!textoBusqueda || [String(p.id), p.referencia, p.cliente?.nombre, solicitantePedido(p, autores)]
+      .some(v => v?.toLowerCase().includes(textoBusqueda))));
 
   return (
     <div className="max-w-7xl mx-auto pt-4 px-4 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
           <ClipboardList size={20} /> Pedidos
         </h1>
@@ -265,6 +284,17 @@ function ListaPedidos({ onNuevo }) {
           className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700">
           <Plus size={15} /> Nuevo pedido
         </button>
+      </div>
+
+      <div className="cation-filters flex flex-wrap items-center gap-2">
+        <div className="cation-filter-search relative min-w-0 flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input aria-label="Buscar pedidos" value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            placeholder="Pedido, cliente, referencia o solicitante…"
+            className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-12 text-sm" />
+          {busqueda && <button type="button" className="ui-search-clear" aria-label="Limpiar búsqueda de pedidos" onClick={() => setBusqueda("")}><X size={16} /></button>}
+        </div>
+        <button type="button" disabled={cargando} onClick={cargar} className="ui-reset inline-flex items-center gap-1.5"><RefreshCw size={15} />Actualizar</button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -280,18 +310,22 @@ function ListaPedidos({ onNuevo }) {
         ))}
       </div>
 
+      {errorCarga && <div className="ui-feedback ui-feedback-error" role="alert"><AlertTriangle size={18} /><span>{errorCarga}</span><button type="button" onClick={cargar}>Reintentar</button></div>}
       {cargando ? (
         <div className="py-16 text-center text-slate-400">Cargando pedidos…</div>
-      ) : pedidosFiltrados.length === 0 ? (
+      ) : errorCarga && !pedidos.length ? null : pedidosFiltrados.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 py-16 text-center">
           <ShoppingBag size={32} className="mx-auto mb-3 text-slate-300" />
-          <p className="text-sm text-slate-400">Sin pedidos todavía.</p>
+          <p className="text-sm text-slate-400">{busqueda || filtroCategoria !== "TODAS" ? "No hay pedidos que coincidan con estos filtros." : "Sin pedidos todavía."}</p>
+          {(busqueda || filtroCategoria !== "TODAS") && <button type="button" className="ui-reset mt-3" onClick={() => {
+            const params = new URLSearchParams(searchParams); params.delete("buscar"); params.delete("categoria"); setSearchParams(params, { replace: true });
+          }}>Limpiar filtros</button>}
         </div>
       ) : (
         <div className="cation-list-table">
           <div className="cation-list-toolbar"><strong>Bandeja de pedidos</strong><span>{pedidosFiltrados.length} mostrados</span></div>
           <div className="order-list-head" aria-hidden="true">
-            <span>Pedido</span><span>Categoría</span><span>Cliente / referencia</span><span>Fecha</span><span>Detalle de líneas</span><span>Estado</span><span />
+            <span>Pedido</span><span>Categoría</span><span>Cliente / referencia</span><span>Solicitante</span><span>Fecha</span><span>Detalle de líneas</span><span>Estado</span><span />
           </div>
           {pedidosFiltrados.map((p) => (
             // <a> real (vía Link) — no onClick: rueda del mouse y Ctrl+clic
@@ -300,6 +334,7 @@ function ListaPedidos({ onNuevo }) {
               <span className="order-cell order-id" data-label="Pedido">#{p.id}</span>
               <span className="order-cell order-category" data-label="Categoría">{labelCategoria(p.categoria)}</span>
               <span className="order-cell order-client" data-label="Cliente / referencia">{p.cliente?.nombre || p.referencia || "—"}</span>
+              <span className="order-cell order-requester" data-label="Solicitante" title={solicitantePedido(p, autores)}>{solicitantePedido(p, autores)}</span>
               <span className="order-cell order-date" data-label="Fecha">{fechaFmt(p.creado_en)}</span>
               <span className="order-cell order-lines" data-label="Líneas">
                 <small>{p.pedido_linea?.length ?? 0} línea{p.pedido_linea?.length === 1 ? "" : "s"}</small>
@@ -1685,7 +1720,7 @@ export function DetallePedido({ pedidoId, onBack }) {
     setCargando(false);
     // creado_por es un solo email acá (no hace falta el batch de la lista),
     // pero se reusa resolverAutores para no duplicar la consulta a perfil.
-    if (p?.creado_por) resolverAutores([p.creado_por]).then(setAutores);
+    if (p?.creado_por || p?.solicitado_por) resolverAutores([p.creado_por, p.solicitado_por]).then(setAutores);
   }, [pedidoId]);
 
   useEffect(() => { cargar(); }, [cargar]);
@@ -1867,11 +1902,11 @@ export function DetallePedido({ pedidoId, onBack }) {
   return (
     <div className="max-w-2xl mx-auto pt-4 px-4 pb-8">
       <div className="print:hidden space-y-4">
-        <div className="flex items-center gap-2">
-          <button onClick={onBack} className="text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={onBack} aria-label="Volver a pedidos" className="ui-icon-button text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
           <h1 className="text-lg font-semibold text-slate-800">Pedido #{pedido.id}</h1>
           <BadgePedido estado={pedido.estado} />
-          <button onClick={cargar} title="Actualizar (recarga completa)"
+          <button onClick={cargar} title="Actualizar (recarga completa)" aria-label="Actualizar detalle del pedido"
             className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
             <RefreshCw size={14} />
           </button>
@@ -1922,6 +1957,9 @@ export function DetallePedido({ pedidoId, onBack }) {
               ? <>Convertido por {nombreAutor(pedido.creado_por, autores)} · desde cotización #{pedido.cotizacion_origen_id}</>
               : <>Creado por {nombreAutor(pedido.creado_por, autores)}</>}
           </p>
+        )}
+        {pedido.solicitado_por?.trim() && pedido.solicitado_por !== pedido.creado_por && (
+          <p className="text-xs text-slate-500">Solicitante: {solicitantePedido(pedido, autores)}</p>
         )}
 
         {eventosPedido.length > 0 && (

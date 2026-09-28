@@ -215,21 +215,21 @@ export default function VentaDirectaApp() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
           <PackageCheck size={20} /> Venta directa de almacén
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
           <form
             onSubmit={(e) => { e.preventDefault(); if (busqueda.trim()) buscar(busqueda); }}
-            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5"
+            className="flex w-full min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5 sm:w-auto"
           >
             <Search size={14} className="text-slate-400" />
             <input
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               placeholder="VTD-2026-00008 o id"
-              className="w-36 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+              className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none sm:w-36"
             />
           </form>
           <button

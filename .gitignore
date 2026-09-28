@@ -31,3 +31,8 @@ dist-ssr
 
 # Supabase local
 supabase/.temp/
+# QA local
+qa-product.*
+design/*.png
+design/*.cjs
+!design/glassmorphism-concept.png

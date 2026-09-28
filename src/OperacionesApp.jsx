@@ -366,9 +366,9 @@ export default function OperacionesApp() {
       </div>
 
       {/* selector de modo */}
-      <div className="grid grid-cols-4 gap-1 bg-slate-100 rounded-xl p-1">
+      <div className={`grid ${modosVisibles.length === 3 ? "grid-cols-3" : "grid-cols-2"} gap-1 bg-slate-100 rounded-xl p-1`}>
         {modosVisibles.map(({ id, label, icon: Icon, color }) => (
-          <button key={id} onClick={() => { setModo(id); resetForm(); }}
+          <button key={id} aria-pressed={modo === id} onClick={() => { setModo(id); resetForm(); }}
             className={`flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium transition-colors
               ${modo === id ? "bg-white shadow-sm " + color : "text-slate-500 hover:text-slate-700"}`}>
             <Icon size={16} />
@@ -376,6 +376,7 @@ export default function OperacionesApp() {
           </button>
         ))}
       </div>
+      <p className="text-xs text-slate-500">{modo === "ENTRADA" ? "Registra mercadería que llega al almacén." : modo === "TRASLADO" ? "Mueve unidades entre una ubicación de origen y otra de destino." : "Actualiza el stock a la cantidad física verificada e indica el motivo."}</p>
 
       {flash && (
         <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm
@@ -388,7 +389,7 @@ export default function OperacionesApp() {
       )}
 
       {/* formulario */}
-      <div className="bg-white border rounded-xl p-4 space-y-3">
+      <div className="operation-form bg-white border rounded-xl p-4 space-y-3">
 
         {/* escanear código */}
         <button onClick={() => setShowScanner(true)}
@@ -409,12 +410,13 @@ export default function OperacionesApp() {
             </button>
           </div>
         ) : (
-          <TypeaheadProducto
+          <div><label htmlFor="operacion-producto" className="ui-field-label">Producto</label><TypeaheadProducto
+            id="operacion-producto"
             value={queryProducto}
             onChange={setQueryProducto}
             onSeleccionar={elegirProducto}
             placeholder="Buscar producto por nombre o SKU…"
-          />
+          /></div>
         )}
 
         {/* presentación — solo Entrada (Parte A). Traslado/Ajuste operan
@@ -422,7 +424,8 @@ export default function OperacionesApp() {
             base, nunca arranca en la de bulto (ver el efecto que carga
             presentacionesProducto). */}
         {modo === "ENTRADA" && (
-          <select value={presentacionId} onChange={(e) => setPresentacionId(e.target.value)}
+          <div><label htmlFor="operacion-presentacion" className="ui-field-label">Presentación</label><select id="operacion-presentacion" value={presentacionId} onChange={(e) => setPresentacionId(e.target.value)}
+            aria-label="Presentación de entrada"
             disabled={!productoSeleccionado || cargandoPresentaciones}
             className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
             <option value="">— Presentación —</option>
@@ -431,11 +434,12 @@ export default function OperacionesApp() {
                 {p.nombre} (×{p.factor_unidad_base} {productoSeleccionado?.unidad_base})
               </option>
             ))}
-          </select>
+          </select></div>
         )}
 
         {/* ubicación origen (filtrada por modo — Parte 2) */}
-        <select value={ubicacionId} onChange={(e) => setUbicacionId(e.target.value)}
+        <div><label htmlFor="operacion-ubicacion" className="ui-field-label">{modo === "TRASLADO" ? "Ubicación de origen" : "Ubicación"}</label><select id="operacion-ubicacion" value={ubicacionId} onChange={(e) => setUbicacionId(e.target.value)}
+          aria-label={modo === "TRASLADO" ? "Ubicación de origen" : "Ubicación"}
           disabled={!productoSeleccionado}
           className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
           <option value="">{modo === "TRASLADO" ? "— Ubicación origen —" : "— Ubicación —"}</option>
@@ -444,7 +448,7 @@ export default function OperacionesApp() {
               {u.label}{u.cantidad_base != null ? ` (stock: ${u.cantidad_base})` : ""}{u.es_principal ? " · principal" : ""}
             </option>
           ))}
-        </select>
+        </select></div>
         {productoSeleccionado && ubicacionesOrigen.length === 0 && modo === "TRASLADO" && (
           <p className="text-xs text-amber-600 flex items-center gap-1">
             <AlertTriangle size={12} /> Sin stock disponible para trasladar.
@@ -475,7 +479,9 @@ export default function OperacionesApp() {
         {/* ubicación destino (solo TRASLADO) */}
         {modo === "TRASLADO" && (
           <>
-            <select value={ubicacionDestinoId} onChange={(e) => setUbicacionDestinoId(e.target.value)}
+            <label htmlFor="operacion-destino" className="ui-field-label">Ubicación de destino</label>
+            <select id="operacion-destino" value={ubicacionDestinoId} onChange={(e) => setUbicacionDestinoId(e.target.value)}
+              aria-label="Ubicación de destino"
               disabled={!productoSeleccionado}
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40">
               <option value="">— Ubicación destino —</option>
@@ -497,7 +503,9 @@ export default function OperacionesApp() {
             conversión en vivo (Parte A). */}
         {modo === "ENTRADA" && (
           <div>
-            <input type="number" min="0.001" step="any" value={cantidad}
+            <label htmlFor="operacion-cantidad" className="ui-field-label">Cantidad a recibir</label>
+            <input id="operacion-cantidad" type="number" min="0.001" step="any" value={cantidad}
+              aria-label="Cantidad de entrada" inputMode="decimal"
               onChange={(e) => setCantidad(e.target.value)}
               placeholder="Cantidad (en unidades de presentación)"
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
@@ -514,7 +522,9 @@ export default function OperacionesApp() {
             presentación de paquete/bote — no editable, no afecta el envío. */}
         {modo === "TRASLADO" && (
           <div>
-            <input type="number" min="0.001" step="any" value={cantidad}
+            <label htmlFor="operacion-cantidad" className="ui-field-label">Cantidad a trasladar</label>
+            <input id="operacion-cantidad" type="number" min="0.001" step="any" value={cantidad}
+              aria-label="Cantidad a trasladar" inputMode="decimal"
               onChange={(e) => setCantidad(e.target.value)}
               placeholder={`Cantidad (${productoSeleccionado?.unidad_base || "unidades"} base)`}
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
@@ -527,7 +537,9 @@ export default function OperacionesApp() {
         {/* cantidad objetivo (solo AJUSTE — en unidades base) */}
         {modo === "AJUSTE" && (
           <div>
-            <input type="number" min="0" step="any" value={cantidadObjetivo}
+            <label htmlFor="operacion-objetivo" className="ui-field-label">Cantidad física verificada</label>
+            <input id="operacion-objetivo" type="number" min="0" step="any" value={cantidadObjetivo}
+              aria-label="Cantidad objetivo" inputMode="decimal"
               onChange={(e) => setCantidadObjetivo(e.target.value)}
               placeholder="Cantidad objetivo (unidades base)"
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
@@ -544,15 +556,17 @@ export default function OperacionesApp() {
 
         {/* motivo (solo AJUSTE) */}
         {modo === "AJUSTE" && (
-          <input value={motivo} onChange={(e) => setMotivo(e.target.value)}
+          <div><label htmlFor="operacion-motivo" className="ui-field-label">Motivo del ajuste <span aria-hidden="true">*</span></label><input id="operacion-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)}
+            aria-label="Motivo del ajuste"
             placeholder="Motivo del ajuste *"
-            className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+            className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" /></div>
         )}
 
         {/* referencia */}
-        <input value={referencia} onChange={(e) => setReferencia(e.target.value)}
+        <div><label htmlFor="operacion-referencia" className="ui-field-label">Referencia <span className="font-normal">(opcional)</span></label><input id="operacion-referencia" value={referencia} onChange={(e) => setReferencia(e.target.value)}
+          aria-label="Referencia de la operación"
           placeholder="Referencia (factura, OC, etc.)"
-          className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" /></div>
 
         {/* SQL preview */}
         {sqlPreview && (

@@ -3,9 +3,9 @@
  * resolverlo contra `perfil` para mostrar un nombre legible, con el email
  * como respaldo si no hay perfil (usuario borrado, cuenta externa, etc).
  *
- * OJO: `pedido.solicitado_por` y `venta.vendedor_id` están vacíos en
- * producción (0/341 y 0/24) — no usarlos, ver brief. La autoría es siempre
- * `creado_por`.
+ * `creado_por` sigue siendo la autoría. El solicitante del pedido es un
+ * dato separado y puede faltar en pedidos antiguos; en ese caso se usa
+ * la autoría como respaldo para la bandeja.
  */
 import { supabase } from "../supabaseClient";
 
@@ -13,7 +13,7 @@ import { supabase } from "../supabaseClient";
 // listas. Devuelve Map<email, nombre>; un email sin perfil simplemente no
 // aparece en el mapa (el llamador cae al email como respaldo).
 export async function resolverAutores(emails) {
-  const unicos = [...new Set((emails || []).filter(Boolean))];
+  const unicos = [...new Set((emails || []).map(email => email?.trim()).filter(Boolean))];
   if (unicos.length === 0) return new Map();
   const { data } = await supabase.from("perfil").select("nombre, email").in("email", unicos);
   return new Map((data || []).map((p) => [p.email, p.nombre]));
@@ -29,4 +29,9 @@ export async function resolverAutor(email) {
 export function nombreAutor(email, mapa) {
   if (!email) return "—";
   return mapa?.get(email) || email;
+}
+
+export function solicitantePedido(pedido, mapa) {
+  const solicitante = pedido.solicitado_por?.trim() || pedido.creado_por?.trim();
+  return nombreAutor(solicitante, mapa);
 }

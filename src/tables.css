@@ -136,3 +136,45 @@
   .cation-table-surtido td.cation-sticky-product p.font-medium,
   .cation-table-estado td.cation-sticky-product p.font-medium { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow: hidden; }
 }
+
+.inventory-mobile-sort { display: none !important; }
+@media (max-width:760px) {
+  .inventory-threshold { width: 100%; min-width: 0; }
+  .inventory-threshold label { flex: 1; }
+  .inventory-threshold > svg,.inventory-threshold input { flex: none; }
+  .inventory-alert-filters { width: 100%; }
+  .inventory-alert-filters button { flex: 1; padding-inline: 8px; }
+  .glass-inventory .cation-table-toolbar { gap: 14px; }
+  .inventory-mobile-sort { display: grid !important; width: 100%; gap: 5px; }
+  .inventory-mobile-sort label { color: #526f8c; font-size: 12px; font-weight: 650; }
+  .inventory-mobile-sort > div { display: flex; gap: 8px; }
+  .inventory-mobile-sort select { flex: 1; min-width: 0; padding: 8px; border: 1px solid #c1d5e8; border-radius: 9px; }
+  .inventory-mobile-sort button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px; border: 1px solid #c1d5e8; border-radius: 9px; color: #285484; background: #fff; font-size: 12px; }
+  .cation-table-estado { display: block; min-width: 0; }
+  .cation-table-estado thead { display: none; }
+  .cation-table-estado tbody { display: grid; gap: 10px; padding: 10px; }
+  .cation-table-estado tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); overflow: hidden; border: 1px solid #d5e3f1; border-radius: 12px; background: #f9fbfe; }
+  .cation-table-estado tbody td { min-width: 0; padding: 10px 12px; border: 0; text-align: left; overflow-wrap: anywhere; }
+  .cation-table-estado tbody td.cation-sticky-product { position: static; grid-column: 1 / -1; width: auto; min-width: 0; max-width: none; box-shadow: none; border-bottom: 1px solid #d5e3f1; }
+  .cation-table-estado td.cation-sticky-product > div { max-width: none; align-items: flex-start; }
+  .cation-table-estado td.cation-sticky-product p { white-space: normal; overflow-wrap: anywhere; }
+  .cation-table-estado td.cation-sticky-product p.font-medium { display: block; overflow: visible; font-size: 14px; }
+  .cation-table-estado td[data-label]::before { display: block; content: attr(data-label); margin-bottom: 5px; color: #59738d; font-size: 11px; font-weight: 750; }
+  .cation-table-estado .inventory-location,.cation-table-estado .inventory-quantity { grid-column: 1 / -1; }
+  .cation-table-estado .inventory-location svg { flex: none; }
+  .cation-table-estado .inventory-quantity > span { flex-wrap: wrap; }
+  .cation-table-estado .inventory-action { display: flex; align-items: end; justify-content: flex-end; }
+  .cation-table-estado .inventory-action button { padding: 8px 12px; font-size: 13px; }
+  .cation-table-estado tbody td[colspan] { grid-column: 1 / -1; }
+  .cation-table-estado tbody tr.cation-family-row { border: 0; border-radius: 8px; }
+  .glass-inventory .cation-table-hint { display: none; }
+}
+@media print {
+  .glass-inventory .inventory-mobile-sort { display: none !important; }
+  .cation-table-estado { display: table; }
+  .cation-table-estado thead { display: table-header-group; }
+  .cation-table-estado tbody { display: table-row-group; padding: 0; }
+  .cation-table-estado tbody tr { display: table-row; }
+  .cation-table-estado tbody td,.cation-table-estado .inventory-action { display: table-cell; }
+  .cation-table-estado td[data-label]::before { display: none; }
+}

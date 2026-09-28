@@ -1,11 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import { metaProducto } from "./lib/producto";
 import { useSucursal } from "./lib/useSucursal";
+import ImagenProducto from "./ImagenProducto";
+import CatalogDialog from "./CatalogDialog";
+import { resolverAutores, nombreAutor } from "./lib/autoria";
+import "./historial.css";
 import {
   ArrowDownToLine, ArrowUpFromLine, Sliders, ArrowLeftRight, PackagePlus,
-  Search, Calendar, User, FileText, MapPin, Filter, History as HistoryIcon, ScanLine
+  Search, Calendar, User, FileText, MapPin, Filter, History as HistoryIcon, ScanLine, X, ChevronRight, RefreshCw, AlertTriangle
 } from "lucide-react";
 
 // ─── Configuración de tipos de movimiento ────────────────────────────────────
@@ -54,94 +58,73 @@ function etiquetaUbicacion(u, nombreSucursal) {
 
 // ─── Una fila de movimiento ──────────────────────────────────────────────────
 
-// Card apilada — reemplaza la fila de tabla de 8 columnas (desbordaba en
-// anchos normales, forzando scroll horizontal). Fecha+Tipo arriba,
-// Producto/Ubicación/Referencia en el cuerpo con wrap libre, Cant./Saldo
-// destacados a la derecha (abajo en columna en pantallas chicas).
-function FilaMovimiento({ mov, mostrarProducto, nombreSucursal }) {
+function BadgeMovimiento({ mov }) {
   const cfg = TIPOS[mov.tipo_movimiento] || { label: mov.tipo_movimiento, icon: FileText, color: "slate", signo: "" };
   const Icono = cfg.icon;
+  return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${COLORES[cfg.color]}`}>
+    <Icono size={12} /> {cfg.label}
+  </span>;
+}
+
+function ResumenMovimiento({ mov, historico = false }) {
   const cantidad = Number(mov.cantidad);
   const signoColor = cantidad < 0 ? "text-red-600" : cantidad > 0 ? "text-emerald-600" : "text-slate-600";
+  const unidad = mov.producto?.unidad_base || "";
+  return <dl className="history-balances">
+    <div><dt>Movimiento</dt><dd className={signoColor}>{cantidad > 0 ? "+" : ""}{cantidadFmt(cantidad)} <small>{unidad}</small></dd></div>
+    <div><dt>Saldo en ubicación</dt><dd className={Number(mov.saldo_base) < 0 ? "text-red-600" : ""}>{mov.saldo_base == null ? "—" : cantidadFmt(mov.saldo_base)}</dd></div>
+    <div><dt>{historico ? "Saldo total después" : "Stock disponible actual"}</dt><dd className={Number(mov.saldoTotalAlmacen) < 0 ? "text-red-600" : ""}>{mov.saldoTotalAlmacen == null ? "—" : cantidadFmt(mov.saldoTotalAlmacen)}</dd></div>
+  </dl>;
+}
 
-  return (
-    <div className="flex flex-col gap-3 px-3 py-3 hover:bg-slate-50 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${COLORES[cfg.color]}`}>
-            <Icono size={11} /> {cfg.label}
-          </span>
-          {mov.esVentaDirecta && (
-            <span className="inline-flex items-center rounded-full bg-pink-100 px-2 py-0.5 text-xs font-semibold text-pink-700">
-              VTD
-            </span>
-          )}
-          <span className="flex items-center gap-1 text-xs text-slate-500">
-            <Calendar size={11} className="text-slate-400" />
-            {fechaFmt(mov.creado_en)}
-          </span>
-        </div>
+function FilaMovimiento({ mov, mostrarProducto, nombreSucursal, autores, onAbrir }) {
+  const nombre = mov.producto?.nombre || `Producto #${mov.producto_id}`;
+  return <button type="button" className="history-row" onClick={onAbrir} aria-label={`Ver transacción #${mov.id}: ${nombre}`} aria-haspopup="dialog">
+    <ImagenProducto url={mov.producto?.imagen_url} nombre={nombre} className="history-thumbnail" />
+    <span className="history-row-content">
+      <span className="history-row-meta"><BadgeMovimiento mov={mov} />
+        {mov.esVentaDirecta && <span className="history-vtd">VTD</span>}
+        <span><Calendar size={12} /> {fechaFmt(mov.creado_en)}</span>
+      </span>
+      {mostrarProducto && <span className="history-product-name">{nombre}</span>}
+      {mostrarProducto && metaProducto(mov.producto) && <span className="history-product-meta">{metaProducto(mov.producto)}</span>}
+      <span className="history-location"><MapPin size={13} />{etiquetaUbicacion(mov.ubicacion, nombreSucursal)}</span>
+      {mov.referencia && <span className="history-reference">{mov.referencia}</span>}
+      <span className="history-author"><User size={12} />{nombreAutor(mov.creado_por, autores)}</span>
+    </span>
+    <ResumenMovimiento mov={mov} historico={!mostrarProducto} />
+    <span className="history-open">Ver detalle <ChevronRight size={16} /></span>
+  </button>;
+}
 
-        {mostrarProducto && (
-          <div>
-            <p className="text-sm font-medium text-slate-800">{mov.producto?.nombre || `#${mov.producto_id}`}</p>
-            {metaProducto(mov.producto) && (
-              <p className="text-xs text-slate-500">{metaProducto(mov.producto)}</p>
-            )}
-          </div>
-        )}
-
-        <p className="flex items-center gap-1 text-sm text-slate-600">
-          <MapPin size={12} className="shrink-0 text-slate-400" />
-          {etiquetaUbicacion(mov.ubicacion, nombreSucursal)}
-        </p>
-
-        {(mov.referencia || mov.motivo) && (
-          <div className="text-sm text-slate-600">
-            {mov.referencia && <p>{mov.referencia}</p>}
-            {mov.motivo && <p className="text-xs text-slate-400">{mov.motivo}</p>}
-          </div>
-        )}
-
-        <p className="flex items-center gap-1 text-xs text-slate-500">
-          <User size={11} className="text-slate-400" />
-          {mov.creado_por || "—"}
-        </p>
+function DetalleMovimiento({ mov, autores, nombreSucursal, historico, onClose }) {
+  const nombre = mov.producto?.nombre || `Producto #${mov.producto_id}`;
+  return <CatalogDialog label={`Detalle de transacción #${mov.id}`} className="history-dialog" onClose={onClose}>
+    <header className="history-dialog-header">
+      <div><span className="history-eyebrow">HISTORIAL DE MOVIMIENTOS</span><h2>Transacción #{mov.id}</h2></div>
+      <button type="button" className="product-image-close" aria-label="Cerrar detalle" onClick={onClose}><X size={20} /></button>
+    </header>
+    <div className="history-dialog-body">
+      <div className="history-detail-product">
+        <ImagenProducto url={mov.producto?.imagen_url} nombre={nombre} className="history-detail-photo" ampliable />
+        <div><BadgeMovimiento mov={mov} /><h3>{nombre}</h3><p>{metaProducto(mov.producto)}</p>{mov.esVentaDirecta && <span className="history-vtd">Venta directa</span>}</div>
       </div>
-
-      {/* Label + valor en la misma línea, cada renglón en su propio <p>: con 3
-          renglones y labels largos ("Saldo total del almacén"), un contenedor
-          flex con align-items distinto de stretch (items-end, o text-right en
-          cualquier nivel) desbordaba el ancho de la tarjeta en este árbol de
-          contenedores — reproducido de forma aislada y consistente, no es
-          solo una cuestión de espacio disponible. Este bloque no usa flex ni
-          text-align:right para no disparar ese desborde. */}
-      <div className="shrink-0 space-y-1 sm:space-y-1.5">
-        <p>
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cant. </span>
-          <span className={`text-base font-bold leading-tight ${signoColor}`}>
-            {cantidad > 0 ? "+" : ""}{cantidadFmt(cantidad)}
-          </span>
-        </p>
-        <p>
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saldo en esta ubicación </span>
-          <span className={`text-sm font-medium leading-tight ${
-            mov.saldo_base == null ? "text-slate-400" : Number(mov.saldo_base) < 0 ? "text-red-600" : "text-slate-700"
-          }`}>
-            {mov.saldo_base == null ? "—" : cantidadFmt(mov.saldo_base)}
-          </span>
-        </p>
-        <p>
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saldo total del almacén </span>
-          <span className={`text-sm font-medium leading-tight ${
-            mov.saldoTotalAlmacen == null ? "text-slate-400" : Number(mov.saldoTotalAlmacen) < 0 ? "text-red-600" : "text-slate-700"
-          }`}>
-            {mov.saldoTotalAlmacen == null ? "—" : cantidadFmt(mov.saldoTotalAlmacen)}
-          </span>
-        </p>
-      </div>
+      <ResumenMovimiento mov={mov} historico={historico} />
+      <p className="history-balance-note">{historico
+        ? "Los saldos corresponden al momento posterior a esta transacción."
+        : "El saldo en ubicación es histórico. El stock disponible corresponde al inventario actual de la sucursal."}</p>
+      <dl className="history-detail-fields">
+        <div><dt>Registrado por</dt><dd>{nombreAutor(mov.creado_por, autores)}</dd></div>
+        <div><dt>Fecha de registro</dt><dd>{fechaFmt(mov.creado_en)}</dd></div>
+        <div className="history-field-wide"><dt>Sucursal y ubicación</dt><dd>{etiquetaUbicacion(mov.ubicacion, nombreSucursal)}</dd></div>
+        <div className="history-field-wide"><dt>Referencia</dt><dd>{mov.referencia || "Sin referencia"}</dd></div>
+        <div className="history-field-wide"><dt>Motivo</dt><dd>{mov.motivo || "Sin motivo registrado"}</dd></div>
+        {mov.fecha_efectiva && <div><dt>Fecha efectiva</dt><dd>{new Date(`${mov.fecha_efectiva}T12:00:00`).toLocaleDateString("es-BO")}</dd></div>}
+        {mov.traslado_grupo_id != null && <div><dt>Grupo de traslado</dt><dd>#{mov.traslado_grupo_id}</dd></div>}
+      </dl>
     </div>
-  );
+    <footer className="history-dialog-footer"><span>Registro de consulta</span><button type="button" onClick={onClose}>Cerrar</button></footer>
+  </CatalogDialog>;
 }
 
 // Filas por página al navegar el Kardex de UN producto vía RPC (ver abajo).
@@ -182,6 +165,13 @@ export function HistorialMovimientos({ productoId = null }) {
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
   const [showScanner, setShowScanner] = useState(false);
+  const [seleccionado, setSeleccionado] = useState(null);
+  const [autores, setAutores] = useState(new Map());
+  const [errorCarga, setErrorCarga] = useState(null);
+  const requestRef = useRef(0);
+  const invalidarPeticiones = useCallback(() => { requestRef.current++; }, []);
+  const intentoPaginaRef = useRef({ off: 0, reset: true });
+  const scope = `${productoId}:${sucursalActivaId}`;
 
   const handleScan = useCallback(async (codigo) => {
     setShowScanner(false);
@@ -209,18 +199,25 @@ export function HistorialMovimientos({ productoId = null }) {
   // PAGE_SIZE con p_limit/p_offset — "Cargar más" pide la siguiente página,
   // nunca se trae todo de una para paginar en el front.
   const cargarPaginaProducto = useCallback(async (off, reset) => {
+    intentoPaginaRef.current = { off, reset };
+    const request = ++requestRef.current;
+    setErrorCarga(null);
     if (reset) setCargando(true); else setCargandoMas(true);
     const { data, error } = await supabase.rpc("obtener_kardex_producto", {
       p_producto_id: productoId,
       p_limit: PAGE_SIZE,
       p_offset: off,
     });
+    if (request !== requestRef.current) return;
     if (error) {
       console.error("obtener_kardex_producto:", error);
+      setErrorCarga("No se pudo cargar el historial. Intenta nuevamente.");
       if (reset) setCargando(false); else setCargandoMas(false);
       return;
     }
     const filas = data || [];
+    const { data: producto } = await supabase.from("producto")
+      .select("id, nombre, sku_interno, marca, imagen_url, unidad_base").eq("id", productoId).maybeSingle();
 
     // estante/nivel/compartimiento no vienen de la función (solo
     // codigo_zona + sucursal_id) — batch aparte a `ubicacion`, no a Kardex.
@@ -237,12 +234,15 @@ export function HistorialMovimientos({ productoId = null }) {
     const normalizadas = filas.map(f => ({
       id: f.id,
       producto_id: productoId,
+      producto,
       cantidad: f.cantidad,
       tipo_movimiento: f.tipo_movimiento,
       referencia: f.referencia,
       motivo: f.motivo,
       creado_por: f.creado_por,
       creado_en: f.creado_en,
+      fecha_efectiva: f.fecha_efectiva,
+      traslado_grupo_id: f.traslado_grupo_id,
       ubicacion: {
         codigo_zona: f.codigo_zona,
         sucursal_id: f.sucursal_id,
@@ -252,7 +252,9 @@ export function HistorialMovimientos({ productoId = null }) {
       saldoTotalAlmacen: f.saldo_total_almacen,
     }));
 
-    await marcarVentaDirecta(normalizadas);
+    const [, mapaAutores] = await Promise.all([marcarVentaDirecta(normalizadas), resolverAutores(normalizadas.map(m => m.creado_por))]);
+    if (request !== requestRef.current) return;
+    setAutores(prev => reset ? mapaAutores : new Map([...prev, ...mapaAutores]));
 
     setMovs(prev => (reset ? normalizadas : [...prev, ...normalizadas]));
     setOffset(off + filas.length);
@@ -268,13 +270,15 @@ export function HistorialMovimientos({ productoId = null }) {
   // valor vigente de stock_actual (no histórico) por la misma razón.
   const cargarGlobal = useCallback(async () => {
     if (!sucursalActivaId) return;
+    const request = ++requestRef.current;
+    setErrorCarga(null);
     setCargando(true);
     let query = supabase
       .from("kardex_transacciones")
       .select(`
         id, producto_id, cantidad, tipo_movimiento, referencia, motivo,
         fecha_efectiva, creado_por, creado_en, traslado_grupo_id,
-        producto:producto_id(nombre, sku_interno, marca),
+        producto:producto_id(nombre, sku_interno, marca, imagen_url, unidad_base),
         ubicacion:ubicacion_id!inner(codigo_zona, estante, nivel, compartimiento, sucursal_id)
       `)
       .eq("ubicacion.sucursal_id", sucursalActivaId)
@@ -283,7 +287,9 @@ export function HistorialMovimientos({ productoId = null }) {
 
     if (filtroTipo) query = query.eq("tipo_movimiento", filtroTipo);
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (request !== requestRef.current) return;
+    if (error) { setErrorCarga("No se pudo cargar el historial. Intenta nuevamente."); setCargando(false); return; }
     let lista = data || [];
 
     if (busqueda.trim()) {
@@ -316,7 +322,7 @@ export function HistorialMovimientos({ productoId = null }) {
     const productoIds = [...new Set(lista.map(m => m.producto_id))];
     const sucursalIds = [...new Set(lista.map(m => m.ubicacion?.sucursal_id).filter(v => v != null))];
     if (productoIds.length > 0 && sucursalIds.length > 0) {
-      const { data: stockRows } = await supabase
+      const { data: stockRows, error: stockError } = await supabase
         .from("stock_actual")
         .select("producto_id, cantidad_base, ubicacion:ubicacion_id!inner(sucursal_id, excluye_disponible)")
         .in("producto_id", productoIds)
@@ -329,12 +335,14 @@ export function HistorialMovimientos({ productoId = null }) {
       }
       for (const m of lista) {
         const key = `${m.producto_id}:${m.ubicacion?.sucursal_id}`;
-        m.saldoTotalAlmacen = mapaSaldoAlmacen.get(key) ?? 0;
+        m.saldoTotalAlmacen = stockError ? null : mapaSaldoAlmacen.get(key) ?? 0;
       }
     }
 
-    await marcarVentaDirecta(lista);
+    const [, mapaAutores] = await Promise.all([marcarVentaDirecta(lista), resolverAutores(lista.map(m => m.creado_por))]);
+    if (request !== requestRef.current) return;
 
+    setAutores(mapaAutores);
     setMovs(lista);
     setCargando(false);
   }, [filtroTipo, busqueda, sucursalActivaId]);
@@ -342,8 +350,8 @@ export function HistorialMovimientos({ productoId = null }) {
   useEffect(() => {
     const fn = productoId ? () => cargarPaginaProducto(0, true) : cargarGlobal;
     const t = setTimeout(fn, !productoId && busqueda ? 300 : 0);
-    return () => clearTimeout(t);
-  }, [productoId, cargarPaginaProducto, cargarGlobal, busqueda]);
+    return () => { clearTimeout(t); invalidarPeticiones(); };
+  }, [productoId, cargarPaginaProducto, cargarGlobal, busqueda, invalidarPeticiones]);
 
   // En modo panel, filtroTipo filtra sobre lo ya cargado en vez de volver a
   // pedirle a la RPC (que no tiene ese parámetro) — "Cargar más" sigue
@@ -355,19 +363,23 @@ export function HistorialMovimientos({ productoId = null }) {
   return (
     <div>
       {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
+      {seleccionado?.scope === scope && <DetalleMovimiento mov={seleccionado.mov} autores={autores} nombreSucursal={nombreSucursal}
+        historico={Boolean(productoId)} onClose={() => setSeleccionado(null)} />}
 
       {/* Controles (solo en modo global) */}
       {!productoId && (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1">
+        <div className="cation-filters mb-3 flex flex-wrap items-center gap-2">
+          <div className="cation-filter-search relative min-w-0 flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
+              aria-label="Buscar movimientos"
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleScan(e.target.value); } }}
               placeholder="Buscar por producto, SKU, referencia o código de barras…"
-              className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-12 text-sm focus:border-slate-500 focus:outline-none"
             />
+            {busqueda && <button type="button" aria-label="Limpiar búsqueda de movimientos" className="ui-search-clear" onClick={() => setBusqueda("")}><X size={16} /></button>}
           </div>
           <button onClick={() => setShowScanner(true)}
             className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
@@ -376,6 +388,7 @@ export function HistorialMovimientos({ productoId = null }) {
           <div className="relative">
             <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <select
+              aria-label="Tipo de movimiento"
               value={filtroTipo}
               onChange={e => setFiltroTipo(e.target.value)}
               className="rounded-lg border border-slate-300 py-2 pl-8 pr-3 text-sm focus:border-slate-500 focus:outline-none">
@@ -387,6 +400,10 @@ export function HistorialMovimientos({ productoId = null }) {
           </div>
         </div>
       )}
+
+      {errorCarga && <div className="ui-feedback ui-feedback-error" role="alert"><AlertTriangle size={18} /><span>{errorCarga}</span>
+        <button type="button" onClick={() => productoId ? cargarPaginaProducto(intentoPaginaRef.current.off, intentoPaginaRef.current.reset) : cargarGlobal()}><RefreshCw size={14} /> Reintentar</button>
+      </div>}
 
       {/* Filtro de tipo en modo panel (compacto) */}
       {productoId && (
@@ -408,15 +425,17 @@ export function HistorialMovimientos({ productoId = null }) {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {cargando ? (
           <p className="px-3 py-10 text-center text-slate-400">Cargando…</p>
-        ) : movsVisibles.length === 0 ? (
+        ) : errorCarga && !movs.length ? null : movsVisibles.length === 0 ? (
           <div className="px-3 py-10 text-center text-slate-400">
             <HistoryIcon size={28} className="mx-auto mb-2 text-slate-300" />
-            Sin movimientos registrados todavía.
+            <p>{busqueda || filtroTipo ? "No hay movimientos que coincidan con estos filtros." : "Sin movimientos registrados todavía."}</p>
+            {(busqueda || filtroTipo) && <button type="button" className="ui-reset" onClick={() => { setBusqueda(""); setFiltroTipo(""); }}>Limpiar filtros</button>}
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
             {movsVisibles.map(m => (
-              <FilaMovimiento key={m.id} mov={m} mostrarProducto={!productoId} nombreSucursal={productoId ? nombreSucursal : undefined} />
+              <FilaMovimiento key={m.id} mov={m} mostrarProducto={!productoId} nombreSucursal={productoId ? nombreSucursal : undefined}
+                autores={autores} onAbrir={() => setSeleccionado({ mov: m, scope })} />
             ))}
           </div>
         )}
