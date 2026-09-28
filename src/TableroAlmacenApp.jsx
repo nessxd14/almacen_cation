@@ -51,7 +51,7 @@ function Tarjeta({ item, esListo, esNueva }) {
   const esVtd = item.tipo === "vtd";
   const desde = esListo ? (item.ultimo_movimiento_en || item.completado_en || item.creado_en) : item.creado_en;
   return (
-    <div className={`rounded-2xl border-2 bg-slate-900 p-6 shadow-lg transition-colors duration-700 ${
+    <div className={`glass-kds-card rounded-2xl border-2 bg-slate-900 p-6 shadow-lg transition-colors duration-700 ${
       esNueva ? "border-cyan-400" : "border-slate-700"
     }`}>
       <div className="flex items-start justify-between gap-3">
@@ -81,7 +81,7 @@ function Tarjeta({ item, esListo, esNueva }) {
 
 function Columna({ config, items, idsNuevos }) {
   return (
-    <div className={`flex min-h-0 flex-col rounded-2xl border-t-8 bg-slate-950 ${config.acento}`}>
+    <div className={`glass-kds-column flex min-h-0 flex-col rounded-2xl border-t-8 bg-slate-950 ${config.acento}`}>
       <div className="flex items-center gap-3 px-6 py-5">
         <span className={`h-5 w-5 rounded-full ${config.puntito}`} />
         <h2 className="text-3xl font-extrabold uppercase tracking-wide text-white">{config.titulo}</h2>
@@ -207,7 +207,7 @@ export default function TableroAlmacenApp() {
   }
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-slate-950 p-6">
+    <div className="glass-kds flex h-screen w-full flex-col overflow-hidden bg-slate-950 p-6">
       {!sonidoActivado && (
         <button
           onClick={activarSonido}

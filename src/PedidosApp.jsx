@@ -36,7 +36,7 @@ import { resolverAutores, nombreAutor } from "./lib/autoria";
 import { useUsuarioActual } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
 import {
-  ClipboardList, Plus, ChevronDown, ChevronUp, MapPin, Undo2,
+  ClipboardList, Plus, ChevronDown, ChevronUp, ChevronRight, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine, RefreshCw,
   ShoppingBag, Clock, Boxes, Printer, CheckSquare,
   Ban, Repeat, Trash2, Warehouse, Store, SplitSquareHorizontal,
@@ -256,7 +256,7 @@ function ListaPedidos({ onNuevo }) {
     : pedidos.filter((p) => p.categoria === filtroCategoria);
 
   return (
-    <div className="max-w-3xl mx-auto pt-4 px-4 space-y-4">
+    <div className="max-w-7xl mx-auto pt-4 px-4 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
           <ClipboardList size={20} /> Pedidos
@@ -268,12 +268,12 @@ function ListaPedidos({ onNuevo }) {
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        <button onClick={() => setFiltroCategoria("TODAS")}
+        <button onClick={() => setFiltroCategoria("TODAS")} aria-pressed={filtroCategoria === "TODAS"}
           className={`rounded-full px-3 py-1 text-xs font-medium ${filtroCategoria === "TODAS" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
           Todas
         </button>
         {Object.entries(CATEGORIA_LABELS).map(([id, label]) => (
-          <button key={id} onClick={() => setFiltroCategoria(id)}
+          <button key={id} onClick={() => setFiltroCategoria(id)} aria-pressed={filtroCategoria === id}
             className={`rounded-full px-3 py-1 text-xs font-medium ${filtroCategoria === id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
             {label}
           </button>
@@ -288,18 +288,25 @@ function ListaPedidos({ onNuevo }) {
           <p className="text-sm text-slate-400">Sin pedidos todavía.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="cation-list-table">
+          <div className="cation-list-toolbar"><strong>Bandeja de pedidos</strong><span>{pedidosFiltrados.length} mostrados</span></div>
+          <div className="order-list-head" aria-hidden="true">
+            <span>Pedido</span><span>Categoría</span><span>Cliente / referencia</span><span>Fecha</span><span>Detalle de líneas</span><span>Estado</span><span />
+          </div>
           {pedidosFiltrados.map((p) => (
             // <a> real (vía Link) — no onClick: rueda del mouse y Ctrl+clic
             // tienen que abrir pestaña nueva (brief S3 parte A).
-            <Link key={p.id} to={`/pedidos/${p.id}`}
-              className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50">
-              <span className="font-mono text-xs text-slate-400">#{p.id}</span>
-              <span className="text-sm font-medium text-slate-800">{labelCategoria(p.categoria)}</span>
-              <span className="flex-1 truncate text-sm text-slate-500">{p.cliente?.nombre || p.referencia || "—"}</span>
-              <span className="text-xs text-slate-400">{fechaFmt(p.creado_en)}</span>
-              <ChipsDesglosePedido lineas={p.pedido_linea} />
-              <BadgePedido estado={p.estado} />
+            <Link key={p.id} to={`/pedidos/${p.id}`} className="order-list-row">
+              <span className="order-cell order-id" data-label="Pedido">#{p.id}</span>
+              <span className="order-cell order-category" data-label="Categoría">{labelCategoria(p.categoria)}</span>
+              <span className="order-cell order-client" data-label="Cliente / referencia">{p.cliente?.nombre || p.referencia || "—"}</span>
+              <span className="order-cell order-date" data-label="Fecha">{fechaFmt(p.creado_en)}</span>
+              <span className="order-cell order-lines" data-label="Líneas">
+                <small>{p.pedido_linea?.length ?? 0} línea{p.pedido_linea?.length === 1 ? "" : "s"}</small>
+                <ChipsDesglosePedido lineas={p.pedido_linea} />
+              </span>
+              <span className="order-cell order-status" data-label="Estado"><BadgePedido estado={p.estado} /></span>
+              <ChevronRight size={17} className="order-row-arrow" aria-hidden="true" />
             </Link>
           ))}
         </div>

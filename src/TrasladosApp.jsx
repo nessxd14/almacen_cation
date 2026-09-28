@@ -375,29 +375,26 @@ function SolicitudCard({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white">
-      <button onClick={() => setAbierto((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left">
-        {abierto ? <ChevronUp size={16} className="text-slate-400 shrink-0" /> : <ChevronDown size={16} className="text-slate-400 shrink-0" />}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-slate-800">
-            Traslado #{solicitud.id} · {MOTIVO_LABELS[solicitud.motivo] || solicitud.motivo}
-          </p>
-          <p className="text-xs text-slate-400 flex items-center gap-1">
-            {nombreSucursal(solicitud.sucursal_origen_id)} <ArrowRight size={11} /> {nombreSucursal(solicitud.sucursal_destino_id)}
-            {" · "}{solicitud.solicitado_por} · {fechaFmt(solicitud.solicitado_en)}
-          </p>
+    <div className="transfer-card">
+      <button onClick={() => setAbierto((v) => !v)} aria-expanded={abierto}
+        className="transfer-list-row">
+        <span className="transfer-row-icon">{abierto ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
+        <div className="transfer-row-title">
+          <strong>Traslado #{solicitud.id}</strong>
+          <small>{MOTIVO_LABELS[solicitud.motivo] || solicitud.motivo}</small>
         </div>
-        {borrador && (
-          <span className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700" title="Tiene un borrador guardado">
-            <FileClock size={11} /> borrador
-          </span>
-        )}
-        <span className="text-xs text-slate-400">{lineas.length} línea{lineas.length === 1 ? "" : "s"}</span>
+        <div className="transfer-row-route">
+          <span>{nombreSucursal(solicitud.sucursal_origen_id)}</span><ArrowRight size={13} /><span>{nombreSucursal(solicitud.sucursal_destino_id)}</span>
+        </div>
+        <div className="transfer-row-meta">
+          <strong>{solicitud.solicitado_por}</strong><small>{fechaFmt(solicitud.solicitado_en)}</small>
+        </div>
+        <span className="transfer-row-count">{lineas.length} línea{lineas.length === 1 ? "" : "s"}</span>
+        <span className="transfer-row-draft">{borrador && <span className="transfer-draft-badge" title="Tiene un borrador guardado"><FileClock size={12} /> Borrador</span>}</span>
       </button>
 
       {abierto && (
-        <div className="border-t border-slate-100 px-4 py-3 space-y-3">
+        <div id={`transfer-detalle-${solicitud.id}`} className="transfer-detail border-t border-slate-100 px-4 py-3 space-y-3">
           {flash && (
             <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
               <AlertTriangle size={12} /> {flash}
@@ -437,7 +434,7 @@ function SolicitudCard({
               // este brief es que no se cargue.
               const noSalioDelAlmacen = esEnTransito && soloLectura && l.estado === "POR_DESPACHAR";
               return (
-                <div key={l.id} className={`rounded-lg border px-3 py-2 ${noSalioDelAlmacen ? "border-red-300 bg-red-50" : "border-slate-200"} ${soloLectura && !noSalioDelAlmacen ? "opacity-50" : ""}`}>
+                <div key={l.id} className={`transfer-line rounded-lg border px-3 py-2 ${noSalioDelAlmacen ? "border-red-300 bg-red-50" : "border-slate-200"} ${soloLectura && !noSalioDelAlmacen ? "opacity-50" : ""}`}>
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
                       <p className={`text-sm font-medium text-slate-800 ${soloLectura && !noSalioDelAlmacen ? "line-through" : ""}`}>{l.producto?.nombre}</p>
@@ -810,14 +807,14 @@ export default function TrasladosApp() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto pt-4 px-4 pb-8 space-y-4">
+    <div className="max-w-7xl mx-auto pt-4 px-4 pb-8 space-y-4">
       <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
         <Truck size={20} /> Traslados
       </h1>
 
       <div className="flex gap-1.5 flex-wrap">
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+          <button key={t.id} onClick={() => setTab(t.id)} aria-pressed={tab === t.id}
             className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ${tab === t.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
             {t.label}
             {t.id === "BORRADORES" && borradores.length > 0 && (
@@ -845,7 +842,8 @@ export default function TrasladosApp() {
           <p className="text-sm text-slate-400">Sin solicitudes acá.</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="transfer-list">
+          <div className="transfer-list-head" aria-hidden="true"><span /><span>Solicitud</span><span>Ruta</span><span>Solicitado por</span><span>Líneas</span><span /></div>
           {solicitudes.map((s) => (
             <SolicitudCard
               key={s.id}

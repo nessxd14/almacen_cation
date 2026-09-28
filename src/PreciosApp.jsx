@@ -343,17 +343,17 @@ export default function PreciosApp() {
       )}
 
       {/* Controles */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1">
+      <div className="cation-filters mb-4 flex flex-wrap items-center gap-2">
+        <div className="cation-filter-search relative min-w-0 flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={busquedaInput} onChange={(e) => setBusquedaInput(e.target.value)}
+          <input aria-label="Buscar productos en precios" value={busquedaInput} onChange={(e) => setBusquedaInput(e.target.value)}
             placeholder="Buscar por nombre, SKU o código de barras…"
             className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none" />
         </div>
 
         <div className="relative">
           <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <select value={marcaSeleccionada} onChange={(e) => setMarcaSeleccionada(e.target.value)}
+          <select aria-label="Filtrar por marca" value={marcaSeleccionada} onChange={(e) => setMarcaSeleccionada(e.target.value)}
             className="rounded-lg border border-slate-300 py-2 pl-8 pr-3 text-sm focus:border-slate-500 focus:outline-none">
             <option value="">Todas las marcas</option>
             <option value="SIN_MARCA">Sin marca ({sinMarcaCount})</option>
@@ -364,7 +364,7 @@ export default function PreciosApp() {
         {familias.length > 0 && (
           <div className="relative">
             <Tag size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <select value={familiaSeleccionada} onChange={(e) => setFamiliaSeleccionada(e.target.value)}
+            <select aria-label="Filtrar por familia" value={familiaSeleccionada} onChange={(e) => setFamiliaSeleccionada(e.target.value)}
               className="rounded-lg border border-slate-300 py-2 pl-8 pr-3 text-sm focus:border-slate-500 focus:outline-none">
               <option value="">Todas las familias</option>
               <option value="SIN_FAMILIA">Sin familia</option>
@@ -373,7 +373,7 @@ export default function PreciosApp() {
           </div>
         )}
 
-        <button onClick={() => setSoloSinPrecio((v) => !v)}
+        <button onClick={() => setSoloSinPrecio((v) => !v)} aria-pressed={soloSinPrecio}
           className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium
             ${soloSinPrecio ? "border-amber-400 bg-amber-50 text-amber-700" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
           <AlertTriangle size={14} /> Sin precio
@@ -381,16 +381,21 @@ export default function PreciosApp() {
       </div>
 
       {/* Tabla */}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[1100px] border-collapse text-sm">
+      <div className="cation-table-card">
+        <div className="cation-table-toolbar"><div><strong>Lista de precios</strong><span>{total} producto{total === 1 ? "" : "s"}</span></div>
+          {esAdmin && <span className="cation-edit-hint">Selecciona un precio para editar · Enter guarda · Esc cancela</span>}
+        </div>
+        <div className="cation-table-scroll" tabIndex={0} aria-label="Tabla de precios, desplázate horizontalmente para ver todas las columnas">
+        <table className="cation-data-table cation-table-precios w-full min-w-[1100px] text-sm">
+          <caption className="sr-only">Precios de productos y existencias por sucursal</caption>
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="px-3 py-2">Nombre</th>
-              <th className="px-3 py-2">SKU</th>
-              <th className="px-3 py-2">Código de barra</th>
-              <th className="px-3 py-2">Stock</th>
+              <th scope="col" className="cation-sticky-product px-3 py-2">Nombre</th>
+              <th scope="col" className="px-3 py-2">SKU</th>
+              <th scope="col" className="px-3 py-2">Código de barra</th>
+              <th scope="col" className="px-3 py-2">Stock</th>
               {COLUMNAS_PRECIO.map((c) => (
-                <th key={c.campo} className="px-3 py-2 text-right">{c.label}</th>
+                <th scope="col" key={c.campo} className="px-3 py-2 text-right">{c.label}</th>
               ))}
             </tr>
           </thead>
@@ -413,8 +418,8 @@ export default function PreciosApp() {
                 return (
                   <tr key={f.id}
                     onBlur={editando ? onBlurFila : undefined}
-                    className="border-b border-slate-100 align-top last:border-0 hover:bg-slate-50">
-                    <td className="px-3 py-2">
+                    className={`align-top ${editando ? "is-editing" : ""} ${errorEstaFila ? "is-alert" : ""}`}>
+                    <td className="cation-sticky-product px-3 py-2">
                       <p title={f.nombre} className="line-clamp-2 max-w-xs font-medium text-slate-800">{f.nombre}</p>
                       {f.marca && <p className="text-xs text-slate-400">{f.marca}</p>}
                       {guardando && (
@@ -430,7 +435,7 @@ export default function PreciosApp() {
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-500">{f.sku_interno || "—"}</td>
                     <td className="px-3 py-2 font-mono text-xs text-slate-500">{codigos?.barra || "—"}</td>
-                    <td className="px-3 py-2 text-xs text-slate-600">
+                    <td className="px-3 py-2 text-xs text-slate-600 tabular-nums">
                       <p className="flex items-center gap-1 font-medium text-slate-800">
                         <Boxes size={11} className="text-slate-400" /> {cantidadFmt(stockTotal)}
                       </p>
@@ -439,15 +444,18 @@ export default function PreciosApp() {
                       </p>
                     </td>
                     {COLUMNAS_PRECIO.map((c) => (
-                      <td key={c.campo} className="px-3 py-2 text-right">
+                      <td key={c.campo} className="px-3 py-2 text-right tabular-nums">
                         {editando ? (
                           <input type="number" min="0" step="0.01" autoFocus={c.campo === "precio_base"}
+                            aria-label={`${c.label} de ${f.nombre}`}
                             value={valoresEdicion[c.campo]}
                             onChange={(e) => setValoresEdicion((prev) => ({ ...prev, [c.campo]: e.target.value }))}
                             onKeyDown={onKeyDownCelda}
                             className="w-24 rounded-lg border border-blue-300 px-2 py-1 text-right text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
                         ) : (
                           <button onClick={() => empezarEdicion(f)} disabled={!esAdmin}
+                            title={esAdmin ? `Editar precios de ${f.nombre}` : "Solo un administrador puede editar precios"}
+                            aria-label={`${c.label} de ${f.nombre}: ${f[c.campo] == null ? "sin precio" : precioFmt(f[c.campo])}${esAdmin ? ". Editar" : ""}`}
                             className={`w-24 rounded-lg px-2 py-1 text-right ${esAdmin ? "hover:bg-slate-100" : "cursor-default"}
                               ${f[c.campo] === 0 ? "text-amber-600 font-medium" : f[c.campo] == null ? "text-slate-300" : "text-slate-800"}`}>
                             {f[c.campo] == null ? "—" : precioFmt(f[c.campo])}
@@ -461,6 +469,8 @@ export default function PreciosApp() {
             )}
           </tbody>
         </table>
+        </div>
+        <p className="cation-table-hint">Desliza para ver las demás columnas →</p>
       </div>
 
       {totalPaginas > 1 && (

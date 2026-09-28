@@ -1,17 +1,16 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useId } from "react";
 import { supabase } from "./supabaseClient";
 import {
   X, Save, Camera, Plus, Trash2, Pencil, Barcode, Check, AlertCircle,
-  Lock, Store, Users, Building2, Briefcase, ChevronLeft, ChevronRight, Package2, ImagePlus, Loader, FileText,
+  Lock, Store, Users, Building2, Briefcase, Package2, ImagePlus, Loader, FileText,
 } from "lucide-react";
 import EscanerCodigo from "./EscanerCodigo";
 import { comprimirYCodificar } from "./lib/capturaFoto";
 import { subirImagenProducto, tipoImagenValido } from "./lib/imagenProducto";
 import { useUsuarioActual } from "./lib/useAuth";
-
-// Brief S4 parte A: foco atrapado dentro del modal — Tab/Shift+Tab no debe
-// poder escaparse hacia la página de atrás mientras el modal está abierto.
-const SELECTOR_FOCUSABLES = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+import CatalogDialog from "./CatalogDialog";
+import ImagenProducto from "./ImagenProducto";
+import "./producto.css";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -21,7 +20,7 @@ function Toast({ msg, tipo = "ok", onClose }) {
     return () => clearTimeout(t);
   }, [onClose]);
   return (
-    <div className={`fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg
+    <div role={tipo === "ok" ? "status" : "alert"} className={`product-editor-feedback flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg
       ${tipo === "ok" ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>
       {tipo === "ok" ? <Check size={16} /> : <AlertCircle size={16} />}
       {msg}
@@ -53,6 +52,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [identificadores, setIdentificadores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [seccion, setSeccion] = useState("general");
 
   // Presentaciones no-base: cuáles ya tienen movimientos en el Kardex (no se
   // pueden borrar, solo desactivar) — se calcula al cargar, no por click.
@@ -98,27 +98,6 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [subiendoImagen, setSubiendoImagen] = useState(false);
   const [errorImagen, setErrorImagen] = useState(null);
 
-  // ── Modal centrado (brief S4 parte A): Escape cierra, foco atrapado ──
-  const modalRef = useRef(null);
-  useEffect(() => {
-    const enfocadoAntes = document.activeElement;
-    modalRef.current?.querySelector(SELECTOR_FOCUSABLES)?.focus();
-    return () => { enfocadoAntes?.focus?.(); };
-  }, []);
-  useEffect(() => {
-    function onKeyDown(e) {
-      if (e.key === "Escape") { onClose(); return; }
-      if (e.key !== "Tab") return;
-      const focosables = modalRef.current?.querySelectorAll(SELECTOR_FOCUSABLES);
-      if (!focosables || focosables.length === 0) return;
-      const primero = focosables[0], ultimo = focosables[focosables.length - 1];
-      if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus(); }
-      else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus(); }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
   async function subirFotoPrincipal(e) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -133,7 +112,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
       const url = await subirImagenProducto(producto.id, file);
       setImagenUrl(url);
       show("Foto actualizada");
-      onGuardado?.();
+      onGuardado?.({ imagen_url: url });
     } catch (err) {
       setErrorImagen(err.message);
     } finally {
@@ -231,7 +210,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
       return;
     }
     show("Cambios guardados");
-    onGuardado?.();
+    onGuardado?.(payload);
   }
 
   // ── Guardar ficha técnica (independiente — no pasa por el trigger de
@@ -444,30 +423,31 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      {toast && <Toast msg={toast.msg} tipo={toast.tipo} onClose={() => setToast(null)} />}
-      {scanTarget != null && <EscanerCodigo onDetect={onScan} onClose={() => setScanTarget(null)} />}
+    <CatalogDialog label="Editar producto" onClose={onClose} className="product-editor product-dialog">
+      {scanTarget != null && <CatalogDialog label="Escanear código" onClose={() => setScanTarget(null)} className="product-scanner"><EscanerCodigo onDetect={onScan} onClose={() => setScanTarget(null)} /></CatalogDialog>}
 
-      {/* Modal centrado (brief S4 parte A) — max-height relativo al
-          viewport, no un breakpoint fijo en px: la terminal de caja corre a
-          1536×864 y un `max-height` pensado para la ventana del navegador de
-          desarrollo se corta arriba y abajo justo ahí. */}
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="Editar producto"
-        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
-        onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Editar producto</h2>
-            <p className="text-xs text-slate-400">{producto.nombre}</p>
+        <header className="product-dialog-header">
+          <div className="product-editor-heading">
+            <ImagenProducto url={imagenUrl} nombre={producto.nombre} className="product-editor-thumbnail" />
+            <div><span className="product-eyebrow">PROPIEDADES DEL PRODUCTO</span><h2>Editar producto</h2><p title={producto.nombre}>{producto.nombre}</p></div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={20} /></button>
-        </div>
+          <button type="button" onClick={onClose} className="product-icon-button" aria-label="Cerrar edición"><X size={20} /></button>
+        </header>
+        <nav className="product-editor-nav" aria-label="Secciones de edición">
+          {[
+            { id: "general", label: "General", icon: Pencil },
+            { id: "fotos", label: "Fotografías", icon: Camera },
+            { id: "presentaciones", label: "Presentaciones", icon: Package2 },
+            { id: "ficha", label: "Ficha técnica", icon: FileText },
+          ].map(item => <button key={item.id} type="button" aria-pressed={seccion === item.id} onClick={() => setSeccion(item.id)}><item.icon size={16} />{item.label}</button>)}
+        </nav>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        <div className="product-dialog-scroll product-editor-body">
           {/* ── Datos básicos ── */}
-          <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Datos básicos</h3>
+          <section className="product-form-section" hidden={seccion !== "general"}>
+            <h3><Package2 size={18} /> Datos básicos</h3>
+            <p className="product-section-description">Identifica el producto y su unidad de venta.</p>
             <div className="space-y-3">
               <Campo label="Nombre" value={form.nombre} onChange={v => setForm(f => ({ ...f, nombre: v }))} />
               <div className="grid grid-cols-2 gap-3">
@@ -480,8 +460,9 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
           </section>
 
           {/* ── Precios ── */}
-          <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Precios</h3>
+          <section className="product-form-section" hidden={seccion !== "general"}>
+            <h3><Store size={18} /> Precios por canal</h3>
+            <p className="product-section-description">Importes en bolivianos por unidad base.</p>
             {esAdmin ? (
               <div className="space-y-3">
                 <CampoPrecio
@@ -505,17 +486,12 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             )}
           </section>
 
-          <button onClick={guardarDatos} disabled={guardando}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
-            <Save size={15} /> {guardando ? "Guardando…" : "Guardar cambios"}
-          </button>
-
           {/* ── Foto principal (brief S4 parte B) — directa, sin revisión.
               Circuito aparte de "Completar con fotos" de más abajo, que
               sigue yendo por OpenClaw sin cambios. Solo admin: mismo trigger
               que ya bloquea precios para el resto de los roles. ── */}
-          <section className="border-t border-slate-100 pt-5">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Foto principal</h3>
+          <section className="product-form-section" hidden={seccion !== "fotos"}>
+            <h3><ImagePlus size={18} /> Foto principal</h3>
             {esAdmin ? (
               <div className="space-y-2">
                 <p className="text-xs text-slate-400">
@@ -523,7 +499,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                 </p>
                 <div className="flex items-center gap-3">
                   {imagenUrl ? (
-                    <img src={imagenUrl} alt="" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                    <img src={imagenUrl} alt={producto.nombre} className="product-photo-preview" />
                   ) : (
                     <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-300">
                       <ImagePlus size={20} />
@@ -534,7 +510,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                     {subiendoImagen ? <Loader size={15} className="animate-spin" /> : <ImagePlus size={15} />}
                     {subiendoImagen ? "Subiendo…" : imagenUrl ? "Cambiar foto" : "Subir foto"}
                     <input type="file" accept="image/jpeg,image/png,image/webp"
-                      className="hidden" disabled={subiendoImagen} onChange={subirFotoPrincipal} />
+                      className="sr-only" disabled={subiendoImagen} onChange={subirFotoPrincipal} />
                   </label>
                 </div>
                 {errorImagen && <p className="text-xs text-red-600">{errorImagen}</p>}
@@ -548,9 +524,9 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
           </section>
 
           {/* ── Completar con fotos ── */}
-          <section className="border-t border-slate-100 pt-5">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Completar con fotos
+          <section className="product-form-section" hidden={seccion !== "fotos"}>
+            <h3>
+              <Camera size={18} /> Completar con fotos
             </h3>
             <p className="mb-3 text-xs text-slate-400">
               Subí 1 a 4 fotos del producto — la IA propone código de fábrica, código de barra,
@@ -578,7 +554,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
               <ImagePlus size={15} />
               {fotosSeleccionadas.length === 0 ? "Elegir o sacar fotos" : `Agregar más (${fotosSeleccionadas.length}/4)`}
               <input type="file" accept="image/*" capture="environment" multiple
-                className="hidden" disabled={fotosSeleccionadas.length >= 4 || enviandoFotos}
+                className="sr-only" disabled={fotosSeleccionadas.length >= 4 || enviandoFotos}
                 onChange={seleccionarFotos} />
             </label>
 
@@ -600,10 +576,11 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
           </section>
 
           {/* ── Presentaciones ── */}
-          <section className="border-t border-slate-100 pt-5">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Presentaciones
+          <section className="product-form-section product-form-wide" hidden={seccion !== "presentaciones"}>
+            <h3>
+              <Package2 size={18} /> Presentaciones y códigos
             </h3>
+            <p className="product-section-description">Configura unidades, empaques y códigos para escanear. Cada cambio se guarda con su acción.</p>
 
             {cargando ? (
               <p className="text-sm text-slate-400">Cargando…</p>
@@ -614,12 +591,13 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                     return (
                       <div key={p.id} className="space-y-2 rounded-lg bg-slate-50 p-3">
                         <input
+                          aria-label="Nombre de la presentación"
                           value={editNombre}
                           onChange={e => setEditNombre(e.target.value)}
                           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
                         />
                         <input
-                          type="number" min="0.0001" step="any"
+                          aria-label="Unidades por presentación" type="number" min="2" step="1"
                           value={editFactor}
                           onChange={e => setEditFactor(e.target.value)}
                           placeholder={`Factor (unidades de "${form.unidad_base || "unidad"}" por presentación)`}
@@ -675,7 +653,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                       {/* Código propio de la fila — barra en la base, empaque en el bulto */}
                       <div className="mt-2 flex items-center gap-2">
                         <Barcode size={12} className="shrink-0 text-slate-400" />
-                        <input value={codigoPorPresentacion[p.id] || ""}
+                        <input aria-label={`Código de ${p.nombre}`} value={codigoPorPresentacion[p.id] || ""}
                           onChange={e => setCodigoPorPresentacion(prev => ({ ...prev, [p.id]: e.target.value }))}
                           onKeyDown={e => e.key === "Enter" && agregarCodigoPresentacion(p)}
                           placeholder={p.es_base ? "Código de barras" : "Código de empaque"}
@@ -695,7 +673,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                             <span key={id.id} className="flex items-center gap-1 rounded bg-slate-50 px-1.5 py-0.5 text-xs text-slate-500">
                               <span className="font-mono">{id.valor}</span>
                               <span className="text-slate-300">({id.tipo})</span>
-                              <button onClick={() => quitarIdentificador(id.id)} className="text-slate-300 hover:text-red-500">
+                              <button onClick={() => quitarIdentificador(id.id)} aria-label={`Quitar código ${id.valor}`} className="text-slate-300 hover:text-red-500">
                                 <X size={10} />
                               </button>
                             </span>
@@ -734,13 +712,14 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             {mostrarNuevaPresentacion ? (
               <div className="space-y-2 rounded-lg bg-slate-50 p-3">
                 <input
+                  aria-label="Nombre de la nueva presentación"
                   value={nuevaPresentNombre}
                   onChange={e => setNuevaPresentNombre(e.target.value)}
                   placeholder='Ej. "Paquete (10 und)", "Caja (24 und)"'
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
                 />
                 <input
-                  type="number" min="0.0001" step="any"
+                  aria-label="Unidades por nueva presentación" type="number" min="2" step="1"
                   value={nuevoFactorPresentacion}
                   onChange={e => setNuevoFactorPresentacion(e.target.value)}
                   placeholder={`Factor (unidades de "${form.unidad_base || "unidad"}" por presentación)`}
@@ -765,7 +744,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             )}
           </section>
 
-          {!cargando && identificadores.length === 0 && (
+          {seccion === "presentaciones" && !cargando && identificadores.length === 0 && (
             <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-700">
               <span className="flex items-center gap-2">
                 <AlertCircle size={15} /> Este producto no tiene código escaneable.
@@ -775,9 +754,9 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
           )}
 
           {/* ── Ficha técnica ── */}
-          <section className="border-t border-slate-100 pt-5">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Ficha técnica</h3>
-            <p className="mb-3 text-xs text-slate-400">Opcional — Markdown pegado tal cual.</p>
+          <section className="product-form-section product-form-wide" hidden={seccion !== "ficha"}>
+            <h3><FileText size={18} /> Ficha técnica</h3>
+            <p className="product-section-description">Añade especificaciones, materiales y características. Puedes usar Markdown.</p>
             {!mostrarFicha ? (
               <button onClick={() => setMostrarFicha(true)}
                 className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700">
@@ -785,7 +764,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
               </button>
             ) : (
               <div className="space-y-1.5">
-                <textarea value={fichaMd} onChange={e => setFichaMd(e.target.value)}
+                <textarea aria-label="Contenido de la ficha técnica" value={fichaMd} onChange={e => setFichaMd(e.target.value)}
                   rows={12} placeholder="Pegá acá el Markdown de la ficha técnica…"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs focus:border-slate-500 focus:outline-none" />
                 {fichaActualizadaEn && (
@@ -801,18 +780,27 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             )}
           </section>
         </div>
-      </div>
-    </div>
+        {toast && <Toast msg={toast.msg} tipo={toast.tipo} onClose={() => setToast(null)} />}
+        <footer className="product-editor-footer">
+          <p>{seccion === "general" ? "Guarda los datos básicos y los precios de esta sección." : "Los cambios se guardan con la acción de cada sección."}</p>
+          <button type="button" className="product-secondary-button" onClick={onClose}>Cerrar</button>
+          {seccion === "general" && <button type="button" onClick={guardarDatos} disabled={guardando} className="product-primary-button">
+            {guardando ? <Loader size={16} className="animate-spin" /> : <Save size={16} />}{guardando ? "Guardando…" : "Guardar cambios"}
+          </button>}
+        </footer>
+    </CatalogDialog>
   );
 }
 
 // ─── Subcomponentes de campo ─────────────────────────────────────────────────
 
 function Campo({ label, value, onChange, placeholder }) {
+  const id = useId();
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-slate-600">{label}</label>
+      <label htmlFor={id} className="mb-1 block text-xs font-medium text-slate-600">{label}</label>
       <input
+        id={id}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
@@ -833,6 +821,7 @@ function CampoPrecio({ icono: Icono, label, nota, value, onChange }) {
       <div className="flex items-center gap-1">
         <span className="text-sm text-slate-400">Bs</span>
         <input
+          aria-label={`Precio ${label}`}
           type="number" min={0} step="0.01" value={value}
           onChange={e => onChange(e.target.value)}
           placeholder="0.00"
@@ -852,37 +841,15 @@ export function CarruselPrecios({ producto }) {
     { label: "Instituciones", valor: producto.precio_institucion, icono: Building2, badge: "Interno" },
     { label: "Corporativo", valor: producto.precio_corporativo, icono: Briefcase, badge: "Interno" },
   ];
-  const [i, setI] = useState(0);
-  const actual = precios[i];
-  const Icono = actual.icono;
-
   const fmt = (v) => v == null || v === ""
     ? "—"
     : new Intl.NumberFormat("es-BO", { style: "currency", currency: "BOB" }).format(v);
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-3 text-white">
-      <button onClick={() => setI(p => (p - 1 + precios.length) % precios.length)}
-        className="rounded-full p-1 text-slate-400 hover:bg-white/10 hover:text-white">
-        <ChevronLeft size={18} />
-      </button>
-      <div className="flex-1 text-center">
-        <div className="mb-0.5 flex items-center justify-center gap-1.5">
-          <Icono size={13} className="text-slate-400" />
-          <span className="text-xs uppercase tracking-wide text-slate-400">{actual.label}</span>
-          <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">{actual.badge}</span>
-        </div>
-        <p className="text-xl font-bold transition-all">{fmt(actual.valor)}</p>
-        <div className="mt-1 flex justify-center gap-1">
-          {precios.map((_, idx) => (
-            <span key={idx} className={`h-1 w-1 rounded-full ${idx === i ? "bg-white" : "bg-white/30"}`} />
-          ))}
-        </div>
-      </div>
-      <button onClick={() => setI(p => (p + 1) % precios.length)}
-        className="rounded-full p-1 text-slate-400 hover:bg-white/10 hover:text-white">
-        <ChevronRight size={18} />
-      </button>
-    </div>
+    <dl className="product-price-grid" aria-label="Precios por canal">
+      {precios.map(({ label, valor, icono: Icono }) => <div key={label}>
+        <dt><Icono size={14} />{label}</dt><dd>{fmt(valor)}</dd>
+      </div>)}
+    </dl>
   );
 }

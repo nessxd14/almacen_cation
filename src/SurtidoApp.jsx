@@ -122,6 +122,7 @@ export default function SurtidoApp() {
 
   const totalPaginas = Math.max(1, Math.ceil(filas.length / PAGE_SIZE));
   const filasPagina = filas.slice(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE);
+  const paginaCompletaSeleccionada = filasPagina.length > 0 && filasPagina.every(({ producto }) => seleccion.has(producto.id));
 
   const defaultControl = sucursalActiva?.control_stock_default || "ESTRICTO";
 
@@ -173,7 +174,11 @@ export default function SurtidoApp() {
   function seleccionarPagina() {
     setSeleccion((prev) => {
       const next = new Set(prev);
-      for (const { producto } of filasPagina) next.add(producto.id);
+      const todas = filasPagina.every(({ producto }) => next.has(producto.id));
+      for (const { producto } of filasPagina) {
+        if (todas) next.delete(producto.id);
+        else next.add(producto.id);
+      }
       return next;
     });
   }
@@ -222,10 +227,11 @@ export default function SurtidoApp() {
         </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1">
+      <div className="cation-filters mb-3 flex flex-wrap items-center gap-2">
+        <div className="cation-filter-search relative min-w-0 flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
+            aria-label="Buscar productos en surtido"
             value={busquedaInput}
             onChange={(e) => setBusquedaInput(e.target.value)}
             placeholder="Buscar por nombre o SKU…"
@@ -238,7 +244,7 @@ export default function SurtidoApp() {
             { id: "en",    label: "En surtido" },
             { id: "fuera", label: "Fuera de surtido" },
           ].map((f) => (
-            <button key={f.id} onClick={() => setFiltro(f.id)}
+            <button key={f.id} onClick={() => setFiltro(f.id)} aria-pressed={filtro === f.id}
               className={`rounded px-3 py-1.5 font-medium
                 ${filtro === f.id ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
               {f.label}
@@ -260,19 +266,23 @@ export default function SurtidoApp() {
         </BarraSeleccion>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+      <div className="cation-table-card">
+        <div className="cation-table-toolbar"><div><strong>Productos por sucursal</strong><span>{cargando ? "Cargando…" : `${filasPagina.length} productos en esta página`}</span></div></div>
+        <div className="cation-table-scroll" tabIndex={0} aria-label="Tabla de surtido, desplázate horizontalmente para ver todas las columnas">
+          <table className="cation-data-table cation-table-surtido w-full text-sm">
+            <caption className="sr-only">Productos y configuración de surtido por sucursal</caption>
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-3 py-2">
-                  <button onClick={seleccionarPagina} className="underline decoration-dotted">sel.</button>
+                <th scope="col" className="cation-sticky-select px-3 py-2">
+                  <input type="checkbox" checked={paginaCompletaSeleccionada} disabled={filasPagina.length === 0}
+                    ref={element => { if (element) element.indeterminate = !paginaCompletaSeleccionada && filasPagina.some(({ producto }) => seleccion.has(producto.id)); }}
+                    onChange={seleccionarPagina} aria-label={paginaCompletaSeleccionada ? "Deseleccionar productos de esta página" : "Seleccionar productos de esta página"} />
                 </th>
-                <th className="px-3 py-2">Producto</th>
-                <th className="px-3 py-2">Surtido</th>
-                <th className="px-3 py-2">Control</th>
-                <th className="px-3 py-2 text-right">Stock mín.</th>
-                <th className="px-3 py-2 text-right">Punto reorden</th>
+                <th scope="col" className="cation-sticky-product px-3 py-2">Producto</th>
+                <th scope="col" className="px-3 py-2">Surtido</th>
+                <th scope="col" className="px-3 py-2">Control</th>
+                <th scope="col" className="px-3 py-2 text-right">Stock mín.</th>
+                <th scope="col" className="px-3 py-2 text-right">Punto reorden</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -284,17 +294,19 @@ export default function SurtidoApp() {
                 const seVende = ps?.se_vende ?? false;
                 const control = controlEfectivo(ps?.control_stock ?? null, defaultControl);
                 return (
-                  <tr key={producto.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2">
+                  <tr key={producto.id} className={seleccion.has(producto.id) ? "is-selected" : ""}>
+                    <td className="cation-sticky-select px-3 py-2">
                       <input type="checkbox" checked={seleccion.has(producto.id)}
+                        aria-label={`Seleccionar ${producto.nombre}`}
                         onChange={() => alternarSeleccion(producto.id)} />
                     </td>
-                    <td className="px-3 py-2">
-                      <p className="font-medium text-slate-800">{producto.nombre}</p>
+                    <td className="cation-sticky-product px-3 py-2">
+                      <p className="font-medium text-slate-800" title={producto.nombre}>{producto.nombre}</p>
                       {producto.sku_interno && <p className="text-xs text-slate-400">{producto.sku_interno}</p>}
                     </td>
                     <td className="px-3 py-2">
-                      <button onClick={() => alternarSeVende(producto.id, seVende)}
+                      <button onClick={() => alternarSeVende(producto.id, seVende)} aria-pressed={seVende}
+                        aria-label={`${producto.nombre}: ${seVende ? "en surtido" : "fuera de surtido"}. Cambiar estado`}
                         className={`rounded-full px-2.5 py-1 text-xs font-medium
                           ${seVende ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                         {seVende ? "En surtido" : "Fuera"}
@@ -314,13 +326,14 @@ export default function SurtidoApp() {
                           <button onClick={() => setForzando(null)} className="text-slate-400 hover:text-slate-600"><X size={12} /></button>
                         </div>
                       ) : (
-                        <button onClick={() => setForzando(producto.id)} className="flex items-center gap-1">
+                        <button onClick={() => setForzando(producto.id)} className="flex items-center gap-1" aria-label={`Cambiar control de stock de ${producto.nombre}`}>
                           <ChipControl valor={control} />
                         </button>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <input type="number" min="0" step="any" defaultValue={ps?.stock_min ?? ""}
+                        aria-label={`Stock mínimo de ${producto.nombre}`}
                         onBlur={(e) => {
                           const v = e.target.value === "" ? null : Number(e.target.value);
                           if (v !== (ps?.stock_min ?? null)) guardarPs(producto.id, { stock_min: v });
@@ -329,6 +342,7 @@ export default function SurtidoApp() {
                     </td>
                     <td className="px-3 py-2 text-right">
                       <input type="number" min="0" step="any" defaultValue={ps?.punto_reorden ?? ""}
+                        aria-label={`Punto de reorden de ${producto.nombre}`}
                         onBlur={(e) => {
                           const v = e.target.value === "" ? null : Number(e.target.value);
                           if (v !== (ps?.punto_reorden ?? null)) guardarPs(producto.id, { punto_reorden: v });
@@ -341,6 +355,7 @@ export default function SurtidoApp() {
             </tbody>
           </table>
         </div>
+        <p className="cation-table-hint">Desliza para ver las demás columnas →</p>
       </div>
 
       {!cargando && filas.length > 0 && (

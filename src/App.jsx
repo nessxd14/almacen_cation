@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
   History, ShoppingBag, ShoppingCart, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
   AlertTriangle, PackageCheck,
+  Menu, X, ChevronRight,
 } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
@@ -77,8 +78,8 @@ export default function App() {
 
   if (cargando) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <Loader size={20} className="animate-spin text-slate-400" />
+      <div className="glass-app glass-loading">
+        <Loader size={25} className="animate-spin text-blue-600" />
       </div>
     );
   }
@@ -88,7 +89,7 @@ export default function App() {
   if (usuario.activo === false) {
     const esErrorPerfil = usuario.bloqueadoPor === "error_perfil";
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-4 text-center">
+      <div className="glass-app glass-loading flex-col gap-4 px-4 text-center">
         <p className="text-lg font-medium text-slate-700">
           {esErrorPerfil
             ? "No se pudo verificar tu perfil — reintentá en un momento"
@@ -150,75 +151,116 @@ function AppShell({
   sucursales, sucursalActivaId, setSucursalActiva, puedeElegir, nombreSucursal,
   tabsVisibles, gruposVisibles, grupoActivo, tabActivo, Active,
 }) {
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const menuButtonRef = useRef(null);
+  const sidebarRef = useRef(null);
+  useEffect(() => {
+    if (!menuAbierto) return undefined;
+    const sidebar = sidebarRef.current;
+    const menuButton = menuButtonRef.current;
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusables = () => [...sidebar.querySelectorAll('button:not(:disabled), a[href], select')]
+      .filter(element => element.getClientRects().length > 0);
+    focusables()[0]?.focus();
+    const cerrarConEscape = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuAbierto(false);
+      }
+      if (event.key === "Tab") {
+        const items = focusables();
+        const first = items[0];
+        const last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault(); last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first?.focus();
+        }
+      }
+    };
+    const cerrarEnEscritorio = () => {
+      if (window.innerWidth > 760) setMenuAbierto(false);
+    };
+    document.addEventListener("keydown", cerrarConEscape);
+    window.addEventListener("resize", cerrarEnEscritorio);
+    return () => {
+      document.body.style.overflow = previo;
+      document.removeEventListener("keydown", cerrarConEscape);
+      window.removeEventListener("resize", cerrarEnEscritorio);
+      requestAnimationFrame(() => {
+        if (window.innerWidth <= 760) menuButton?.focus();
+        else sidebar?.querySelector('[aria-current="page"]')?.focus();
+      });
+    };
+  }, [menuAbierto]);
+  const seleccionarTab = (id) => {
+    setTab(id);
+    setMenuAbierto(false);
+  };
+
   return (
     <AppNavContext.Provider value={{ tab, setTab, conteoPrefill, setConteoPrefill, irAConteo }}>
-      <div className="min-h-screen bg-slate-50">
-        <nav className="print:hidden border-b bg-white">
-          <div className="flex items-center gap-1 px-3 py-2 flex-wrap">
-            {gruposVisibles.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => setTab(g.tabs[0])}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors
-                  ${grupoActivo.id === g.id
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100"}`}
-              >
-                <g.icon size={16} /> {g.label}
-              </button>
+      <div className="glass-app">
+        <a className="glass-skip" href="#contenido-principal">Saltar al contenido</a>
+        {menuAbierto && <button type="button" tabIndex={-1} className="glass-backdrop print:hidden" aria-label="Cerrar menú" onClick={() => setMenuAbierto(false)} />}
+        <aside ref={sidebarRef} role={menuAbierto ? "dialog" : undefined} aria-modal={menuAbierto ? true : undefined} aria-label="Navegación principal" className={`glass-sidebar print:hidden ${menuAbierto ? "is-open" : ""}`}>
+          <div className="glass-brand">
+            <span className="glass-brand-icon"><Warehouse size={25} strokeWidth={1.8} /></span>
+            <span><strong>CATION</strong><small>Almacén</small></span>
+            <button type="button" className="glass-close-menu" aria-label="Cerrar menú" onClick={() => setMenuAbierto(false)}><X size={20} /></button>
+          </div>
+
+          <nav className="glass-navigation" id="glass-primary-nav" aria-label="Navegación principal">
+            {gruposVisibles.map((grupo) => (
+              <div className="glass-nav-group" key={grupo.id}>
+                <div className="glass-nav-heading"><grupo.icon size={16} /><span>{grupo.label}</span></div>
+                <div className="glass-nav-items">
+                  {grupo.tabs.map((id) => {
+                    const item = tabsVisibles.find((t) => t.id === id);
+                    return (
+                      <button key={id} type="button" onClick={() => seleccionarTab(id)}
+                        aria-current={tabActivo.id === id ? "page" : undefined}
+                        className={`glass-nav-item ${tabActivo.id === id ? "is-active" : ""}`}>
+                        <item.icon size={17} strokeWidth={1.8} />
+                        <span>{item.label}</span>
+                        {tabActivo.id === id && <ChevronRight size={15} className="glass-nav-chevron" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ))}
-            <div className="ml-auto flex items-center gap-2 pl-2 text-sm text-slate-500">
+          </nav>
+
+          <div className="glass-sidebar-footer">
+            <div className="glass-avatar" aria-hidden="true">{usuario.nombre?.trim().charAt(0).toUpperCase() || "U"}</div>
+            <div className="glass-user"><strong>{usuario.nombre}</strong><small>{usuario.rol === "admin" ? "Administrador" : "Operaciones"}</small></div>
+            <button type="button" onClick={signOut} className="glass-signout" title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={18} /></button>
+          </div>
+        </aside>
+
+        <div className="glass-workspace" inert={menuAbierto ? true : undefined}>
+          <header className="glass-topbar print:hidden">
+            <button type="button" ref={menuButtonRef} className="glass-menu-button" aria-label="Abrir menú" aria-controls="glass-primary-nav" aria-expanded={menuAbierto} onClick={() => setMenuAbierto(true)}><Menu size={21} /></button>
+            <div className="glass-page-title">
+              <div className="glass-breadcrumb">Almacén <ChevronRight size={13} /> {grupoActivo.label}</div>
+              <h1>{tabActivo.label}</h1>
+            </div>
+            <div className="glass-topbar-actions">
               {puedeElegir && sucursales.length > 0 && (
-                <label className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5">
-                  <Building2 size={14} className="text-slate-400" />
-                  <select
-                    value={sucursalActivaId ?? ""}
-                    onChange={(e) => setSucursalActiva(Number(e.target.value))}
-                    className="bg-transparent text-sm text-slate-700 focus:outline-none"
-                  >
-                    {sucursales.map((s) => (
-                      <option key={s.id} value={s.id}>{s.nombre}</option>
-                    ))}
+                <label className="glass-branch"><Building2 size={17} /><span className="sr-only">Sucursal activa</span>
+                  <select value={sucursalActivaId ?? ""} onChange={(e) => setSucursalActiva(Number(e.target.value))}>
+                    {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                   </select>
                 </label>
               )}
-              {!puedeElegir && sucursalActivaId != null && (
-                <span className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-slate-600">
-                  <Building2 size={14} className="text-slate-400" />
-                  {nombreSucursal(sucursalActivaId)}
-                </span>
-              )}
-              <span className="hidden sm:inline">{usuario.nombre}</span>
-              <button onClick={signOut}
-                className="flex items-center gap-1 rounded-md px-2 py-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                title="Cerrar sesión">
-                <LogOut size={16} />
-              </button>
+              {!puedeElegir && sucursalActivaId != null && <div className="glass-branch"><Building2 size={17} /><span>{nombreSucursal(sucursalActivaId)}</span></div>}
+              <div className="glass-topbar-user"><span className="glass-avatar" aria-hidden="true">{usuario.nombre?.trim().charAt(0).toUpperCase() || "U"}</span><span>{usuario.nombre}</span></div>
             </div>
-          </div>
-          {grupoActivo.tabs.length > 1 && (
-            <div className="flex items-center gap-1 border-t border-slate-100 bg-slate-50 px-3 py-1.5 flex-wrap">
-              {grupoActivo.tabs.map((id) => {
-                const t = tabsVisibles.find((tt) => tt.id === id);
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setTab(id)}
-                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors
-                      ${tabActivo.id === id
-                        ? "bg-white text-slate-900 shadow-sm"
-                        : "text-slate-500 hover:bg-white/60"}`}
-                  >
-                    <t.icon size={13} /> {t.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </nav>
-        <main className="p-4">
-          <Active />
-        </main>
+          </header>
+          <main className="glass-content" id="contenido-principal" tabIndex={-1}><Active /></main>
+        </div>
       </div>
     </AppNavContext.Provider>
   );

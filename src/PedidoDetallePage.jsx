@@ -22,5 +22,5 @@ export default function PedidoDetallePage() {
     else navigate("/");
   };
 
-  return <DetallePedido pedidoId={Number(id)} onBack={handleBack} />;
+  return <div className="glass-app"><main className="glass-content"><DetallePedido pedidoId={Number(id)} onBack={handleBack} /></main></div>;
 }

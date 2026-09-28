@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import {
   Search, LayoutGrid, List, Package, X, Tag, MapPin, Barcode,
-  Link2, Link2Off, ImageOff, Filter, ChevronRight, ChevronDown, Boxes, History, Pencil, ScanLine,
+  Link2, Link2Off, Filter, ChevronRight, ChevronDown, Boxes, History, Pencil, ScanLine,
   ShoppingCart, CheckCircle, AlertTriangle, Loader, PackagePlus, Plus, FileText,
 } from "lucide-react";
 import { HistorialMovimientos } from "./HistorialApp";
@@ -17,6 +17,9 @@ import { metaProducto, marcaFmt } from "./lib/producto";
 import { sumaStockPorSucursal, desgloseStockPorSucursal, textoDesgloseSucursal } from "./lib/stockSucursal";
 import { labelUbicacionConSucursal } from "./lib/despacho";
 import { fetchAll } from "./lib/fetchAll";
+import ImagenProducto from "./ImagenProducto";
+import CatalogDialog from "./CatalogDialog";
+import "./catalogo.css";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -105,22 +108,6 @@ function DesgloseSucursalLinea({ stockPorSucursal, className }) {
   return <p className={className || "text-xs text-slate-400"}>{texto}</p>;
 }
 
-// Imagen con fallback a placeholder
-function ImagenProducto({ url, nombre, className }) {
-  const [error, setError] = useState(false);
-  if (!url || error) {
-    return (
-      <div className={`flex items-center justify-center bg-slate-100 ${className}`}>
-        <ImageOff size={20} className="text-slate-300" />
-      </div>
-    );
-  }
-  return (
-    <img src={url} alt={nombre} onError={() => setError(true)}
-      className={`object-cover ${className}`} loading="lazy" />
-  );
-}
-
 // ─── Panel de detalle ────────────────────────────────────────────────────────
 
 function DetalleProducto({ producto, onClose, onActualizado }) {
@@ -129,6 +116,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
   const [cargando, setCargando] = useState(true);
   const [vistaPanel, setVistaPanel] = useState("detalle"); // "detalle" | "historial"
   const [editando, setEditando] = useState(false);
+  const [revision, setRevision] = useState(0);
   const [mostrarUbicaciones, setMostrarUbicaciones] = useState(false);
 
   useEffect(() => {
@@ -176,33 +164,23 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
     }
     cargar();
     return () => { activo = false; };
-  }, [producto.id]);
+  }, [producto.id, revision]);
 
   const mapeado = !!producto.shopify_variant_id;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
-        onClick={e => e.stopPropagation()}>
-        {/* Header con imagen */}
-        <div className="relative">
-          <ImagenProducto url={producto.imagen_url} nombre={producto.nombre}
-            className="h-56 w-full rounded-t-2xl" />
-          <div className="absolute right-3 top-3 flex gap-2">
-            <button onClick={() => setEditando(true)}
-              className="flex items-center gap-1 rounded-full bg-white/90 px-3 py-2 text-sm font-medium text-slate-700 shadow hover:bg-white"
-              title="Editar producto">
-              <Pencil size={15} /> Editar
-            </button>
-            <button onClick={onClose}
-              className="rounded-full bg-white/90 p-2 text-slate-600 shadow hover:bg-white">
-              <X size={18} />
-            </button>
-          </div>
+    <CatalogDialog label="Detalle del producto" onClose={onClose} className="product-detail product-dialog">
+      <header className="product-dialog-header">
+        <div><span className="product-eyebrow">CATÁLOGO</span><h2>Detalle del producto</h2></div>
+        <div className="product-header-actions">
+          <button type="button" onClick={() => setEditando(true)} className="product-secondary-button"><Pencil size={16} /> Editar</button>
+          <button type="button" onClick={onClose} aria-label="Cerrar detalle" className="product-icon-button"><X size={20} /></button>
         </div>
-
-        <div className="p-5">
-          <div className="mb-4">
+      </header>
+      <div className="product-dialog-scroll">
+        <div className="product-detail-hero">
+          <div className="product-detail-photo"><ImagenProducto ampliable url={producto.imagen_url} nombre={producto.nombre} className="h-full w-full" /></div>
+          <div className="product-detail-identity">
             <h2 className="text-lg font-semibold text-slate-900">{producto.nombre}</h2>
             {marcaFmt(producto.marca) && (
               <p className="text-xs text-slate-500">{marcaFmt(producto.marca)}</p>
@@ -217,20 +195,20 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                 {mapeado ? "En Shopify" : "Sin mapear"}
               </span>
             </div>
-          </div>
-
-          <div className="mb-5">
+          <div className="mt-4">
             <CarruselPrecios producto={producto} />
           </div>
+          </div>
+        </div>
 
           {/* Subtabs: Detalle / Movimientos */}
-          <div className="mb-5 flex gap-1 rounded-lg bg-slate-100 p-1">
-            <button onClick={() => setVistaPanel("detalle")}
+          <div className="product-detail-tabs" role="group" aria-label="Información del producto">
+            <button onClick={() => setVistaPanel("detalle")} aria-pressed={vistaPanel === "detalle"}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium
                 ${vistaPanel === "detalle" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
               <Package size={14} /> Detalle
             </button>
-            <button onClick={() => setVistaPanel("historial")}
+            <button onClick={() => setVistaPanel("historial")} aria-pressed={vistaPanel === "historial"}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium
                 ${vistaPanel === "historial" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
               <History size={14} /> Movimientos
@@ -279,7 +257,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
                   </div>
                 </div>
 
-                <button onClick={() => setMostrarUbicaciones(v => !v)}
+                <button onClick={() => setMostrarUbicaciones(v => !v)} aria-expanded={mostrarUbicaciones}
                   className="mt-2 flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
                   {mostrarUbicaciones ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   Presente en {ubicacionesConStock.length} {ubicacionesConStock.length === 1 ? "ubicación" : "ubicaciones"}
@@ -321,7 +299,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
           {cargando ? (
             <p className="text-sm text-slate-400">Cargando detalle…</p>
           ) : (
-            <div className="space-y-5">
+            <div className="product-detail-sections">
               {/* Atributos */}
               {detalle.atributos.length > 0 && (
                 <section>
@@ -401,17 +379,16 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
           )}
           </>
           )}
-        </div>
       </div>
 
       {editando && (
         <EditarProducto
           producto={producto}
-          onClose={() => setEditando(false)}
-          onGuardado={() => { onActualizado?.(); }}
+          onClose={() => { setEditando(false); setRevision(v => v + 1); }}
+          onGuardado={onActualizado}
         />
       )}
-    </div>
+    </CatalogDialog>
   );
 }
 
@@ -422,17 +399,17 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
 function QuickView({ producto, onClose, onVerDetalle, onVenderAhora, onAgregarPedido }) {
   const mapeado = !!producto.shopify_variant_id;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+    <CatalogDialog onClose={onClose} label={producto.nombre} className="catalog-quickview">
+      <div className="w-full">
         <div className="relative">
-          <ImagenProducto url={producto.imagen_url} nombre={producto.nombre}
+          <ImagenProducto ampliable url={producto.imagen_url} nombre={producto.nombre}
             className="h-48 w-full rounded-t-2xl" />
-          <button onClick={onClose}
+          <button onClick={onClose} aria-label="Cerrar vista rápida"
             className="absolute right-3 top-3 rounded-full bg-white/90 p-2 text-slate-600 shadow hover:bg-white">
             <X size={18} />
           </button>
           {!mapeado && (
-            <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-medium text-white">
+            <span className="absolute bottom-3 left-3 flex items-center gap-1 rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-medium text-white">
               <Link2Off size={10} /> Sin mapear
             </span>
           )}
@@ -463,7 +440,7 @@ function QuickView({ producto, onClose, onVerDetalle, onVenderAhora, onAgregarPe
           </button>
         </div>
       </div>
-    </div>
+    </CatalogDialog>
   );
 }
 
@@ -692,55 +669,56 @@ function EncabezadoFamiliaFila({ grupo }) {
 
 // ─── Tarjeta galería ─────────────────────────────────────────────────────────
 
-function TarjetaGaleria({ p, mostrarAtributos, onClick }) {
+function TarjetaGaleria({ p, mostrarAtributos, onClick, onEditar }) {
   const mapeado = !!p.shopify_variant_id;
   return (
-    <button onClick={onClick}
-      className="group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition-shadow hover:shadow-md">
-      <div className="relative aspect-square w-full overflow-hidden">
-        <ImagenProducto url={p.imagen_url} nombre={p.nombre}
-          className="h-full w-full transition-transform group-hover:scale-105" />
+    <article className="catalog-card">
+      <div className="catalog-card-media">
+        <ImagenProducto ampliable url={p.imagen_url} nombre={p.nombre}
+          className="h-full w-full" />
         {!mapeado && (
-          <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-medium text-white">
+          <span className="catalog-mapping-badge">
             <Link2Off size={10} /> Sin mapear
           </span>
         )}
       </div>
-      <div className="flex flex-1 flex-col p-3">
-        <p className="line-clamp-2 text-sm font-medium text-slate-800">{textoVariante(p, mostrarAtributos)}</p>
-        {metaProducto(p) && <p className="mt-0.5 text-xs text-slate-400">{metaProducto(p)}</p>}
-        <div className="mt-auto flex items-center justify-between pt-2">
-          <p className="text-sm font-bold text-slate-900">{precioFmt(p.precio_base)}</p>
+      <button type="button" className="product-image-expand catalog-product-edit" onClick={onEditar} aria-label={`Editar ${p.nombre}`} title="Editar producto"><Pencil size={15} strokeWidth={1.7} /></button>
+      <button type="button" onClick={onClick} className="catalog-card-content catalog-product-open" aria-label={`Ver producto ${p.nombre}`}>
+        <span className="catalog-product-name">{textoVariante(p, mostrarAtributos)}</span>
+        <p className="catalog-card-meta" title={metaProducto(p) || undefined}>{metaProducto(p) || "\u00a0"}</p>
+        <div className="catalog-card-values">
+          <p className="catalog-product-price">{precioFmt(p.precio_base)}</p>
           <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
         </div>
-        <DesgloseSucursalLinea stockPorSucursal={p.stock_por_sucursal} className="mt-1 text-right text-xs text-slate-400" />
-      </div>
-    </button>
+        <div className="catalog-card-branches"><DesgloseSucursalLinea stockPorSucursal={p.stock_por_sucursal} /></div>
+      </button>
+    </article>
   );
 }
 
 // ─── Fila lista ──────────────────────────────────────────────────────────────
 
-function FilaLista({ p, mostrarAtributos, indentado, onClick }) {
+function FilaLista({ p, mostrarAtributos, indentado, onClick, onEditar }) {
   const mapeado = !!p.shopify_variant_id;
   return (
-    <button onClick={onClick}
-      className={`flex w-full items-center gap-3 border-b border-slate-100 py-2.5 text-left last:border-0 hover:bg-slate-50
-        ${indentado ? "pl-9 pr-3" : "px-3"}`}>
-      <ImagenProducto url={p.imagen_url} nombre={p.nombre}
-        className="h-11 w-11 shrink-0 rounded-md" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-800">{textoVariante(p, mostrarAtributos)}</p>
+    <article className={`catalog-list-row ${indentado ? "is-indented" : ""}`}>
+      <ImagenProducto ampliable url={p.imagen_url} nombre={p.nombre}
+        className="catalog-list-image" />
+      <button type="button" onClick={onClick} className="catalog-list-content catalog-product-open" aria-label={`Ver producto ${p.nombre}`}>
+      <div className="catalog-list-name">
+        <p className="catalog-product-name">{textoVariante(p, mostrarAtributos)}</p>
         {metaProducto(p) && <p className="truncate text-xs text-slate-400">{metaProducto(p)}</p>}
+        {!mapeado && <span className="catalog-list-unmapped"><Link2Off size={12} /> Sin mapear</span>}
       </div>
-      {!mapeado && <Link2Off size={14} className="shrink-0 text-slate-300" />}
-      <div className="shrink-0 text-right">
+      <div className="catalog-list-stock">
         <BadgeStock cantidad={p.stock_total} unidad={p.unidad_base} />
         <DesgloseSucursalLinea stockPorSucursal={p.stock_por_sucursal} className="mt-0.5 text-xs text-slate-400" />
       </div>
-      <span className="shrink-0 text-sm font-semibold text-slate-900">{precioFmt(p.precio_base)}</span>
-      <ChevronRight size={15} className="shrink-0 text-slate-300" />
-    </button>
+      <span className="catalog-product-price">{precioFmt(p.precio_base)}</span>
+      <ChevronRight size={15} className="catalog-list-arrow" aria-hidden="true" />
+      </button>
+      <button type="button" className="product-image-expand catalog-product-edit" onClick={onEditar} aria-label={`Editar ${p.nombre}`} title="Editar producto"><Pencil size={15} strokeWidth={1.7} /></button>
+    </article>
   );
 }
 
@@ -803,6 +781,7 @@ export default function CatalogoApp() {
   const [cargando, setCargando] = useState(true);
   const [seleccionado, setSeleccionado] = useState(null);     // quick-view (grilla)
   const [detalleCompleto, setDetalleCompleto] = useState(null); // "ver detalle completo"
+  const [editandoProducto, setEditandoProducto] = useState(null);
   const [vendiendo, setVendiendo] = useState(null);           // modal "vender ahora"
   const [creando, setCreando] = useState(false);              // modal "nuevo producto"
   const [ventaFlash, setVentaFlash] = useState(null);
@@ -1009,8 +988,8 @@ export default function CatalogoApp() {
   const totalPaginas = Math.ceil(total / PAGINA);
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <div className="mb-5 flex items-center justify-between">
+    <div className="catalog-page mx-auto max-w-6xl">
+      <div className="catalog-page-heading mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-800">Catálogo</h1>
           <p className="text-sm text-slate-500">{total} productos activos</p>
@@ -1023,17 +1002,20 @@ export default function CatalogoApp() {
 
       {showScanner && <EscanerCodigo onDetect={handleScan} onClose={() => setShowScanner(false)} />}
 
+      <div className="catalog-browser">
       {/* Controles */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1">
+      <div className="catalog-toolbar">
+        <div className="catalog-search relative min-w-0">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
+            aria-label="Buscar productos por nombre, SKU o código de barras"
             value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleScan(e.target.value); } }}
             placeholder="Buscar por nombre, SKU o código de barras…"
-            className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-4 text-sm focus:border-slate-500 focus:outline-none"
+            className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-11 text-sm focus:border-slate-500 focus:outline-none"
           />
+          {busqueda && <button type="button" className="catalog-search-clear" aria-label="Limpiar búsqueda" onClick={() => setBusqueda("")}><X size={16} /></button>}
         </div>
         <button onClick={() => setShowScanner(true)}
           className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
@@ -1041,9 +1023,10 @@ export default function CatalogoApp() {
         </button>
 
         {/* Filtro atributo */}
-        <div className="relative">
+        <div className="catalog-attribute relative">
           <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <select
+            aria-label="Filtrar por atributo"
             value={filtroValorId}
             onChange={e => setFiltroValorId(e.target.value)}
             className="rounded-lg border border-slate-300 py-2 pl-8 pr-3 text-sm focus:border-slate-500 focus:outline-none">
@@ -1057,13 +1040,13 @@ export default function CatalogoApp() {
         </div>
 
         {/* Toggle vista */}
-        <div className="flex rounded-lg border border-slate-300 p-0.5">
-          <button onClick={() => setVista("galeria")}
+        <div className="catalog-view-toggle" role="group" aria-label="Vista del catálogo">
+          <button onClick={() => setVista("galeria")} aria-label="Vista de galería" title="Vista de galería" aria-pressed={vista === "galeria"}
             className={`flex items-center gap-1 rounded px-2.5 py-1.5 text-sm font-medium
               ${vista === "galeria" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
             <LayoutGrid size={15} />
           </button>
-          <button onClick={() => setVista("lista")}
+          <button onClick={() => setVista("lista")} aria-label="Vista de lista" title="Vista de lista" aria-pressed={vista === "lista"}
             className={`flex items-center gap-1 rounded px-2.5 py-1.5 text-sm font-medium
               ${vista === "lista" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
             <List size={15} />
@@ -1073,27 +1056,28 @@ export default function CatalogoApp() {
 
       {/* Resultados */}
       {cargando ? (
-        <div className="py-16 text-center text-slate-400">Cargando productos…</div>
+        <div className="catalog-loading" role="status"><Loader size={22} className="animate-spin" />Cargando productos…</div>
       ) : grupos.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 py-16 text-center">
           <Package size={32} className="mx-auto mb-3 text-slate-300" />
           <p className="text-sm text-slate-400">No se encontraron productos con esos criterios.</p>
+          {(busqueda || filtroValorId) && <button type="button" className="catalog-reset" onClick={() => { setBusqueda(""); setFiltroValorId(""); }}>Limpiar filtros</button>}
         </div>
       ) : vista === "galeria" ? (
         <div className="space-y-6">
           {armarBloques(grupos).map((b, i) => b.tipo === "familia" ? (
             <div key={`f-${b.grupo.familia_id}`}>
               <EncabezadoFamilia grupo={b.grupo} />
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              <div className="catalog-grid">
                 {b.grupo.variantes.map(v => (
-                  <TarjetaGaleria key={v.id} p={v} mostrarAtributos onClick={() => setSeleccionado(v)} />
+                  <TarjetaGaleria key={v.id} p={v} mostrarAtributos onClick={() => setSeleccionado(v)} onEditar={() => setEditandoProducto(v)} />
                 ))}
               </div>
             </div>
           ) : (
-            <div key={`s-${i}`} className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            <div key={`s-${i}`} className="catalog-grid">
               {b.variantes.map(v => (
-                <TarjetaGaleria key={v.id} p={v} onClick={() => setSeleccionado(v)} />
+                <TarjetaGaleria key={v.id} p={v} onClick={() => setSeleccionado(v)} onEditar={() => setEditandoProducto(v)} />
               ))}
             </div>
           ))}
@@ -1104,13 +1088,13 @@ export default function CatalogoApp() {
             <div key={`f-${b.grupo.familia_id}`}>
               <EncabezadoFamiliaFila grupo={b.grupo} />
               {b.grupo.variantes.map(v => (
-                <FilaLista key={v.id} p={v} mostrarAtributos indentado onClick={() => setSeleccionado(v)} />
+                <FilaLista key={v.id} p={v} mostrarAtributos indentado onClick={() => setSeleccionado(v)} onEditar={() => setEditandoProducto(v)} />
               ))}
             </div>
           ) : (
             <div key={`s-${i}`}>
               {b.variantes.map(v => (
-                <FilaLista key={v.id} p={v} onClick={() => setSeleccionado(v)} />
+                <FilaLista key={v.id} p={v} onClick={() => setSeleccionado(v)} onEditar={() => setEditandoProducto(v)} />
               ))}
             </div>
           ))}
@@ -1138,6 +1122,8 @@ export default function CatalogoApp() {
           </button>
         </div>
       )}
+
+      </div>
 
       {/* Flash de venta (sobrevive al cierre de los modales) */}
       {ventaFlash && (
@@ -1191,9 +1177,12 @@ export default function CatalogoApp() {
         <DetalleProducto
           producto={detalleCompleto}
           onClose={() => setDetalleCompleto(null)}
-          onActualizado={() => { cargar(busqueda, filtroValorId, pagina); }}
+          onActualizado={(cambios) => { if (cambios) setDetalleCompleto(p => ({ ...p, ...cambios })); cargar(busqueda, filtroValorId, pagina); }}
         />
       )}
+
+      {editandoProducto && <EditarProducto producto={editandoProducto} onClose={() => setEditandoProducto(null)}
+        onGuardado={cambios => { if (cambios) setEditandoProducto(p => ({ ...p, ...cambios })); cargar(busqueda, filtroValorId, pagina); }} />}
 
       {creando && (
         <NuevoProducto onClose={() => setCreando(false)}
