@@ -71,7 +71,9 @@ GRANT EXECUTE ON FUNCTION public.recalcular_estado_pedido(bigint) TO authenticat
 -- y una sola firma.
 SELECT p.oid::regprocedure::text AS firma,
        pg_get_functiondef(p.oid) ILIKE '%America/La_Paz%' AS usa_fecha_bolivia,
-       pg_get_functiondef(p.oid) ~* 'current_date'        AS usa_current_date,
+       -- se quitan los comentarios antes de buscar: el comentario de la
+       -- función menciona current_date y daba un falso "true".
+       regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') ~* 'current_date' AS usa_current_date,
        p.proacl::text                                     AS permisos
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
