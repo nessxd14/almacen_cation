@@ -1982,11 +1982,13 @@ export function DetallePedido({ pedidoId, onBack }) {
   }
 
   // Corta el pedido en lo ya despachado (queda acá) + una tanda nueva con
-  // el faltante (PENDIENTE/POR_DESPACHAR) — la tanda nueva entra a la
-  // bandeja de Almacén como cualquier otro pedido.
+  // el faltante (PENDIENTE/POR_DESPACHAR) — desde la migración 2026-10-08c
+  // (W-PC2) esas líneas nacen POR_COMPRAR, cada una con su compra_solicitud,
+  // así que la tanda nueva entra directo a la bandeja de Compras en vez de
+  // a la de Almacén.
   async function cerrarTandaCompleta() {
     const ok = window.confirm(
-      "Esto va a completar este pedido con lo ya despachado y mandar el faltante a un pedido nuevo (la próxima tanda). ¿Continuar?"
+      "Esto va a completar este pedido con lo ya despachado y mandar el faltante a un pedido nuevo (la próxima tanda), que queda Por comprar. ¿Continuar?"
     );
     if (!ok) return;
     const motivo = window.prompt("Motivo (opcional) para el faltante:");
@@ -1998,7 +2000,7 @@ export function DetallePedido({ pedidoId, onBack }) {
     if (error) { setFlashTanda({ type: "error", msg: "Error: " + error.message }); return; }
     setFlashTanda({
       type: "ok",
-      msg: `Tanda cerrada: ${resultado.lineas_movidas} línea(s) movida(s) al pedido #${resultado.pedido_nuevo_id}.`,
+      msg: `Tanda cerrada: ${resultado.lineas_movidas} línea(s) pasaron al pedido #${resultado.pedido_nuevo_id} y quedaron por comprar.`,
       pedidoNuevoId: resultado.pedido_nuevo_id,
     });
     await cargar();

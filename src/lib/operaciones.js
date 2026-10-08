@@ -538,33 +538,6 @@ export async function cerrarTandaPedido({ pedidoId, motivo, usuario }) {
   return { resultado: data, error };
 }
 
-/* ── Compras: registrar la entrada real de un faltante de tanda — agrega
- * stock vía Kardex (registrar_entrada) en la ubicación de recepción de la
- * sucursal, a diferencia de comprarDirecto que solo cierra la línea.
- */
-export async function registrarEntradaCompra({ presentacionId, sucursalId, cantidadPres, costoUnitario, referencia, usuario }) {
-  const { data: ubicacion, error: errUbicacion } = await supabase
-    .from("ubicacion")
-    .select("id")
-    .eq("sucursal_id", Number(sucursalId))
-    .eq("es_recepcion", true)
-    .maybeSingle();
-  if (errUbicacion) return { error: errUbicacion };
-  if (!ubicacion) return { error: new Error("La sucursal no tiene una ubicación de recepción configurada") };
-
-  const { data, error } = await supabase.rpc("registrar_entrada", {
-    p_presentacion_id: Number(presentacionId),
-    p_ubicacion_id: ubicacion.id,
-    p_cantidad_pres: Number(cantidadPres),
-    p_referencia: referencia || "Sin referencia",
-    p_usuario: usuario,
-    p_fecha: hoy(),
-    p_costo_unitario: costoUnitario != null ? Number(costoUnitario) : null,
-    p_idempotencia: uuid(),
-  });
-  return { id: data, error };
-}
-
 // Registra el escaneo de un ticket en modo despacho rápido (VentaDirectaApp)
 // vía la RPC despacho_rapido_venta_directa: si la venta sigue ABIERTA (Almacén
 // llega primero), la completa ella misma en la misma transacción — sin
@@ -701,14 +674,20 @@ export async function marcarCompraComprada({ solicitudId, costoTotal, nota, usua
   return { resultado: data, error };
 }
 
-/* ubicacionId es obligatorio para líneas de catálogo y null para ítems a pedido;
- * cantidadBase null = todo lo que falta recibir (se admiten recepciones parciales).
- * -> { solicitud_id, estado, cantidad_recibida, linea_id, linea_estado, kardex_id } */
-export async function recibirCompra({ solicitudId, ubicacionId, cantidadBase, usuario }) {
+/* ubicacionId es obligatorio para líneas de catálogo y null para ítems a pedido
+ * (si se omite para una línea de catálogo, el backend usa la ubicación de
+ * recepción de la sucursal de la línea); cantidadBase null = todo lo que
+ * falta recibir (se admiten recepciones parciales); costoTotal es el costo
+ * de la compra entera, opcional y solo tiene efecto si la solicitud todavía
+ * no tiene costo cargado (mismo manejo de número opcional que marcarCompraComprada).
+ * -> { solicitud_id, estado, cantidad_recibida, linea_id, linea_estado,
+ *      kardex_id, ubicacion_id } */
+export async function recibirCompra({ solicitudId, ubicacionId, cantidadBase, costoTotal, usuario }) {
   const { data, error } = await supabase.rpc("recibir_compra", {
     p_solicitud_id: Number(solicitudId),
     p_ubicacion_id: ubicacionId != null && ubicacionId !== "" ? Number(ubicacionId) : null,
     p_cantidad_base: cantidadBase != null && cantidadBase !== "" ? Number(cantidadBase) : null,
+    p_costo_total: costoTotal != null && costoTotal !== "" ? Number(costoTotal) : null,
     p_usuario: usuario,
   });
   return { resultado: data, error };
