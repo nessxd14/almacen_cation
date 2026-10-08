@@ -675,6 +675,56 @@ export async function restarPedidoLinea({ lineaId, motivo, usuario }) {
   return { resultado: data, error };
 }
 
+/* ── compras (brief W-PC): una línea de catálogo pasa a POR_COMPRAR y queda
+ * una compra_solicitud (SOLICITADA -> COMPRADA -> RECIBIDA, o CANCELADA).
+ * cantidadBase null = todo lo pendiente. Si es una parte, el backend crea una
+ * línea nueva y achica la original: recargar el pedido entero después.
+ * -> { pedido_id, linea_id, linea_compra_id, solicitud_id, cantidad_base } */
+export async function enviarLineaACompra({ lineaId, cantidadBase, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("enviar_linea_a_compra", {
+    p_pedido_linea_id: Number(lineaId),
+    p_cantidad_base: cantidadBase != null && cantidadBase !== "" ? Number(cantidadBase) : null,
+    p_motivo: motivo || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* -> { solicitud_id, estado: "COMPRADA" } */
+export async function marcarCompraComprada({ solicitudId, costoTotal, nota, usuario }) {
+  const { data, error } = await supabase.rpc("marcar_compra_comprada", {
+    p_solicitud_id: Number(solicitudId),
+    p_costo_total: costoTotal != null && costoTotal !== "" ? Number(costoTotal) : null,
+    p_nota: nota || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* ubicacionId es obligatorio para líneas de catálogo y null para ítems a pedido;
+ * cantidadBase null = todo lo que falta recibir (se admiten recepciones parciales).
+ * -> { solicitud_id, estado, cantidad_recibida, linea_id, linea_estado, kardex_id } */
+export async function recibirCompra({ solicitudId, ubicacionId, cantidadBase, usuario }) {
+  const { data, error } = await supabase.rpc("recibir_compra", {
+    p_solicitud_id: Number(solicitudId),
+    p_ubicacion_id: ubicacionId != null && ubicacionId !== "" ? Number(ubicacionId) : null,
+    p_cantidad_base: cantidadBase != null && cantidadBase !== "" ? Number(cantidadBase) : null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
+/* devuelve la línea de catálogo a POR_DESPACHAR; rechaza ítems a pedido.
+ * -> { solicitud_id, estado: "CANCELADA", linea_id } */
+export async function cancelarCompra({ solicitudId, motivo, usuario }) {
+  const { data, error } = await supabase.rpc("cancelar_compra", {
+    p_solicitud_id: Number(solicitudId),
+    p_motivo: motivo || null,
+    p_usuario: usuario,
+  });
+  return { resultado: data, error };
+}
+
 /* ── devolver mercadería ya alistada al almacén (pedidos no-Tienda) —
  * motivo obligatorio (el backend lo exige, acá no se valida más que eso).
  * Mismo shape de respuesta que revertirEvento: {evento_id, linea_id,
