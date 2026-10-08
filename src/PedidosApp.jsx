@@ -3,7 +3,7 @@
  *
  * Modelo (ver db/migrations/2026-07-05_pedidos.sql y src/lib/operaciones.js):
  *   pedido (categoria MAYOR|TIENDA, estado ABIERTO|COMPLETADO|CANCELADO)
- *   pedido_linea (estado POR_DESPACHAR|DESPACHADA|PENDIENTE|COMPRADO_DIRECTO)
+ *   pedido_linea (estado POR_DESPACHAR|DESPACHADA|PENDIENTE|COMPRADO_DIRECTO|POR_COMPRAR)
  *   pedido_despacho_evento / pedido_despacho_movimiento (puente con Kardex,
  *     reversible_hasta solo para categoria TIENDA)
  *
@@ -23,11 +23,13 @@ import {
   codigosGrisPorProducto, stockPorSucursalProducto,
   rechazarPedidoLinea, rechazarPedido, cambiarPedidoLinea, restarPedidoLinea,
   devolverAlistadoAAlmacen, inyectarAlistadoATienda, cerrarTandaPedido,
+  enviarLineaACompra, cancelarCompra,
 } from "./lib/operaciones";
 import {
   armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion, formatoEquivalencia,
 } from "./lib/despacho";
 import { avisoDisponibilidad, lineasSinCobertura } from "./lib/disponibilidad";
+import { etiquetaEstadoCompra, cantidadSugeridaCompra } from "./lib/compras";
 import { objetivoPick, haySobreTurno, MOTIVOS_DESPACHO_FORZADO, MOTIVO_OTRO, motivoValido, motivoFinal } from "./lib/reserva";
 import CodigosLinea from "./CodigosLinea";
 import BarraSeleccion from "./BarraSeleccion";
@@ -39,7 +41,7 @@ import {
   ClipboardList, Plus, ChevronDown, ChevronUp, ChevronRight, MapPin, Undo2,
   AlertTriangle, Loader, ArrowLeft, X, ScanLine, RefreshCw,
   ShoppingBag, Clock, Boxes, Printer, CheckSquare,
-  Ban, Repeat, Trash2, Warehouse, Store, SplitSquareHorizontal, Search,
+  Ban, Repeat, Trash2, Warehouse, Store, SplitSquareHorizontal, Search, ShoppingCart,
 } from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
@@ -123,6 +125,7 @@ const ESTADOS_LINEA = {
   POR_DESPACHAR:    { label: "Por despachar", cls: "bg-slate-100 text-slate-600" },
   DESPACHADA:       { label: "Despachada",    cls: "bg-emerald-100 text-emerald-700" },
   PENDIENTE:        { label: "Pendiente",     cls: "bg-amber-100 text-amber-700" },
+  POR_COMPRAR:      { label: "Por comprar",   cls: "bg-orange-100 text-orange-700" },
   COMPRADO_DIRECTO: { label: "Comprado directo", cls: "bg-violet-100 text-violet-700" },
   ESPECIAL:         { label: "Pendiente de entrega", cls: "bg-amber-100 text-amber-700" },
   RECHAZADO:        { label: "Rechazada",     cls: "bg-red-100 text-red-600" },
@@ -875,6 +878,71 @@ function ModalCambiarLinea({ linea, onClose, onCambiado }) {
   );
 }
 
+/* ── Mandar una línea (o una parte) a compras (brief W-PC). Si la cantidad es
+   la línea entera, la misma línea pasa a POR_COMPRAR; si es una parte, el
+   backend crea una línea nueva y achica la original — por eso el padre
+   recarga el pedido completo al confirmar (onEnviada). */
+function ModalEnviarACompra({ linea, pendiente, cubierto, onClose, onEnviada }) {
+  const usuarioActual = useUsuarioActual();
+  const [cantidad, setCantidad] = useState(String(cantidadSugeridaCompra({ pendiente, cubierto })));
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [flash, setFlash] = useState(null);
+
+  async function confirmar() {
+    const n = Number(cantidad);
+    if (!cantidad || !(n > 0)) { setFlash("Cantidad inválida"); return; }
+    if (n > pendiente) { setFlash(`No puede superar lo pendiente (${cantidadFmt(pendiente)})`); return; }
+    setGuardando(true);
+    const { error } = await enviarLineaACompra({
+      lineaId: linea.id, cantidadBase: n, motivo: motivo.trim() || null, usuario: usuarioActual.nombre,
+    });
+    setGuardando(false);
+    if (error) { setFlash("Error: " + error.message); return; }
+    onEnviada();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-800">Mandar a compras</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+        </div>
+        <p className="text-xs text-slate-500">
+          <span className="font-medium text-slate-700">{linea.producto?.nombre ?? linea.descripcion}</span> · {textoCantidadLinea(linea)}
+        </p>
+
+        {flash && (
+          <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+            <AlertTriangle size={12} /> {flash}
+          </div>
+        )}
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500">
+            Cantidad a comprar {linea.producto?.unidad_base ? `(${linea.producto.unidad_base})` : ""} — pendiente: {cantidadFmt(pendiente)}
+          </label>
+          <input type="number" min="0.001" max={pendiente} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)}
+            className="w-full rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-orange-300" />
+        </div>
+
+        <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)"
+          className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+
+        <div className="flex gap-2">
+          <button onClick={confirmar} disabled={guardando}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50">
+            {guardando && <Loader size={14} className="animate-spin" />}
+            {guardando ? "Enviando…" : "Mandar a compras"}
+          </button>
+          <button onClick={onClose} className="rounded-lg border px-3 py-2 text-sm text-slate-500">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Acciones sobre un evento de despacho ya alistado, para pedidos que no
    son Tienda (brief W-B, pieza 4b) — Tienda sigue con su countdown propio
    (revertir_evento), este es un mecanismo distinto sin ventana de tiempo.
@@ -940,6 +1008,7 @@ function EventoAlistadoAcciones({ evento, linea, onLineaPatch, onEventoRevertido
 function FilaLinea({
   linea, eventos, habilitado, categoria, saldoLibre, saldoIndisponible, codigos,
   seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido, onAbrirCambiar,
+  compra, onRecargar,
 }) {
   const usuarioActual = useUsuarioActual();
   const { nombreSucursal } = useSucursal();
@@ -967,13 +1036,19 @@ function FilaLinea({
   // no despachada (mismas condiciones que puedeDespachar, más abajo).
   const [restando, setRestando] = useState(false);
   const [rechazandoLinea, setRechazandoLinea] = useState(false);
+  // Brief W-PC — Comprar (modal) y Cancelar compra.
+  const [modalCompra, setModalCompra] = useState(null); // null | { cubierto }
+  const [cancelandoCompra, setCancelandoCompra] = useState(false);
+  const [abriendoCompra, setAbriendoCompra] = useState(false);
 
   const pendiente = Math.max(Number(linea.cantidad_base) - Number(linea.cantidad_despachada), 0);
   const puedeDespachar = linea.estado === "POR_DESPACHAR" || (linea.estado === "PENDIENTE" && habilitado);
   // Restar/Rechazar/Cambiar (brief W-B): a diferencia de "puedeDespachar",
   // no exigen `habilitado` — el backend las permite en PENDIENTE aunque
   // todavía no haya llegado stock nuevo (habilitado solo gatea el pick).
-  const puedeModificar = linea.estado === "POR_DESPACHAR" || linea.estado === "PENDIENTE";
+  // POR_COMPRAR también: el backend cancela su compra solo al quitar/rechazar/cambiar.
+  const puedeModificar = linea.estado === "POR_DESPACHAR" || linea.estado === "PENDIENTE" || linea.estado === "POR_COMPRAR";
+  const puedeComprar = linea.estado === "POR_DESPACHAR" || linea.estado === "PENDIENTE";
   const cubierto = turno?.cubierto ?? null;
   const sobreTurno = haySobreTurno({ pendiente, cubierto });
 
@@ -1126,6 +1201,29 @@ function FilaLinea({
     if (seleccionada) onToggleSeleccion(linea.id);
   }
 
+  // Brief W-PC: cubierto sugiere cuánto comprar (pendiente − lo ya cubierto por
+  // stock); se consulta el turno al abrir si todavía no se había cargado.
+  async function abrirComprar() {
+    let t = turno;
+    if (t == null) {
+      setAbriendoCompra(true);
+      t = await turnoLinea(linea.id).catch(() => null);
+      setAbriendoCompra(false);
+      if (t) setTurno(t);
+    }
+    setModalCompra({ cubierto: t?.cubierto ?? null });
+  }
+
+  async function cancelarLaCompra() {
+    const motivo = window.prompt("Motivo (opcional) para cancelar la compra:");
+    if (motivo === null) return;
+    setCancelandoCompra(true);
+    const { error } = await cancelarCompra({ solicitudId: compra.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
+    setCancelandoCompra(false);
+    if (error) { showFlash("Error: " + error.message); return; }
+    onRecargar();
+  }
+
   async function revertir(eventoId, montoParcial) {
     const { resultado, error } = await revertirEvento({ eventoId, cantidadBase: montoParcial ?? null, usuario: usuarioActual.nombre });
     if (error) { showFlash("Error al revertir: " + error.message); return; }
@@ -1160,6 +1258,18 @@ function FilaLinea({
           <span className="text-xs text-amber-600">pend. {cantidadFmt(pendiente)}</span>
         )}
       </button>
+
+      {linea.estado === "POR_COMPRAR" && compra && (
+        <div className="px-4 pb-3 text-xs text-orange-700 space-y-0.5">
+          <p>
+            Por comprar · {etiquetaEstadoCompra(compra.estado)} · pedido por {compra.solicitado_por} · {fechaFmt(compra.solicitado_en)}
+          </p>
+          {Number(compra.cantidad_recibida) > 0 && (
+            <p>Recibido {cantidadFmt(compra.cantidad_recibida)} de {cantidadFmt(compra.cantidad_base)}</p>
+          )}
+          {compra.motivo && <p className="text-slate-500">{compra.motivo}</p>}
+        </div>
+      )}
 
       {!abierto && puedeDespachar && textoSaldoLinea(saldoLibre, pendiente, saldoIndisponible) && (
         <p className="px-4 pb-3 text-xs text-slate-400">{textoSaldoLinea(saldoLibre, pendiente, saldoIndisponible)}</p>
@@ -1299,6 +1409,12 @@ function FilaLinea({
 
           {puedeModificar && (
             <div className="flex flex-wrap gap-1.5">
+              {linea.estado === "POR_COMPRAR" && compra && (
+                <button onClick={cancelarLaCompra} disabled={cancelandoCompra}
+                  className="flex items-center gap-1 rounded-lg border border-orange-300 px-2 py-1 text-xs font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-50">
+                  <Undo2 size={12} /> Cancelar compra
+                </button>
+              )}
               <button onClick={restarLinea} disabled={restando}
                 className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                 <Trash2 size={12} /> Quitar del pedido
@@ -1311,6 +1427,12 @@ function FilaLinea({
                 className="flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50">
                 <Repeat size={12} /> Cambiar
               </button>
+              {puedeComprar && (
+                <button onClick={abrirComprar} disabled={abriendoCompra}
+                  className="flex items-center gap-1 rounded-lg border border-orange-300 px-2 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50 disabled:opacity-50">
+                  <ShoppingCart size={12} /> Comprar
+                </button>
+              )}
             </div>
           )}
 
@@ -1377,6 +1499,12 @@ function FilaLinea({
           )}
         </div>
       )}
+
+      {modalCompra && (
+        <ModalEnviarACompra linea={linea} pendiente={pendiente} cubierto={modalCompra.cubierto}
+          onClose={() => setModalCompra(null)}
+          onEnviada={() => { setModalCompra(null); onRecargar(); }} />
+      )}
     </div>
   );
 }
@@ -1392,7 +1520,7 @@ function FilaLinea({
    simple que pedir una nota común para todas las líneas de la tanda, que
    perdería el detalle de qué se compró en cada una) — se cierran de a
    uno, acá mismo, donde sí se pide la nota. */
-function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar }) {
+function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
   const usuarioActual = useUsuarioActual();
   const [rechazando, setRechazando] = useState(false);
   const [mostrarComprado, setMostrarComprado] = useState(false);
@@ -1438,6 +1566,11 @@ function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar }) {
         </div>
         <span className="text-sm font-mono text-slate-600">{textoCantidadLinea(linea)}</span>
         <BadgeLinea estado={linea.estado} />
+        {compra && linea.estado === "ESPECIAL" && (
+          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700" title="Compra del ítem a pedido">
+            {etiquetaEstadoCompra(compra.estado)}
+          </span>
+        )}
       </div>
       {linea.precio_unitario != null && (
         <p className="text-xs text-slate-500">Precio unitario: {fmtDinero(linea.precio_unitario)}</p>
@@ -1637,6 +1770,9 @@ export function DetallePedido({ pedidoId, onBack }) {
   // cuando Seller agregó ítems o modificó una línea después de armado el
   // pedido — de solo lectura, no hace falta "marcar como visto".
   const [eventosPedido, setEventosPedido] = useState([]);
+  // Brief W-PC: compra abierta (SOLICITADA/COMPRADA) por pedido_linea_id — ítems a
+  // pedido (ESPECIAL) también tienen una, sin cambiar de estado.
+  const [compraPorLinea, setCompraPorLinea] = useState(new Map());
 
   // Despacho por lote (brief W5): una casilla por línea despachable +
   // barra de acción, en vez de despachar de a una y recargar el pedido
@@ -1671,7 +1807,7 @@ export function DetallePedido({ pedidoId, onBack }) {
     ]);
     const lineaIds = (ls || []).map((l) => l.id);
     const productoIdsCatalogo = (ls || []).filter((l) => !l.es_personalizado).map((l) => l.producto_id);
-    const [{ data: eventos }, { data: hab }, codigos, { data: pres }, { data: eventosPedidoData }] = await Promise.all([
+    const [{ data: eventos }, { data: hab }, codigos, { data: pres }, { data: eventosPedidoData }, { data: comprasData }] = await Promise.all([
       lineaIds.length
         ? supabase.from("pedido_despacho_evento").select("*").in("pedido_linea_id", lineaIds).order("id", { ascending: false })
         : Promise.resolve({ data: [] }),
@@ -1694,6 +1830,10 @@ export function DetallePedido({ pedidoId, onBack }) {
         .eq("pedido_id", pedidoId)
         .in("accion", ["LINEAS_AGREGADAS", "LINEA_RECHAZADA", "LINEA_CAMBIADA", "LINEA_RETIRADA"])
         .order("creado_en", { ascending: false }),
+      // Compras abiertas de estas líneas (brief W-PC). A lo sumo una abierta por línea.
+      lineaIds.length
+        ? supabase.from("compra_solicitud").select("*").in("pedido_linea_id", lineaIds).in("estado", ["SOLICITADA", "COMPRADA"])
+        : Promise.resolve({ data: [] }),
     ]);
     const grupo = {};
     for (const e of eventos || []) (grupo[e.pedido_linea_id] ||= []).push(e);
@@ -1717,6 +1857,7 @@ export function DetallePedido({ pedidoId, onBack }) {
     setCodigosPorProducto(codigos);
     setDesglosePorLinea(desglose);
     setEventosPedido(eventosPedidoData || []);
+    setCompraPorLinea(new Map((comprasData || []).map((c) => [c.pedido_linea_id, c])));
     setCargando(false);
     // creado_por es un solo email acá (no hace falta el batch de la lista),
     // pero se reusa resolverAutores para no duplicar la consulta a perfil.
@@ -2016,6 +2157,8 @@ export function DetallePedido({ pedidoId, onBack }) {
               onEventoNuevo={agregarEvento}
               onEventoRevertido={marcarEventoRevertido}
               onAbrirCambiar={setLineaCambiando}
+              compra={compraPorLinea.get(l.id)}
+              onRecargar={cargar}
             />
           ))}
         </div>
@@ -2029,6 +2172,7 @@ export function DetallePedido({ pedidoId, onBack }) {
                 linea={l}
                 onLineaPatch={patchLinea}
                 onAbrirCambiar={setLineaCambiando}
+                compra={compraPorLinea.get(l.id)}
               />
             ))}
           </div>
