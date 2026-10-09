@@ -25,6 +25,8 @@ import VentaDirectaApp    from "./VentaDirectaApp";
 import TrasladosApp       from "./TrasladosApp";
 import PreciosApp         from "./PreciosApp";
 import SurtidoApp         from "./SurtidoApp";
+import FichasEtiquetasApp from "./FichasEtiquetasApp";
+import FichaProductoPage  from "./FichaProductoPage";
 import LoginScreen        from "./LoginScreen";
 import { useAuth } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
@@ -40,6 +42,7 @@ const TABS = [
   { id: "huerfanos",  label: "Huérfanos",     icon: ArrowUpFromLine, Comp: PromocionHuerfanos },
 
   { id: "catalogo",   label: "Productos",     icon: BookOpen,        Comp: CatalogoApp },
+  { id: "fichas",     label: "Fichas y etiquetas", icon: Tags,        Comp: FichasEtiquetasApp },
   { id: "precios",    label: "Precios",       icon: DollarSign,      Comp: PreciosApp },
   { id: "revision",   label: "Revisión",      icon: Images,          Comp: RevisionCapturas },
 
@@ -59,7 +62,7 @@ const TABS = [
 // pertenece a ningún grupo.
 const GRUPOS = [
   { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "surtido", "faltantes", "concilia", "huerfanos"] },
-  { id: "catalogo-grp", label: "Catálogo",     icon: BookOpen,   tabs: ["catalogo", "precios", "revision"] },
+  { id: "catalogo-grp", label: "Catálogo",     icon: BookOpen,   tabs: ["catalogo", "fichas", "precios", "revision"] },
   { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "compras", "ventadirecta", "traslados", "historial", "oper"] },
   { id: "admin-grp",    label: "Admin",        icon: Settings,   tabs: ["admin"] },
 ];
@@ -73,7 +76,10 @@ const ACCESOS_MOVILES = ["inventario", "conteo", "catalogo", "pedidos"];
 export default function App() {
   const { cargando, usuario, signOut, reintentarPerfil, cargandoPerfil } = useAuth();
   const { sucursales, sucursalActivaId, setSucursalActiva, puedeElegir, nombreSucursal } = useSucursal();
-  const [tab, setTab] = useState("inventario");
+  const [tab, setTab] = useState(() => {
+    const solicitada = new URLSearchParams(window.location.search).get("tab");
+    return TABS.some(t => t.id === solicitada) ? solicitada : "inventario";
+  });
   const [conteoPrefill, setConteoPrefill] = useState(null);
 
   const irAConteo = (prefill) => { setConteoPrefill(prefill); setTab("conteo"); };
@@ -132,6 +138,7 @@ export default function App() {
   // URL — no se migró el resto de la app, no lo pidió el brief).
   return (
     <Routes>
+      <Route path="/productos/:id/ficha" element={<FichaProductoPage />} />
       <Route path="/pedidos/:id" element={<PedidoDetallePage />} />
       <Route path="/tablero" element={<TableroAlmacenApp />} />
       <Route path="*" element={
