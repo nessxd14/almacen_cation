@@ -19,6 +19,7 @@ import { labelUbicacionConSucursal } from "./lib/despacho";
 import { fetchAll } from "./lib/fetchAll";
 import ImagenProducto from "./ImagenProducto";
 import CatalogDialog from "./CatalogDialog";
+import EtiquetasDialog from "./EtiquetasDialog";
 import "./catalogo.css";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -111,13 +112,14 @@ function DesgloseSucursalLinea({ stockPorSucursal, className }) {
 // ─── Panel de detalle ────────────────────────────────────────────────────────
 
 function DetalleProducto({ producto, onClose, onActualizado }) {
-  const { sucursales, nombreSucursal } = useSucursal();
+  const { sucursales, nombreSucursal, sucursalActivaId } = useSucursal();
   const [detalle, setDetalle] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [vistaPanel, setVistaPanel] = useState("detalle"); // "detalle" | "historial"
   const [editando, setEditando] = useState(false);
   const [revision, setRevision] = useState(0);
   const [mostrarUbicaciones, setMostrarUbicaciones] = useState(false);
+  const [mostrarEtiqueta, setMostrarEtiqueta] = useState(false);
 
   useEffect(() => {
     let activo = true;
@@ -172,7 +174,8 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
     <CatalogDialog label="Detalle del producto" onClose={onClose} className="product-detail product-dialog">
       <header className="product-dialog-header">
         <div><span className="product-eyebrow">CATÁLOGO</span><h2>Detalle del producto</h2></div>
-        <div className="product-header-actions">
+        <div className="product-header-actions ficha-detail-actions">
+          <button type="button" onClick={() => setMostrarEtiqueta(true)} className="product-secondary-button"><Tag size={16} /> Ficha y etiqueta</button>
           <button type="button" onClick={() => setEditando(true)} className="product-secondary-button"><Pencil size={16} /> Editar</button>
           <button type="button" onClick={onClose} aria-label="Cerrar detalle" className="product-icon-button"><X size={20} /></button>
         </div>
@@ -381,6 +384,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
           )}
       </div>
 
+      {mostrarEtiqueta && <EtiquetasDialog productoId={producto.id} sucursalId={sucursalActivaId} onClose={() => setMostrarEtiqueta(false)} />}
       {editando && (
         <EditarProducto
           producto={producto}

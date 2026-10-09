@@ -13,7 +13,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
     "@zxing/browser": "^0.2.0",
+    "jsbarcode": "3.12.3",
     "lucide-react": "^1.21.0",
+    "qrcode": "1.5.4",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.18.2"

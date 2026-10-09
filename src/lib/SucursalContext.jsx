@@ -3,6 +3,7 @@ import { supabase } from "../supabaseClient";
 import { SucursalContext } from "./sucursalContext";
 import { sucursalActivaSegunPerfil } from "./control";
 import { useAuth } from "./useAuth";
+import { elegirSucursalDisponible, estadoCargaSucursales } from "./cargaSucursales";
 
 const STORAGE_KEY = "wms_sucursal_activa";
 
@@ -21,9 +22,11 @@ const STORAGE_KEY = "wms_sucursal_activa";
  * null) siguen eligiendo como en W2.
  */
 export function SucursalProvider({ children }) {
-  const { usuario } = useAuth();
-  const [sucursales, setSucursales] = useState([]);
-  const [cargando, setCargando] = useState(true);
+  const { usuario, cargando: cargandoAuth } = useAuth();
+  const usuarioId = !cargandoAuth && usuario?.activo !== false ? usuario?.id ?? null : null;
+  const [consulta, setConsulta] = useState(null);
+  const [intento, setIntento] = useState(0);
+  const { sucursales, cargando, error } = estadoCargaSucursales(usuarioId, intento, consulta);
   const [sucursalElegidaId, setSucursalElegidaIdState] = useState(() => {
     if (typeof localStorage === "undefined") return null;
     const guardada = Number(localStorage.getItem(STORAGE_KEY));
@@ -32,26 +35,35 @@ export function SucursalProvider({ children }) {
 
   const { sucursalActivaId, puedeElegir } = sucursalActivaSegunPerfil(
     usuario?.sucursalId ?? null,
-    sucursalElegidaId
+    elegirSucursalDisponible(sucursales, sucursalElegidaId)
   );
 
   const setSucursalActiva = useCallback((id) => {
     setSucursalElegidaIdState(id);
     try { localStorage.setItem(STORAGE_KEY, String(id)); } catch { /* localStorage no disponible */ }
-  }, []);
+  }, [setSucursalElegidaIdState]);
 
   useEffect(() => {
+    // El provider se monta también en el login. Consultar antes de tener
+    // sesión devuelve una lista vacía con RLS y dejaba el selector sin opciones.
+    if (!usuarioId) return;
+    let vigente = true;
     supabase
       .from("sucursal")
       .select("id, nombre, tipo, control_stock_default")
       .neq("tipo", "virtual")
       .order("id")
       .then(({ data, error }) => {
+        if (!vigente) return;
         if (error) console.error("cargar sucursales falló:", error);
-        setSucursales(data || []);
-        setCargando(false);
+        setConsulta({ usuarioId, intento, data, error });
+      }, (error) => {
+        if (vigente) setConsulta({ usuarioId, intento, data: null, error });
       });
-  }, []);
+    return () => { vigente = false; };
+  }, [usuarioId, intento]);
+
+  const reintentarSucursales = useCallback(() => setIntento(n => n + 1), []);
 
   // Si la elección persistida ya no es una sucursal física válida (o no
   // hay ninguna todavía), cae a la primera disponible. Solo aplica cuando
@@ -75,6 +87,8 @@ export function SucursalProvider({ children }) {
   const value = {
     sucursales,
     cargando,
+    error,
+    reintentarSucursales,
     sucursalActivaId,
     sucursalActiva,
     puedeElegir,
