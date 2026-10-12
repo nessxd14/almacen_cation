@@ -9,11 +9,15 @@ export function textoUbicacion(ubicacion) {
     ubicacion.nivel && `Nivel ${ubicacion.nivel}`, ubicacion.compartimiento].filter(Boolean).join(' · ');
 }
 
-export function enlaceFicha(productoId, sucursalId, origin = window.location.origin) {
+export function enlaceFicha(productoId, sucursalId, origin = window.location.origin, presentacionId = null) {
   const id = String(productoId);
   if (!/^[1-9]\d*$/.test(id)) throw new Error('Producto inválido');
   const url = new URL(`/productos/${id}/ficha`, origin);
   if (sucursalId != null) url.searchParams.set('sucursal', String(sucursalId));
+  if (presentacionId != null) {
+    if (!/^[1-9]\d*$/.test(String(presentacionId))) throw new Error('Presentación inválida');
+    url.searchParams.set('presentacion', String(presentacionId));
+  }
   return url.href;
 }
 

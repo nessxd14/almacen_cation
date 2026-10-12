@@ -10,7 +10,14 @@ export default function EscanerCodigo({ onDetect, onClose }) {
   useEffect(() => {
     let stopped = false;
     let stream = null;
-    let zxingReader = null;
+    let controles = null;
+    let leido = false;
+    const detectar = (valor) => {
+      if (stopped || leido) return;
+      leido = true;
+      controles?.stop();
+      onDetect(valor);
+    };
 
     async function start() {
       try {
@@ -24,27 +31,29 @@ export default function EscanerCodigo({ onDetect, onClose }) {
             if (stopped) return;
             if (videoRef.current?.readyState === 4) {
               const results = await bd.detect(videoRef.current).catch(() => []);
-              if (results.length) { onDetect(results[0].rawValue); return; }
+              if (results.length) { detectar(results[0].rawValue); return; }
             }
             requestAnimationFrame(tick);
           };
           requestAnimationFrame(tick);
         } else {
           const { BrowserMultiFormatReader } = await import("@zxing/browser");
-          zxingReader = new BrowserMultiFormatReader();
-          zxingReader.decodeFromVideoElement(videoRef.current, (result) => {
-            if (result && !stopped) onDetect(result.getText());
+          if (stopped) return;
+          const reader = new BrowserMultiFormatReader();
+          controles = await reader.decodeFromVideoElement(videoRef.current, (result) => {
+            if (result) detectar(result.getText());
           });
+          if (stopped || leido) controles.stop();
         }
       } catch {
-        setError("No se pudo acceder a la cámara. Verifica el permiso.");
+        if (!stopped) setError("No se pudo acceder a la cámara. Verifica el permiso y abre Almacén con HTTPS en el celular.");
       }
     }
     start();
     return () => {
       stopped = true;
       stream?.getTracks().forEach((t) => t.stop());
-      zxingReader?.reset?.();
+      controles?.stop();
     };
   }, [onDetect]);
 

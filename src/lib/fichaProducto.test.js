@@ -42,6 +42,8 @@ describe('ficha: cantidades y sucursales', () => {
   });
   it('el enlace usa identidad y sucursal, sin stock ni sesión en el QR', () => {
     expect(enlaceFicha(42, 1, 'https://almacen.example')).toBe('https://almacen.example/productos/42/ficha?sucursal=1');
+    expect(enlaceFicha(42, 1, 'https://almacen.example', 18)).toBe('https://almacen.example/productos/42/ficha?sucursal=1&presentacion=18');
+    expect(() => enlaceFicha(42, 1, 'https://almacen.example', '../otro')).toThrow('Presentación inválida');
     expect(() => enlaceFicha('../otro', 1, 'https://almacen.example')).toThrow();
   });
   it('solo ofrece barras activas y etiqueta a qué presentación pertenecen', () => {

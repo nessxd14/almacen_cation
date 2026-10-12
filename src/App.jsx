@@ -3,7 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
   History, ShoppingBag, ShoppingCart, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
-  AlertTriangle, PackageCheck,
+  AlertTriangle, PackageCheck, Smartphone,
   Menu, X, ChevronRight,
 } from "lucide-react";
 
@@ -13,6 +13,7 @@ import ReconciliacionApp  from "./ReconciliacionApp";
 import PromocionHuerfanos from "./PromocionHuerfanos";
 import RevisionCapturas   from "./RevisionCapturas";
 import OperacionesApp     from "./OperacionesApp";
+import OperacionesMovilApp from "./OperacionesMovilApp";
 import CatalogoApp        from "./CatalogoApp";
 import InventarioApp      from "./InventarioApp";
 import HistorialApp       from "./HistorialApp";
@@ -27,6 +28,7 @@ import PreciosApp         from "./PreciosApp";
 import SurtidoApp         from "./SurtidoApp";
 import FichasEtiquetasApp from "./FichasEtiquetasApp";
 import FichaProductoPage  from "./FichaProductoPage";
+import FichaUbicacionPage from "./FichaUbicacionPage";
 import LoginScreen        from "./LoginScreen";
 import { useAuth } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
@@ -47,6 +49,7 @@ const TABS = [
   { id: "revision",   label: "Revisión",      icon: Images,          Comp: RevisionCapturas },
 
   { id: "pedidos",    label: "Pedidos",       icon: ShoppingBag,     Comp: PedidosApp },
+  { id: "movil",      label: "Operaciones móvil", icon: Smartphone,   Comp: OperacionesMovilApp },
   { id: "compras",    label: "Compras",       icon: ShoppingCart,    Comp: ComprasApp },
   { id: "ventadirecta", label: "Venta directa", icon: PackageCheck,  Comp: VentaDirectaApp },
   { id: "traslados",  label: "Traslados",     icon: Truck,           Comp: TrasladosApp },
@@ -63,7 +66,7 @@ const TABS = [
 const GRUPOS = [
   { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "surtido", "faltantes", "concilia", "huerfanos"] },
   { id: "catalogo-grp", label: "Catálogo",     icon: BookOpen,   tabs: ["catalogo", "fichas", "precios", "revision"] },
-  { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "compras", "ventadirecta", "traslados", "historial", "oper"] },
+  { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "movil", "compras", "ventadirecta", "traslados", "historial", "oper"] },
   { id: "admin-grp",    label: "Admin",        icon: Settings,   tabs: ["admin"] },
 ];
 
@@ -71,7 +74,7 @@ const GRUPOS = [
 // no ampliar esta lista sin volver a confirmar. ("revision" agregado por
 // brief_formulario_revision_capturas.md, que pide admin-only explícito.)
 const TABS_SOLO_ADMIN = new Set(["admin", "concilia", "huerfanos", "revision"]);
-const ACCESOS_MOVILES = ["inventario", "conteo", "catalogo", "pedidos"];
+const ACCESOS_MOVILES = ["inventario", "conteo", "movil", "pedidos"];
 
 export default function App() {
   const { cargando, usuario, signOut, reintentarPerfil, cargandoPerfil } = useAuth();
@@ -139,7 +142,10 @@ export default function App() {
   return (
     <Routes>
       <Route path="/productos/:id/ficha" element={<FichaProductoPage />} />
+      <Route path="/ubicaciones/:id/ficha" element={<FichaUbicacionPage />} />
       <Route path="/pedidos/:id" element={<PedidoDetallePage />} />
+      <Route path="/operaciones" element={<OperacionesMovilApp />} />
+      <Route path="/operaciones/pedidos/:id" element={<OperacionesMovilApp />} />
       <Route path="/tablero" element={<TableroAlmacenApp />} />
       <Route path="*" element={
         <AppShell

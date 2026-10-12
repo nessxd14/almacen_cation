@@ -8,6 +8,7 @@ import { controlEfectivo } from './lib/control';
 import { cargarFichaProducto, resumirUbicaciones, sucursalDeFicha, textoUbicacion } from './lib/fichaProducto';
 import ImagenProducto from './ImagenProducto';
 import EtiquetasDialog from './EtiquetasDialog';
+import { resolverPresentacion, textoPresentacion } from './lib/presentacionEtiqueta';
 import './fichas.css';
 
 const cantidadFmt = n => n == null ? 'Sin registro' : new Intl.NumberFormat('es-BO', { maximumFractionDigits: 4 }).format(n);
@@ -29,17 +30,17 @@ export default function FichaProductoPage() {
     <header className="ficha-route-nav">
       <Link to="/?tab=catalogo" className="fichas-button"><ArrowLeft size={16} /> Catálogo</Link>
       {puedeElegir && <label className="fichas-field">Sucursal
-        <select aria-label="Sucursal de la ficha" value={sucursalId ?? ''} onChange={e => setParams({ sucursal: e.target.value })}>
+        <select aria-label="Sucursal de la ficha" value={sucursalId ?? ''} onChange={e => setParams(prev => { const nuevos = new URLSearchParams(prev); nuevos.set('sucursal', e.target.value); return nuevos; })}>
           <option value="" disabled>Seleccionar</option>
           {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
         </select>
       </label>}
     </header>
-    {error ? <p className="fichas-alert" role="alert">{error}</p> : <ConsultaFicha key={`${id}:${sucursalId}`} productoId={id} sucursal={sucursales.find(s => Number(s.id) === sucursalId)} />}
+    {error ? <p className="fichas-alert" role="alert">{error}</p> : <ConsultaFicha key={`${id}:${sucursalId}`} productoId={id} presentacionId={params.get('presentacion')} sucursal={sucursales.find(s => Number(s.id) === sucursalId)} />}
   </div>;
 }
 
-function ConsultaFicha({ productoId, sucursal }) {
+function ConsultaFicha({ productoId, sucursal, presentacionId }) {
   const [revision, setRevision] = useState(0);
   const [resultado, setResultado] = useState(null);
   const [imprimiendo, setImprimiendo] = useState(false);
@@ -55,6 +56,7 @@ function ConsultaFicha({ productoId, sucursal }) {
   if (resultado.error) return <section className="fichas-panel"><p role="alert" className="fichas-alert">{resultado.error}</p><button className="fichas-button" onClick={actualizar}>Reintentar</button></section>;
   const { ficha } = resultado;
   const { producto, errores } = ficha;
+  const presentacionEtiqueta = presentacionId ? resolverPresentacion(ficha.presentaciones, presentacionId) : null;
   const { ubicaciones, total } = resumirUbicaciones(ficha.asignaciones, ficha.stock, sucursal.id, !errores.stock);
   const control = errores.control ? null : controlEfectivo(ficha.control?.control_stock, sucursal.control_stock_default);
   const sinValidar = control !== 'ESTRICTO';
@@ -65,6 +67,7 @@ function ConsultaFicha({ productoId, sucursal }) {
       <div><span className="fichas-eyebrow">FICHA DE ALMACÉN · {sucursal.nombre}</span><h1>{producto.nombre}</h1>
         <p>{producto.marca} {producto.marca && '·'} {producto.sku_interno || `Producto ${producto.id}`}</p>
         <p>Unidad base: <strong>{producto.unidad_base}</strong>{producto.activo === false && ' · Producto inactivo'}</p>
+        {presentacionId && <p className={presentacionEtiqueta ? 'ficha-presentation-highlight' : 'fichas-alert'}>{errores.presentaciones ? 'No se pudo consultar la presentación de esta etiqueta.' : presentacionEtiqueta ? `Presentación de la etiqueta: ${textoPresentacion(presentacionEtiqueta, producto.unidad_base)}` : 'La presentación de esta etiqueta ya no está disponible. Revisa las presentaciones actuales.'}</p>}
         <div className="fichas-actions"><button className="fichas-button" onClick={actualizar}><RefreshCw size={16} /> Actualizar</button><button className="fichas-button" onClick={() => setImprimiendo(true)}><Printer size={16} /> Etiqueta</button></div>
         <p className="fichas-note">Última consulta: {fechaFmt(ficha.consultadoEn)}</p>
       </div>
@@ -102,6 +105,6 @@ function ConsultaFicha({ productoId, sucursal }) {
     <section className="fichas-panel"><h2>Últimos movimientos · {sucursal.nombre}</h2>
       {errores.movimientos ? <p>{errores.movimientos}</p> : !ficha.movimientos?.length ? <p>Sin movimientos registrados.</p> : <ul className="ficha-movements">{ficha.movimientos.map(m => <li key={m.id}><div><strong>{m.tipo_movimiento} · {cantidadFmt(m.cantidad)} {producto.unidad_base}</strong><span>{textoUbicacion(m.ubicacion)}</span><small>{m.referencia}</small></div><div><span>{fechaFmt(m.creado_en)}</span><small>{m.creado_por || 'Sin responsable registrado'}</small></div></li>)}</ul>}
     </section>
-    {imprimiendo && <EtiquetasDialog productoId={productoId} sucursalId={sucursal.id} onClose={() => setImprimiendo(false)} />}
+    {imprimiendo && <EtiquetasDialog productoId={productoId} sucursalId={sucursal.id} presentacionId={presentacionEtiqueta?.id} onClose={() => setImprimiendo(false)} />}
   </article>;
 }
