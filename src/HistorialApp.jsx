@@ -11,6 +11,7 @@ import {
   ArrowDownToLine, ArrowUpFromLine, Sliders, ArrowLeftRight, PackagePlus,
   Search, Calendar, User, FileText, MapPin, Filter, History as HistoryIcon, ScanLine, X, ChevronRight, RefreshCw, AlertTriangle
 } from "lucide-react";
+import { etiquetaUbicacion as etiquetaComun } from "./lib/ubicacionTexto";
 
 // ─── Configuración de tipos de movimiento ────────────────────────────────────
 
@@ -46,11 +47,7 @@ function fechaFmt(ts) {
 // historial por producto); el tab global ya está filtrado a una sola.
 function etiquetaUbicacion(u, nombreSucursal) {
   if (!u) return "—";
-  const partes = [u.codigo_zona];
-  if (u.estante && u.nivel) partes.push(`${u.estante} ${u.nivel}`);
-  else if (u.estante) partes.push(u.estante);
-  if (u.compartimiento) partes.push(u.compartimiento);
-  const base = partes.join(" › ");
+  const base = etiquetaComun(u);
   if (typeof nombreSucursal !== "function" || u.sucursal_id == null) return base;
   const nombre = nombreSucursal(u.sucursal_id);
   return nombre ? `${nombre} · ${base}` : base;

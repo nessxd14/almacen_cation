@@ -21,6 +21,7 @@ import ImagenProducto from "./ImagenProducto";
 import CatalogDialog from "./CatalogDialog";
 import EtiquetasDialog from "./EtiquetasDialog";
 import "./catalogo.css";
+import { etiquetaUbicacion } from "./lib/ubicacionTexto";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -29,14 +30,6 @@ function precioFmt(v) {
   return new Intl.NumberFormat("es-BO", { style: "currency", currency: "BOB" }).format(v);
 }
 
-function etiquetaUbicacion(u) {
-  if (!u) return "—";
-  const partes = [u.codigo_zona];
-  if (u.estante && u.nivel) partes.push(`${u.estante} ${u.nivel}`);
-  else if (u.estante) partes.push(u.estante);
-  if (u.compartimiento) partes.push(u.compartimiento);
-  return partes.join(" › ");
-}
 
 // Formatea cantidad sin decimales innecesarios (5.0000 -> 5, 2.5000 -> 2.5)
 function cantidadFmt(v) {

@@ -4,6 +4,7 @@ import JsBarcode from 'jsbarcode';
 import { textoUbicacion } from './lib/fichaProducto';
 import { textoPresentacion } from './lib/presentacionEtiqueta';
 import { resolverSimbologia, tieneDesbordeEtiqueta } from './lib/codigoEtiqueta';
+import { codigoUbicacion as codigoCorto, nombreMueble } from './lib/ubicacionTexto';
 
 const DISENOS = new Set(['compacto', 'estandar', 'ficha_grande', 'a6', 'mini', 'estanteria', 'caja_bulto', 'ubicacion', 'qr_rapido', 'control_lote']);
 
@@ -135,9 +136,10 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
       contenido = <>{cabecera('Caja / bulto')}{fila(<>{nombre}{identidadProducto}{foto}{atributos}</>, false)}{presentacionImprimir}{ubicacionImprimir}{barras}</>;
       break;
     case 'ubicacion': {
-      const codigoUbicacion = [ubicacion?.codigo_zona, ubicacion?.estante, ubicacion?.nivel, ubicacion?.compartimiento].filter(v => v != null && String(v).trim()).join(' · ');
+      // En la casilla se imprime el código corto en grande (PB-EA-3) y abajo el desglose.
+      const codigoUbicacion = ubicacion ? codigoCorto(ubicacion) : '';
       contenido = <>{cabecera('Ubicación de almacén', sucursalNombre)}{fila(<><span className="label-eyebrow" data-label-field>Código de ubicación</span><strong className="label-location-code" data-label-field>{codigoUbicacion || 'Sin ubicación registrada'}</strong><dl className="label-location-parts">
-          {[['Zona', ubicacion?.codigo_zona], ['Estante', ubicacion?.estante], ['Nivel', ubicacion?.nivel], ['Compartimento', ubicacion?.compartimiento]].filter(([, valor]) => valor != null && String(valor).trim()).map(([titulo, valor]) => <div key={titulo} data-label-field><dt>{titulo}</dt><dd>{valor}</dd></div>)}
+          {[['Zona', ubicacion?.codigo_zona], ['Mueble', nombreMueble(ubicacion)], ['Compartimiento', ubicacion?.compartimiento]].filter(([, valor]) => valor != null && String(valor).trim()).map(([titulo, valor]) => <div key={titulo} data-label-field><dt>{titulo}</dt><dd>{valor}</dd></div>)}
         </dl></>)}</>;
       break;
     }

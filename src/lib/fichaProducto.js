@@ -1,12 +1,12 @@
 import { fetchAll } from './fetchAll';
+import { etiquetaUbicacion } from './ubicacionTexto';
 
 export const CAMPOS_UBICACION = 'id, codigo_zona, estante, nivel, compartimiento, sucursal_id, excluye_disponible';
 export const CAMPOS_PRODUCTO_FICHA = 'id, nombre, sku_interno, marca, unidad_base, imagen_url, activo, ficha_md';
 
 export function textoUbicacion(ubicacion) {
   if (!ubicacion) return 'Sin ubicación asignada';
-  return [ubicacion.codigo_zona, ubicacion.estante && `Estante ${ubicacion.estante}`,
-    ubicacion.nivel && `Nivel ${ubicacion.nivel}`, ubicacion.compartimiento].filter(Boolean).join(' · ');
+  return etiquetaUbicacion(ubicacion, { separador: ' · ', largo: true });
 }
 
 export function enlaceFicha(productoId, sucursalId, origin = window.location.origin, presentacionId = null) {
