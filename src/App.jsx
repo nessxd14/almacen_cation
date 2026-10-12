@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
   History, ShoppingBag, ShoppingCart, Images, Loader, LogOut, Truck, DollarSign, Building2, Tags,
@@ -141,13 +141,17 @@ export default function App() {
   // URL — no se migró el resto de la app, no lo pidió el brief).
   return (
     <Routes>
-      <Route path="/productos/:id/ficha" element={<FichaProductoPage />} />
-      <Route path="/ubicaciones/:id/ficha" element={<FichaUbicacionPage />} />
-      <Route path="/pedidos/:id" element={<PedidoDetallePage />} />
+      <Route path="/productos/:id/ficha" element={usuario.rol === 'vendedor' ? <EtiquetaParaCarrito tipo="producto" /> : <FichaProductoPage />} />
+      <Route path="/ubicaciones/:id/ficha" element={usuario.rol === 'vendedor' ? <EtiquetaParaCarrito tipo="ubicacion" /> : <FichaUbicacionPage />} />
+      <Route path="/pedidos/:id" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> : <PedidoDetallePage />} />
       <Route path="/operaciones" element={<OperacionesMovilApp />} />
       <Route path="/operaciones/pedidos/:id" element={<OperacionesMovilApp />} />
-      <Route path="/tablero" element={<TableroAlmacenApp />} />
-      <Route path="*" element={
+      <Route path="/operaciones/vtd/:id" element={<OperacionesMovilApp tipoDocumento="vtd" />} />
+      <Route path="/operaciones/traslados-virtuales/:id" element={<OperacionesMovilApp tipoDocumento="traslado_virtual" />} />
+      <Route path="/operaciones/carrito" element={<OperacionesMovilApp tipoDocumento="carrito" />} />
+      <Route path="/operaciones/carrito/:id" element={<OperacionesMovilApp tipoDocumento="carrito" />} />
+      <Route path="/tablero" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> : <TableroAlmacenApp />} />
+      <Route path="*" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> :
         <AppShell
           tab={tab} setTab={setTab} conteoPrefill={conteoPrefill} setConteoPrefill={setConteoPrefill} irAConteo={irAConteo}
           usuario={usuario} signOut={signOut}
@@ -158,6 +162,15 @@ export default function App() {
       } />
     </Routes>
   );
+}
+
+function EtiquetaParaCarrito({ tipo }) {
+  const { id } = useParams();
+  const [params] = useSearchParams();
+  const query = new URLSearchParams({ [tipo]: id });
+  if (params.get('sucursal')) query.set('origen', params.get('sucursal'));
+  if (params.get('presentacion')) query.set('presentacion', params.get('presentacion'));
+  return <Navigate to={`/operaciones/carrito?${query}`} replace />;
 }
 
 function AppShell({
