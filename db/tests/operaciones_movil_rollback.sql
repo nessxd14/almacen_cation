@@ -55,7 +55,7 @@ begin
   v_version := (v_result->'tarea'->>'version')::integer;
   -- Revisión por otra persona, si existe un segundo encargado autorizado.
   select id into v_otro from public.perfil where id<>v_uid and activo and rol in ('admin','gerente','almacenero','operario') and (sucursal_id is null or sucursal_id=v_sid) limit 1;
-  if v_otro is null then v_otro := v_uid; end if;
+  assert v_otro is not null, 'QA necesita dos personas distintas autorizadas en la sucursal';
   perform set_config('request.jwt.claim.sub',v_otro::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_otro,'role','authenticated')::text,true);
   v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'tomar_revision',v_version);
@@ -104,9 +104,13 @@ begin
   v_version := (v_result->'tarea'->>'version')::integer;
   v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'guardar_preparacion',v_version,jsonb_build_object('linea_id',v_lid,'cantidad_base',v_preparada,'observacion','QA nueva entrega'));
   v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'preparado',(v_result->'tarea'->>'version')::integer);
-  v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'tomar_revision',(v_result->'tarea'->>'version')::integer);
+  perform set_config('request.jwt.claim.sub',v_otro::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_otro,'role','authenticated')::text,true);
+  v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'escanear');
   v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'guardar_revision',(v_result->'tarea'->>'version')::integer,jsonb_build_object('linea_id',v_lid,'cantidad_base',v_preparada,'metodo','visual'));
   v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'verificado',(v_result->'tarea'->>'version')::integer);
+  perform set_config('request.jwt.claim.sub',v_uid::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_uid,'role','authenticated')::text,true);
   update public.pedido_linea set cantidad_despachada=cantidad_despachada+v_preparada where id=v_lid;
   v_result := public.operar_preparacion_pedido(v_pid,v_sid,v_tarea,'crear');
   assert not (v_result->>'entregada')::boolean, 'Nueva entrega sin estado de despacho anterior';

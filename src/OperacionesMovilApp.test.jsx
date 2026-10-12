@@ -51,9 +51,9 @@ describe('preparación y revisión en el celular', () => {
   it('abre el pedido del QR de Seller en la sucursal activa', async () => {
     await montar('/operaciones');
     capturar('inicio');
-    await escribir(campo('QR o ID'), 'https://seller.example/pedidos/248'); await enviar('Abrir');
+    await escribir(campo('QR de documento'), 'https://seller.example/pedidos/248'); await enviar('Abrir');
     expect(nodo.textContent).toContain('Pedido P-248');
-    expect(ultimo()).toMatchObject({ p_pedido_id: '248', p_sucursal_id: 1, p_accion: 'consultar' });
+    expect(ultimo()).toMatchObject({ p_pedido_id: '248', p_sucursal_id: 1, p_accion: 'escanear' });
   });
   it('convierte cajas a unidades base, exige motivo de faltante y guarda la versión', async () => {
     await montar(); await pulsar('Preparar esta línea'); await escribir(campo('Preparado en'), '1');
@@ -71,7 +71,7 @@ describe('preparación y revisión en el celular', () => {
     expect(buscarBoton('Tomar revisión')).toBeTruthy();
   });
   it('una lectura repetida no reemplaza el QR y contar es obligatorio', async () => {
-    qa.datos = { ...estado('REVISANDO', 4), tarea: { ...estado('REVISANDO', 4).tarea, revisor_id: 'operario-qa' }, lineas: [{ ...qa.datos.lineas[0], confirmada: true, preparada_base: 12 }] };
+    qa.datos = { ...estado('REVISANDO', 4), tarea: { ...estado('REVISANDO', 4).tarea, preparador_id: 'otro-operario', revisor_id: 'operario-qa' }, lineas: [{ ...qa.datos.lineas[0], confirmada: true, preparada_base: 12 }] };
     await montar(); await pulsar('Escanear y contar'); await pulsar('Leer QR QA');
     expect(campo('Código leído').value).toContain('/productos/4/');
     expect(campo('Cantidad contada').value).toBe('');
@@ -105,7 +105,7 @@ describe('preparación y revisión en el celular', () => {
     expect(nodo.textContent).not.toContain('Avance guardado');
   });
   it('permite ingresar código sin cámara y distingue la revisión visual', async () => {
-    qa.datos = { ...estado('REVISANDO', 4), tarea: { ...estado('REVISANDO', 4).tarea, revisor_id: 'operario-qa' }, lineas: [{ ...qa.datos.lineas[0], confirmada: true, preparada_base: 24 }] };
+    qa.datos = { ...estado('REVISANDO', 4), tarea: { ...estado('REVISANDO', 4).tarea, preparador_id: 'otro-operario', revisor_id: 'operario-qa' }, lineas: [{ ...qa.datos.lineas[0], confirmada: true, preparada_base: 24 }] };
     await montar(); await pulsar('Ingresar código'); await escribir(campo('Código leído'), 'CAJA-4'); await escribir(campo('Cantidad contada'), '2'); await enviar('Guardar comprobación');
     expect(ultimo().p_datos).toMatchObject({ cantidad_base: 24, metodo: 'escaneo', codigo: 'CAJA-4' });
     await pulsar('Comprobar visualmente'); await escribir(campo('Cantidad contada'), '2'); await enviar('Guardar comprobación');
@@ -113,13 +113,13 @@ describe('preparación y revisión en el celular', () => {
   });
   it('un pedido cancelado se conserva sin botones de confirmación', async () => {
     qa.datos.pedido.estado = 'CANCELADO'; await montar();
-    expect(nodo.textContent).toContain('pedido está cancelado');
+    expect(nodo.textContent).toContain('Pedido está cancelado');
     expect(buscarBoton('Preparar esta línea')).toBeUndefined();
     expect(buscarBoton('Terminar preparación')).toBeUndefined();
   });
   it('rechaza un perfil que no tiene acceso antes de consultar', async () => {
     qa.rol = 'vendedor'; await montar();
-    expect(nodo.textContent).toContain('Tu perfil no tiene acceso');
+    expect(nodo.textContent).toContain('Tu perfil puede armar traslados');
     expect(qa.rpc).not.toHaveBeenCalled();
   });
   it('permite contar en unidades base si el pendiente no forma cajas completas', async () => {

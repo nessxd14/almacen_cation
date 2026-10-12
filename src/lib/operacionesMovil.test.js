@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { cantidadOperacion, idOperacion, interpretarCodigoOperacion, operarPedidoMovil, resumenOperacion } from './operacionesMovil';
 
 describe('QR compartidos de operaciones', () => {
+  it('distingue el ticket VTD, sus barras antiguas y el QR de traslado', () => {
+    expect(interpretarCodigoOperacion('https://almacen.example/operaciones/vtd/38?escanear=1')).toEqual({ tipo:'vtd', id:'38' });
+    expect(interpretarCodigoOperacion(' vtd-2026-00038 ')).toEqual({ tipo:'vtd', numero:'VTD-2026-00038' });
+    expect(interpretarCodigoOperacion('/operaciones/traslados-virtuales/9?escanear=1')).toEqual({ tipo:'traslado_virtual', id:'9' });
+  });
   it('reutiliza el QR de Seller sin seguir su dominio', () => {
     expect(interpretarCodigoOperacion('https://seller.example/pedidos/248')).toEqual({ tipo: 'pedido', id: '248' });
     expect(interpretarCodigoOperacion('/pedidos/248/')).toEqual({ tipo: 'pedido', id: '248' });
