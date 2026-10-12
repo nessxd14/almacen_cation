@@ -73,6 +73,15 @@ ul.fichas-alert { display:block; list-style:disc; padding-left:30px; }
 .fichas-loading { padding:30px 0; text-align:center; }
 .etiquetas-dialog[open] { width:min(1180px,calc(100vw - 32px)); }
 .product-header-actions.ficha-detail-actions { flex-wrap:wrap; }
+.fichas-check { display:flex; align-items:center; gap:9px; font-size:13px; line-height:1.5; }
+.fichas-check input { width:17px; height:17px; flex:none; accent-color:#2868a5; }
+.fichas-advanced > summary { padding:10px 0; font-weight:650; }
+.fichas-advanced > .fichas-fields-grid { margin:12px 0; }
+.fichas-advanced .fichas-options { margin:16px 0; }
+.fichas-presentation-field { border-left:3px solid #2b7799; padding-left:10px; }
+.fichas-presentation-field > span { color:#315c7e; line-height:1.5; }
+.fichas-print-buttons { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; }
+.ficha-presentation-highlight { padding:10px 13px; border-left:3px solid #2b7799; border-radius:6px; background:#edf7fb; }
 @media (max-width:1000px) { .fichas-generator-grid { grid-template-columns:minmax(230px,290px) minmax(0,1fr); gap:14px; } .fichas-panel { padding:16px; } }
 @media (max-width:760px) {
   .fichas-generator-grid { grid-template-columns:minmax(0,1fr); }

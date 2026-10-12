@@ -4,12 +4,19 @@
  * tiene URL — ver App.jsx). Solo envuelve <DetallePedido/> con el id de la
  * URL y un "volver" que respeta el historial.
  */
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DetallePedido } from "./PedidosApp";
+import ResumenPreparacionDespacho from "./ResumenPreparacionDespacho";
+import { idOperacion } from "./lib/operacionesMovil";
+import { useSucursal } from "./lib/useSucursal";
 
 export default function PedidoDetallePage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const { sucursalActivaId, nombreSucursal } = useSucursal();
+  const preparacionId = idOperacion(params.get('preparacion'));
+  const sucursalId = idOperacion(params.get('sucursal')) || sucursalActivaId;
 
   // Si se llegó navegando desde la lista (historial con entrada previa en
   // esta sesión), "volver" hace history back — así la lista recupera su
@@ -22,5 +29,5 @@ export default function PedidoDetallePage() {
     else navigate("/");
   };
 
-  return <div className="glass-app"><main className="glass-content"><DetallePedido pedidoId={Number(id)} onBack={handleBack} /></main></div>;
+  return <div className="glass-app"><main className="glass-content">{preparacionId && sucursalId && <ResumenPreparacionDespacho pedidoId={id} preparacionId={preparacionId} sucursalId={sucursalId} nombreSucursal={nombreSucursal(Number(sucursalId))} />}<DetallePedido pedidoId={Number(id)} onBack={handleBack} /></main></div>;
 }

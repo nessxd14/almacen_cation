@@ -1,37 +1,25 @@
 import { distribucionEtiquetas, validarFormato } from './formatosEtiqueta';
-
-// Se reutiliza el mismo CSS en vista previa e impresión, en milímetros.
-export const CSS_ETIQUETA = `
-.warehouse-label { box-sizing:border-box; width:var(--label-width); height:var(--label-height); padding:var(--label-padding); font:var(--label-font)/1.22 Arial,sans-serif; color:#000; background:#fff; overflow:visible; }
-.warehouse-label * { box-sizing:border-box; }
-.warehouse-label .label-row { display:flex; align-items:flex-start; gap:2mm; }
-.warehouse-label .label-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:1mm; }
-.warehouse-label .label-name { display:block; margin:0; color:#000; font-size:1.25em; font-weight:700; overflow-wrap:anywhere; }
-.warehouse-label .label-detail { margin:0; overflow-wrap:anywhere; }
-.warehouse-label .label-location { font-weight:700; font-size:1.05em; }
-.warehouse-label .label-qr { flex:none; width:var(--label-qr); }
-.warehouse-label .label-qr svg { display:block; width:100%; height:auto; }
-.warehouse-label .label-qr-caption { display:block; text-align:center; font-size:.8em; overflow-wrap:anywhere; }
-.warehouse-label .label-photo { height:14mm; max-width:100%; object-fit:contain; align-self:flex-start; }
-.warehouse-label .label-barcode { margin-top:1mm; }
-.warehouse-label .label-barcode svg { display:block; width:100%; height:9mm; }
-.warehouse-label .label-barcode span { display:block; font-size:.8em; overflow-wrap:anywhere; }
-`;
+import { CSS_ETIQUETA } from './estilosEtiqueta';
+export { CSS_ETIQUETA } from './estilosEtiqueta';
 
 export function documentoImpresion(etiquetas, formato) {
   if (validarFormato(formato).length) throw new Error('Revisa las dimensiones del formato.');
+  if (!Array.isArray(etiquetas) || !etiquetas.length) throw new Error('Selecciona al menos una etiqueta para imprimir.');
   const layout = distribucionEtiquetas(formato);
   const paginas = [];
-  for (let i = 0; i < etiquetas.length; i += layout.porPagina) paginas.push(`<section class="print-page">${etiquetas.slice(i, i + layout.porPagina).join('')}</section>`);
+  const envolver = etiqueta => `<div class="print-label-cell"><div class="print-label-turn">${etiqueta}</div></div>`;
+  for (let i = 0; i < etiquetas.length; i += layout.porPagina) paginas.push(`<section class="print-page">${etiquetas.slice(i, i + layout.porPagina).map(envolver).join('')}</section>`);
   const margen = formato.papel === 'rollo' ? 0 : Number(formato.margen);
   const gap = formato.papel === 'rollo' ? 0 : Number(formato.separacion);
   return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><title>Etiquetas de almacén</title><style>
 ${CSS_ETIQUETA}
 @page { size:${layout.anchoPagina}mm ${layout.altoPagina}mm; margin:0; }
 html,body { margin:0; padding:0; background:#fff; }
-.print-page { box-sizing:border-box; width:${layout.anchoPagina}mm; height:${layout.altoPagina}mm; padding:${margen}mm; display:grid; grid-template-columns:repeat(${layout.columnas},${Number(formato.ancho)}mm); grid-auto-rows:${Number(formato.alto)}mm; gap:${gap}mm; align-content:start; break-after:page; }
+.print-page { box-sizing:border-box; width:${layout.anchoPagina}mm; height:${layout.altoPagina}mm; padding:${margen}mm; display:grid; grid-template-columns:repeat(${layout.columnas},${layout.anchoCelda}mm); grid-auto-rows:${layout.altoCelda}mm; gap:${gap}mm; align-content:start; break-after:page; }
 .print-page:last-child { break-after:auto; }
-.warehouse-label { break-inside:avoid; }
+.print-label-cell { width:${layout.anchoCelda}mm; height:${layout.altoCelda}mm; break-inside:avoid; }
+.print-label-turn { width:${Number(formato.ancho)}mm; height:${Number(formato.alto)}mm; transform-origin:0 0; transform:${layout.girada ? `translateX(${Number(formato.alto)}mm) rotate(90deg)` : 'none'}; }
+.warehouse-label { break-inside:avoid; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
 </style></head><body>${paginas.join('')}</body></html>`;
 }
 

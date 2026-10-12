@@ -2049,6 +2049,10 @@ export function DetallePedido({ pedidoId, onBack }) {
           <button onClick={onBack} aria-label="Volver a pedidos" className="ui-icon-button text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
           <h1 className="text-lg font-semibold text-slate-800">Pedido #{pedido.id}</h1>
           <BadgePedido estado={pedido.estado} />
+          <button onClick={() => navigate(`/operaciones/pedidos/${pedido.id}`)}
+            className="flex items-center gap-1.5 rounded-lg border border-sky-200 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-50">
+            <ScanLine size={15} /> Preparar y revisar
+          </button>
           <button onClick={cargar} title="Actualizar (recarga completa)" aria-label="Actualizar detalle del pedido"
             className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
             <RefreshCw size={14} />
