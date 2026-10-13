@@ -103,6 +103,7 @@ const ETIQUETA_EVENTO_PEDIDO = {
   LINEA_RECHAZADA: "Línea rechazada",
   LINEA_CAMBIADA: "Línea cambiada",
   LINEA_RETIRADA: "Línea retirada",
+  REMANENTE_CANCELADO: "Remanente cancelado en Hermes",
 };
 
 function fmtDinero(v) {
@@ -1830,7 +1831,7 @@ export function DetallePedido({ pedidoId, onBack }) {
       supabase.from("pedido_evento")
         .select("*")
         .eq("pedido_id", pedidoId)
-        .in("accion", ["LINEAS_AGREGADAS", "LINEA_RECHAZADA", "LINEA_CAMBIADA", "LINEA_RETIRADA"])
+        .in("accion", ["LINEAS_AGREGADAS", "LINEA_RECHAZADA", "LINEA_CAMBIADA", "LINEA_RETIRADA", "REMANENTE_CANCELADO"])
         .order("creado_en", { ascending: false }),
       // Compras abiertas de estas líneas (brief W-PC). A lo sumo una abierta por línea.
       lineaIds.length
