@@ -1,0 +1,257 @@
+{
+  "tables": [
+    {
+      "name": "pedido_despacho_evento",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": true,
+          "generated": false
+        },
+        {
+          "name": "pedido_linea_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cantidad_base",
+          "type": "numeric",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "reversible_hasta",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "revertido",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "revertido_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "creado_por",
+          "type": "character varying",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "pedido_despacho_evento_cantidad_base_check",
+          "type": "c",
+          "definition": "CHECK ((cantidad_base > (0)::numeric))"
+        },
+        {
+          "name": "pedido_despacho_evento_pedido_linea_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (pedido_linea_id) REFERENCES pedido_linea(id)"
+        },
+        {
+          "name": "pedido_despacho_evento_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        }
+      ]
+    },
+    {
+      "name": "pedido_despacho_movimiento",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": true,
+          "generated": false
+        },
+        {
+          "name": "evento_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "kardex_transaccion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "ubicacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cantidad_base",
+          "type": "numeric",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cantidad_revertida",
+          "type": "numeric",
+          "default": "0",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "pedido_despacho_movimiento_cantidad_base_check",
+          "type": "c",
+          "definition": "CHECK ((cantidad_base > (0)::numeric))"
+        },
+        {
+          "name": "pedido_despacho_movimiento_check",
+          "type": "c",
+          "definition": "CHECK (((cantidad_revertida >= (0)::numeric) AND (cantidad_revertida <= cantidad_base)))"
+        },
+        {
+          "name": "pedido_despacho_movimiento_evento_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (evento_id) REFERENCES pedido_despacho_evento(id)"
+        },
+        {
+          "name": "pedido_despacho_movimiento_kardex_transaccion_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (kardex_transaccion_id) REFERENCES kardex_transacciones(id)"
+        },
+        {
+          "name": "pedido_despacho_movimiento_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "pedido_despacho_movimiento_ubicacion_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (ubicacion_id) REFERENCES ubicacion(id)"
+        }
+      ]
+    },
+    {
+      "name": "pendiente_sync_hermes_despacho",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": true,
+          "generated": false
+        },
+        {
+          "name": "pedido_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "fecha_completado",
+          "type": "date",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "sincronizado_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "intentos",
+          "type": "integer",
+          "default": "0",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "ultimo_error",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "pendiente_sync_hermes_despacho_pedido_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (pedido_id) REFERENCES pedido(id) ON DELETE CASCADE"
+        },
+        {
+          "name": "pendiente_sync_hermes_despacho_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "uq_pendiente_sync_hermes_despacho_pedido",
+          "type": "u",
+          "definition": "UNIQUE (pedido_id)"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    "CREATE OR REPLACE FUNCTION public._despachar_linea_nucleo(p_linea_id bigint, p_asignaciones jsonb, p_usuario text, p_omitir_turno boolean)\n RETURNS jsonb\n LANGUAGE plpgsql\nAS $function$\ndeclare\n  v_linea               pedido_linea%rowtype;\n  v_pedido              pedido%rowtype;\n  v_presentacion_base_id bigint;\n  v_asig                jsonb;\n  v_ubicacion_id        bigint;\n  v_cantidad            numeric;\n  v_kardex_id           bigint;\n  v_evento_id           bigint;\n  v_total_asignado      numeric := 0;\n  v_reversible_hasta    timestamptz;\n  v_kardex_ids          jsonb := '[]'::jsonb;\n  v_nueva_despachada    numeric;\n  v_nuevo_estado        estado_linea;\n  v_cubierto            numeric;\nbegin\n  if jsonb_typeof(p_asignaciones) <> 'array' or jsonb_array_length(p_asignaciones) = 0 then\n    raise exception 'p_asignaciones debe ser un array no vacío de {ubicacion_id, cantidad_base}';\n  end if;\n\n  select * into v_linea from pedido_linea where id = p_linea_id for update;\n  if not found then\n    raise exception 'Línea % no existe', p_linea_id;\n  end if;\n  if v_linea.estado not in ('POR_DESPACHAR', 'PENDIENTE') then\n    raise exception 'La línea % está en estado % y no admite despacho', p_linea_id, v_linea.estado;\n  end if;\n\n  select * into v_pedido from pedido where id = v_linea.pedido_id;\n\n  select id into v_presentacion_base_id\n  from presentacion\n  where producto_id = v_linea.producto_id and es_base = true\n  limit 1;\n  if v_presentacion_base_id is null then\n    raise exception 'Producto % no tiene presentación base', v_linea.producto_id;\n  end if;\n\n  for v_asig in select * from jsonb_array_elements(p_asignaciones)\n  loop\n    if (v_asig->>'ubicacion_id') is null or (v_asig->>'cantidad_base') is null then\n      raise exception 'Cada asignación requiere ubicacion_id y cantidad_base';\n    end if;\n    v_cantidad := (v_asig->>'cantidad_base')::numeric;\n    if v_cantidad <= 0 then\n      raise exception 'cantidad_base de la asignación debe ser positiva';\n    end if;\n    v_total_asignado := v_total_asignado + v_cantidad;\n  end loop;\n\n  if v_linea.cantidad_despachada + v_total_asignado > v_linea.cantidad_base + 0.0001 then\n    raise exception 'La cantidad asignada (%) excede lo pendiente de la línea (%)',\n      v_total_asignado, (v_linea.cantidad_base - v_linea.cantidad_despachada);\n  end if;\n\n  if not p_omitir_turno then\n    select cubierto into v_cubierto from v_pedido_linea_reserva where linea_id = p_linea_id;\n    if v_total_asignado > coalesce(v_cubierto, 0) + 0.0001 then\n      raise exception 'La línea % solo tiene turno para % unidades de las % pedidas — el resto está reservado para otro pedido. Usá despachar_linea_forzado con motivo para despachar igual.',\n        p_linea_id, coalesce(v_cubierto, 0), v_total_asignado;\n    end if;\n  end if;\n\n  v_reversible_hasta := case when v_pedido.categoria = 'TIENDA' then now() + interval '30 minutes' else null end;\n\n  insert into pedido_despacho_evento (pedido_linea_id, cantidad_base, reversible_hasta, creado_por)\n  values (p_linea_id, v_total_asignado, v_reversible_hasta, p_usuario)\n  returning id into v_evento_id;\n\n  for v_asig in select * from jsonb_array_elements(p_asignaciones)\n  loop\n    v_ubicacion_id := (v_asig->>'ubicacion_id')::bigint;\n    v_cantidad := (v_asig->>'cantidad_base')::numeric;\n\n    select registrar_salida(\n      p_presentacion_id => v_presentacion_base_id,\n      p_ubicacion_id    => v_ubicacion_id,\n      p_cantidad_pres   => v_cantidad,\n      p_referencia      => 'Pedido #' || v_linea.pedido_id || ' · línea ' || p_linea_id,\n      p_usuario         => p_usuario\n    ) into v_kardex_id;\n\n    insert into pedido_despacho_movimiento (evento_id, kardex_transaccion_id, ubicacion_id, cantidad_base)\n    values (v_evento_id, v_kardex_id, v_ubicacion_id, v_cantidad);\n\n    v_kardex_ids := v_kardex_ids || to_jsonb(v_kardex_id);\n  end loop;\n\n  v_nueva_despachada := v_linea.cantidad_despachada + v_total_asignado;\n  v_nuevo_estado := case when v_nueva_despachada >= v_linea.cantidad_base then 'DESPACHADA' else 'PENDIENTE' end;\n\n  update pedido_linea\n     set cantidad_despachada = v_nueva_despachada,\n         estado = v_nuevo_estado\n   where id = p_linea_id;\n\n  perform recalcular_estado_pedido(v_linea.pedido_id);\n\n  return jsonb_build_object(\n    'linea_id', p_linea_id,\n    'evento_id', v_evento_id,\n    'estado', v_nuevo_estado,\n    'cantidad_despachada', v_nueva_despachada,\n    'pendiente', greatest(v_linea.cantidad_base - v_nueva_despachada, 0),\n    'kardex_ids', v_kardex_ids,\n    'reversible_hasta', v_reversible_hasta\n  );\nend;\n$function$\n",
+    "CREATE OR REPLACE FUNCTION public.recalcular_estado_pedido(p_pedido_id bigint)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_estaba_completado boolean; v_queda_completado boolean; v_categoria categoria_pedido;\r\nbegin\r\n  select (estado = 'COMPLETADO'), categoria into v_estaba_completado, v_categoria\r\n    from pedido where id = p_pedido_id;\r\n\r\n  update pedido p\r\n     set estado = case\r\n           when not exists (\r\n             select 1 from pedido_linea pl\r\n             where pl.pedido_id = p.id\r\n               and pl.estado not in ('DESPACHADA', 'COMPRADO_DIRECTO', 'RETIRADA', 'RECHAZADO', 'CAMBIADA')\r\n           ) then 'COMPLETADO'::estado_pedido\r\n           when p.estado = 'COMPLETADO' then 'ABIERTO'::estado_pedido\r\n           else p.estado\r\n         end\r\n   where p.id = p_pedido_id\r\n     and p.estado <> 'CANCELADO';\r\n\r\n  select (estado = 'COMPLETADO') into v_queda_completado from pedido where id = p_pedido_id;\r\n\r\n  if v_queda_completado and not coalesce(v_estaba_completado, false) and v_categoria <> 'TIENDA' then\r\n    -- Fecha de Bolivia, no la del servidor (UTC): de noche current_date ya\r\n    -- es mañana y Hermes rechaza la entrega por fecha futura.\r\n    insert into pendiente_sync_hermes_despacho (pedido_id, fecha_completado)\r\n    values (p_pedido_id, (now() at time zone 'America/La_Paz')::date)\r\n    on conflict (pedido_id) do update\r\n      set fecha_completado = excluded.fecha_completado, sincronizado_en = null, intentos = 0, ultimo_error = null;\r\n  end if;\r\nend;\r\n$function$\n"
+  ]
+}

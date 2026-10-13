@@ -1,0 +1,566 @@
+{
+  "enums": [
+    {
+      "name": "estado_sesion_caja",
+      "values": [
+        "ABIERTA",
+        "CERRADA",
+        "EN_REVISION"
+      ]
+    },
+    {
+      "name": "metodo_pago",
+      "values": [
+        "EFECTIVO",
+        "QR",
+        "TRANSFERENCIA",
+        "SIGEP",
+        "CHEQUE",
+        "DEPOSITO"
+      ]
+    },
+    {
+      "name": "tipo_movimiento_caja",
+      "values": [
+        "VENTA",
+        "ANTICIPO",
+        "INGRESO",
+        "EGRESO",
+        "ANULACION"
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "name": "movimiento_caja",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": true,
+          "generated": false
+        },
+        {
+          "name": "sesion_caja_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "tipo",
+          "type": "tipo_movimiento_caja",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "metodo",
+          "type": "metodo_pago",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "monto",
+          "type": "numeric",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "venta_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "pedido_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "nota",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "creado_por",
+          "type": "character varying",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cliente_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "idempotencia_clave",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "subtipo",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "caja_gasto_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "hermes_intencion",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "fuera_de_arqueo",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "fuera_de_arqueo_por",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "fuera_de_arqueo_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "movimiento_caja_caja_gasto_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (caja_gasto_id) REFERENCES caja_gasto(id)"
+        },
+        {
+          "name": "movimiento_caja_cliente_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (cliente_id) REFERENCES cliente(id)"
+        },
+        {
+          "name": "movimiento_caja_monto_check",
+          "type": "c",
+          "definition": "CHECK ((monto > (0)::numeric))"
+        },
+        {
+          "name": "movimiento_caja_pedido_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (pedido_id) REFERENCES pedido(id)"
+        },
+        {
+          "name": "movimiento_caja_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "movimiento_caja_sesion_caja_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (sesion_caja_id) REFERENCES sesion_caja(id)"
+        },
+        {
+          "name": "movimiento_caja_subtipo_check",
+          "type": "c",
+          "definition": "CHECK (((subtipo IS NULL) OR (subtipo = ANY (ARRAY['GASTO'::text, 'REMESA'::text, 'INYECCION'::text, 'OTRO'::text]))))"
+        },
+        {
+          "name": "movimiento_caja_venta_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (venta_id) REFERENCES venta(id)"
+        }
+      ]
+    },
+    {
+      "name": "sesion_caja",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": true,
+          "generated": false
+        },
+        {
+          "name": "caja_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "estado",
+          "type": "estado_sesion_caja",
+          "default": "'ABIERTA'::estado_sesion_caja",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "monto_apertura",
+          "type": "numeric",
+          "default": "0",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "monto_cierre_contado",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "diferencia",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "abierta_por",
+          "type": "character varying",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "abierta_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cerrada_por",
+          "type": "character varying",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cerrada_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cajero_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "diferencia_relevo",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "revisada_por",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "revisada_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "nota_revision",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "sesion_caja_caja_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (caja_id) REFERENCES caja(id)"
+        },
+        {
+          "name": "sesion_caja_cajero_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (cajero_id) REFERENCES perfil(id)"
+        },
+        {
+          "name": "sesion_caja_monto_apertura_check",
+          "type": "c",
+          "definition": "CHECK ((monto_apertura >= (0)::numeric))"
+        },
+        {
+          "name": "sesion_caja_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        }
+      ]
+    },
+    {
+      "name": "venta_evento",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": true,
+          "generated": false
+        },
+        {
+          "name": "venta_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "linea_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "accion",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "motivo",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cantidad_anterior",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "cantidad_nueva",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "usuario",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "venta_evento_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "venta_evento_venta_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (venta_id) REFERENCES venta(id)"
+        }
+      ]
+    },
+    {
+      "name": "cobro_caja",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": true,
+          "generated": false
+        },
+        {
+          "name": "numero",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "sesion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "actor_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "idempotencia",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "solicitud",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "documento",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": false,
+          "generated": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "cobro_caja_actor_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (actor_id) REFERENCES perfil(id)"
+        },
+        {
+          "name": "cobro_caja_idempotencia_key",
+          "type": "u",
+          "definition": "UNIQUE (idempotencia)"
+        },
+        {
+          "name": "cobro_caja_numero_key",
+          "type": "u",
+          "definition": "UNIQUE (numero)"
+        },
+        {
+          "name": "cobro_caja_pkey",
+          "type": "p",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "cobro_caja_sesion_id_fkey",
+          "type": "f",
+          "definition": "FOREIGN KEY (sesion_id) REFERENCES sesion_caja(id)"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    "CREATE OR REPLACE FUNCTION public.app_rol_actual()\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select p.rol\r\n    from public.perfil p\r\n   where p.id = auth.uid() and p.activo\r\n   limit 1;\r\n$function$\n",
+    "CREATE OR REPLACE FUNCTION public.checkout_caja(p_lineas jsonb, p_pagos jsonb, p_sesion_id bigint, p_idempotencia text, p_cliente_id bigint DEFAULT NULL::bigint, p_descuento numeric DEFAULT 0, p_saldo numeric DEFAULT 0, p_vendedor_id uuid DEFAULT NULL::uuid, p_pedido_ids bigint[] DEFAULT '{}'::bigint[], p_quitadas jsonb DEFAULT '[]'::jsonb, p_vtd_ids bigint[] DEFAULT '{}'::bigint[])\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\ndeclare\n  actor uuid:=auth.uid(); usuario text; seller uuid:=p_vendedor_id; seller_name text;\n  pedido_seller uuid; cantidad int; session_row public.sesion_caja%rowtype;\n  previo public.cobro_caja%rowtype; solicitud jsonb; resultado jsonb; receipt_doc jsonb;\n  nuevo numeric:=0; vtd_total numeric:=0; total numeric; pagado numeric:=0; cash_change numeric:=0;\n  l jsonb; pago jsonb; cantidad_linea numeric; unitario numeric; factor numeric; monto numeric;\n  falta numeric; toma numeric; pagos_nuevos jsonb:='[]'; pagos_vtd jsonb:='[]'; metodo text;\n  venta_nueva bigint; ventas bigint[]:='{}'; v public.venta%rowtype; receipt_id bigint; numero text;\nbegin\n  perform hermes.exigir_operador_pos();\n  select coalesce(p.email,p.id::text) into usuario from public.perfil p where p.id=actor and p.activo;\n  if actor is null or usuario is null then raise exception 'Operador no autorizado' using errcode='42501';end if;\n  if p_idempotencia is null or length(p_idempotencia)<8 or length(p_idempotencia)>160 then raise exception 'Clave de cobro inválida';end if;\n  if p_lineas is null or jsonb_typeof(p_lineas)<>'array' or p_pagos is null or jsonb_typeof(p_pagos)<>'array'\n    or p_quitadas is null or jsonb_typeof(p_quitadas)<>'array' or p_vtd_ids is null or p_pedido_ids is null\n    or p_descuento is null or p_saldo is null or p_descuento<0 or p_saldo<0\n    or p_descuento::text in ('NaN','Infinity','-Infinity') or p_saldo::text in ('NaN','Infinity','-Infinity')\n    or p_descuento<>round(p_descuento,2) or p_saldo<>round(p_saldo,2) then raise exception 'Datos de cobro inválidos';end if;\n  if cardinality(p_pedido_ids)>1 or cardinality(p_vtd_ids)>30\n    or cardinality(p_vtd_ids)<>(select count(distinct x) from unnest(p_vtd_ids) x)\n    or exists(select 1 from unnest(p_vtd_ids) x where x is null or x<=0) then raise exception 'Selección de documentos inválida';end if;\n  solicitud:=jsonb_build_object('lineas',p_lineas,'pagos',p_pagos,'sesion',p_sesion_id,'cliente',p_cliente_id,\n    'descuento',p_descuento,'saldo',p_saldo,'vendedor',seller,'pedidos',p_pedido_ids,'quitadas',p_quitadas,'vtd',p_vtd_ids,'actor',actor);\n  perform pg_advisory_xact_lock(hashtextextended('checkout-caja:'||p_idempotencia,0));\n  select * into previo from public.cobro_caja where idempotencia=p_idempotencia;\n  if found then\n    if previo.solicitud is distinct from solicitud then raise exception 'Este intento corresponde a otro cobro';end if;\n    return previo.documento||jsonb_build_object('reintento',true);\n  end if;\n  select * into session_row from public.sesion_caja where id=p_sesion_id for update;\n  if not found or session_row.estado::text<>'ABIERTA' then raise exception 'La caja está cerrada';end if;\n  if session_row.cajero_id is distinct from actor and not exists(select 1 from public.perfil where id=actor and rol::text in ('admin','gerente'))\n    then raise exception 'Este turno pertenece a otro cajero' using errcode='42501';end if;\n  if seller is not null and not exists(select 1 from public.perfil p where p.id=seller and p.activo\n    and p.rol::text in ('vendedor','vendedor_mayoreo','cajero','admin','gerente')) then raise exception 'Vendedor no disponible';end if;\n  if cardinality(p_pedido_ids)>0 then\n    select vendedor_id into pedido_seller from public.pedido_vendedor where id=p_pedido_ids[1];\n    if not found then raise exception 'Pedido de vendedor inexistente';end if;\n    if seller is not null and seller<>pedido_seller then raise exception 'Conserva el vendedor del pedido';end if;\n    seller:=pedido_seller;\n  end if;\n  select nombre into seller_name from public.perfil where id=seller;\n  for l in select * from jsonb_array_elements(p_lineas) loop\n    unitario:=(l->>'precio_unitario')::numeric;\n    cantidad_linea:=coalesce((l->>'cantidad_presentacion')::numeric,(l->>'cantidad_base')::numeric);\n    if unitario is null or unitario<=0 or cantidad_linea is null or cantidad_linea<=0\n      or unitario::text in ('NaN','Infinity','-Infinity') or cantidad_linea::text in ('NaN','Infinity','-Infinity') then raise exception 'Línea sin precio o cantidad válida';end if;\n    if l->>'presentacion_id' is not null then\n      select factor_unidad_base into factor from public.presentacion where id=(l->>'presentacion_id')::bigint;\n      if factor is null then raise exception 'Presentación inexistente';end if;\n    end if;\n    nuevo:=nuevo+round(unitario*cantidad_linea,2);\n  end loop;\n  nuevo:=nuevo-p_descuento;\n  if nuevo<0 or (jsonb_array_length(p_lineas)>0 and nuevo<=0) or p_saldo>nuevo then raise exception 'Descuento o saldo exceden la venta de mostrador';end if;\n  cantidad:=0;\n  for v in select * from public.venta where id=any(p_vtd_ids) order by id for update loop\n    cantidad:=cantidad+1;\n    if v.numero is null or v.numero not like 'VTD-%' or not v.cobro_exigible or v.estado::text='ANULADA'\n      or v.total is null or v.total<=0 or exists(select 1 from public.venta_pago where venta_id=v.id)\n      or not exists(select 1 from public.v_vtd_por_cobrar vc where vc.venta_id=v.id) then raise exception 'Una VTD ya está cobrada o no está disponible';end if;\n    if v.cliente_id is not null and v.cliente_id is distinct from p_cliente_id then raise exception 'Elige el mismo cliente de la VTD para este cobro';end if;\n    vtd_total:=vtd_total+v.total;ventas:=array_append(ventas,v.id);\n  end loop;\n  if cantidad<>cardinality(p_vtd_ids) then raise exception 'VTD inexistente';end if;\n  total:=nuevo+vtd_total;\n  if total<=0 then raise exception 'Agrega productos o documentos para cobrar';end if;\n  falta:=nuevo-p_saldo;\n  for pago in select * from jsonb_array_elements(p_pagos) loop\n    metodo:=pago->>'metodo';monto:=(pago->>'monto')::numeric;\n    if metodo is null or metodo not in ('EFECTIVO','QR','TRANSFERENCIA') or monto is null or monto<=0\n      or monto::text in ('NaN','Infinity','-Infinity') or monto<>round(monto,2) then raise exception 'Pago inválido';end if;\n    if pago->>'recibido' is not null then\n      if metodo<>'EFECTIVO' or (pago->>'recibido')::numeric<monto or (pago->>'recibido')::numeric::text in ('NaN','Infinity','-Infinity') then raise exception 'Recibido inválido';end if;\n      cash_change:=cash_change+(pago->>'recibido')::numeric-monto;\n    end if;\n    pagado:=pagado+monto;toma:=least(falta,monto);\n    if toma>0 then pagos_nuevos:=pagos_nuevos||jsonb_build_array(jsonb_build_object('metodo',metodo,'monto',toma));end if;\n    if monto>toma then pagos_vtd:=pagos_vtd||jsonb_build_array(jsonb_build_object('metodo',metodo,'monto',monto-toma));end if;\n    falta:=falta-toma;\n  end loop;\n  if pagado+p_saldo<>total then raise exception 'El pago no coincide con el total del carrito';end if;\n  if p_saldo>0 then pagos_nuevos:=pagos_nuevos||jsonb_build_array(jsonb_build_object('metodo','SALDO_FAVOR','monto',p_saldo));end if;\n  if jsonb_array_length(p_lineas)>0 then\n    if cardinality(p_pedido_ids)>0 then\n      resultado:=public.cobrar_pedido_vendedor(p_pedido_ids,p_lineas,pagos_nuevos,p_sesion_id,'caja:'||p_idempotencia||':venta',p_quitadas,p_descuento,p_cliente_id);\n    else\n      resultado:=public.registrar_venta(p_lineas,pagos_nuevos,p_sesion_id,p_cliente_id,p_descuento,usuario,'caja:'||p_idempotencia||':venta');\n    end if;\n    venta_nueva:=(resultado->>'venta_id')::bigint;\n    update public.venta set vendedor_id=seller where id=venta_nueva;\n    ventas:=array_prepend(venta_nueva,ventas);\n  elsif cardinality(p_pedido_ids)>0 then raise exception 'El pedido no tiene líneas verificadas';end if;\n  if cardinality(p_vtd_ids)>0 then\n    perform public.cobrar_vtd(p_vtd_ids,p_sesion_id,pagos_vtd,'caja:'||p_idempotencia||':vtd');\n    -- La atribución elegida completa VTD sin vendedor; conserva atribuciones previas.\n    if seller is not null then update public.venta set vendedor_id=seller where id=any(p_vtd_ids) and vendedor_id is null;end if;\n  end if;\n  receipt_id:=nextval(pg_get_serial_sequence('public.cobro_caja','id'));\n  numero:='CJA-'||to_char(now() at time zone 'America/La_Paz','YYYYMMDD')||'-'||receipt_id;\n  receipt_doc:=jsonb_build_object('numero',numero,'total',total,'ventas',ventas,'vendedor',seller_name,\n    'cliente',(select nombre from public.cliente where id=p_cliente_id),'creado_en',now(),'pagos',p_pagos,\n    'saldo_favor',p_saldo,'cambio',cash_change,'descuento',p_descuento,\n    'lineas',(select coalesce(jsonb_agg(jsonb_build_object('descripcion',coalesce(nullif(vl.descripcion,''),pr.nombre),\n      'cantidad',coalesce(vl.cantidad_presentacion,vl.cantidad),'precio',vl.precio_unitario,\n      'subtotal',round(coalesce(vl.cantidad_presentacion,vl.cantidad)*vl.precio_unitario,2),\n      'origen',case when vl.venta_id=venta_nueva then 'Mostrador' else sale.numero end) order by vl.venta_id,vl.id),'[]')\n      from public.venta_linea vl join public.venta sale on sale.id=vl.venta_id left join public.producto pr on pr.id=vl.producto_id where vl.venta_id=any(ventas)));\n  insert into public.cobro_caja(id,numero,sesion_id,actor_id,idempotencia,solicitud,documento) overriding system value\n    values(receipt_id,numero,p_sesion_id,actor,p_idempotencia,solicitud,receipt_doc);\n  receipt_doc:=receipt_doc||jsonb_build_object('id',receipt_id,'reintento',false);\n  update public.cobro_caja set documento=receipt_doc where id=receipt_id;\n  return receipt_doc;\nend $function$\n",
+    "CREATE OR REPLACE FUNCTION public.cobrar_vtd(p_venta_ids bigint[], p_sesion_caja_id bigint, p_pagos jsonb, p_idempotencia text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_rol        text;\r\n  v_ses        sesion_caja%rowtype;\r\n  v_perfil     perfil%rowtype;\r\n  v_usuario    text;\r\n  v_ids        bigint[];\r\n  v_venta      venta%rowtype;\r\n  v_total      numeric := 0;\r\n  v_pagado     numeric := 0;\r\n  v_cambio     numeric := 0;\r\n  v_pago       jsonb;\r\n  v_metodo     metodo_pago;\r\n  v_rest_pago  numeric;\r\n  v_rest_venta numeric;\r\n  v_toma       numeric;\r\n  v_verif      text;\r\n  v_recibido   numeric;\r\n  v_n          int := 0;\r\n  v_idx        int;\r\n  v_resto      jsonb := '[]'::jsonb;\r\n  v_ventas_out jsonb := '[]'::jsonb;\r\n  v_previa     jsonb;\r\nbegin\r\n  v_rol := app_rol_actual();\r\n  if v_rol is null or v_rol not in ('cajero', 'gerente', 'admin') then\r\n    raise exception 'No autorizado para cobrar';\r\n  end if;\r\n\r\n  if p_idempotencia is null or btrim(p_idempotencia) = '' or length(p_idempotencia) > 180 then\r\n    raise exception 'Clave de idempotencia obligatoria (máx. 180 caracteres)';\r\n  end if;\r\n  perform pg_advisory_xact_lock(hashtextextended('cobro_vtd:' || p_idempotencia, 0));\r\n\r\n  -- Reintento: si ya se cobró con esta clave, devolver lo mismo sin duplicar.\r\n  select jsonb_build_object(\r\n           'reintento', true,\r\n           'ventas', jsonb_agg(distinct v.numero),\r\n           'total', sum(m.monto))\r\n    into v_previa\r\n    from movimiento_caja m join venta v on v.id = m.venta_id\r\n   where m.idempotencia_clave like 'cobro_vtd:' || p_idempotencia || ':%';\r\n  if v_previa ->> 'total' is not null then\r\n    return v_previa;\r\n  end if;\r\n\r\n  -- Sesión: abierta; un cajero solo cobra en su propio turno.\r\n  select * into v_ses from sesion_caja where id = p_sesion_caja_id;\r\n  if not found or v_ses.estado <> 'ABIERTA' then\r\n    raise exception 'No hay una sesión de caja abierta (%).', p_sesion_caja_id;\r\n  end if;\r\n  if v_rol = 'cajero' and v_ses.cajero_id is distinct from auth.uid() then\r\n    raise exception 'Solo podés cobrar en tu propio turno';\r\n  end if;\r\n\r\n  select * into v_perfil from perfil where id = auth.uid();\r\n  v_usuario := coalesce(v_perfil.email, 'sistema');\r\n\r\n  -- Ventas: sin duplicados, bloqueadas en orden para evitar deadlocks.\r\n  select array_agg(distinct x order by x) into v_ids from unnest(p_venta_ids) x where x is not null;\r\n  if v_ids is null or array_length(v_ids, 1) = 0 then\r\n    raise exception 'Hay que indicar al menos una VTD a cobrar';\r\n  end if;\r\n\r\n  for v_venta in select * from venta where id = any(v_ids) order by id for update loop\r\n    v_n := v_n + 1;\r\n    if v_venta.numero is null or v_venta.numero not like 'VTD-%' then\r\n      raise exception 'La venta % no es una venta directa (VTD)', v_venta.id;\r\n    end if;\r\n    if v_venta.estado = 'ANULADA' then\r\n      raise exception '% está anulada', v_venta.numero;\r\n    end if;\r\n    if not v_venta.cobro_exigible then\r\n      raise exception '% es histórica y está fuera del circuito de cobro', v_venta.numero;\r\n    end if;\r\n    if exists (select 1 from venta_pago where venta_id = v_venta.id) then\r\n      raise exception '% ya tiene un cobro registrado', v_venta.numero;\r\n    end if;\r\n    if coalesce(v_venta.total, 0) <= 0 then\r\n      raise exception '% tiene total 0', v_venta.numero;\r\n    end if;\r\n    v_total := v_total + v_venta.total;\r\n  end loop;\r\n  if v_n <> array_length(v_ids, 1) then\r\n    raise exception 'Alguna de las VTD indicadas no existe';\r\n  end if;\r\n\r\n  -- Pagos: solo medios de mostrador; la suma debe dar el total exacto.\r\n  if p_pagos is null or jsonb_typeof(p_pagos) <> 'array' or jsonb_array_length(p_pagos) = 0 then\r\n    raise exception 'p_pagos debe ser un array no vacío';\r\n  end if;\r\n  for v_pago in select * from jsonb_array_elements(p_pagos) loop\r\n    v_metodo := (v_pago ->> 'metodo')::metodo_pago;\r\n    if v_metodo not in ('EFECTIVO', 'QR', 'TRANSFERENCIA') then\r\n      raise exception 'Método % no permitido para VTD (retail): solo EFECTIVO, QR o TRANSFERENCIA', v_metodo;\r\n    end if;\r\n    if coalesce((v_pago ->> 'monto')::numeric, 0) <= 0 then\r\n      raise exception 'Cada pago debe tener monto positivo';\r\n    end if;\r\n    v_recibido := (v_pago ->> 'recibido')::numeric;\r\n    if v_recibido is not null then\r\n      if v_metodo <> 'EFECTIVO' then\r\n        raise exception '\"recibido\" solo aplica a EFECTIVO';\r\n      end if;\r\n      if v_recibido < (v_pago ->> 'monto')::numeric then\r\n        raise exception 'El monto recibido (%) no puede ser menor al pago (%)', v_recibido, (v_pago ->> 'monto')::numeric;\r\n      end if;\r\n      v_cambio := v_cambio + (v_recibido - (v_pago ->> 'monto')::numeric);\r\n    end if;\r\n    v_pagado := v_pagado + (v_pago ->> 'monto')::numeric;\r\n    v_resto := v_resto || jsonb_build_array(jsonb_build_object(\r\n                 'metodo', v_metodo::text,\r\n                 'monto', (v_pago ->> 'monto')::numeric,\r\n                 'resto', (v_pago ->> 'monto')::numeric,\r\n                 'recibido', v_recibido,\r\n                 'referencia', v_pago ->> 'referencia'));\r\n  end loop;\r\n  if round(v_pagado, 2) <> round(v_total, 2) then\r\n    raise exception 'El pago (%) no coincide con el total de las VTD (%)', v_pagado, v_total;\r\n  end if;\r\n\r\n  -- Reparto: se llenan las VTD en orden de id con los pagos en el orden recibido.\r\n  -- Un pago puede partirse entre dos VTD; \"recibido\" solo se guarda si el pago\r\n  -- entero cae en una sola VTD (el cambio total va en la respuesta).\r\n  v_idx := 0;\r\n  v_n := 0;\r\n  for v_venta in select * from venta where id = any(v_ids) order by id loop\r\n    v_rest_venta := v_venta.total;\r\n    while v_rest_venta > 0 loop\r\n      v_rest_pago := (v_resto -> v_idx ->> 'resto')::numeric;\r\n      if v_rest_pago <= 0 then\r\n        v_idx := v_idx + 1;\r\n        continue;\r\n      end if;\r\n      v_toma   := least(v_rest_pago, v_rest_venta);\r\n      v_metodo := (v_resto -> v_idx ->> 'metodo')::metodo_pago;\r\n      v_verif  := case when v_metodo in ('QR', 'TRANSFERENCIA') then 'PENDIENTE' else 'NO_APLICA' end;\r\n      v_n := v_n + 1;\r\n\r\n      insert into venta_pago (venta_id, metodo, monto, recibido, referencia, estado_verificacion)\r\n      values (v_venta.id, v_metodo, v_toma,\r\n              case when v_toma = (v_resto -> v_idx ->> 'monto')::numeric\r\n                   then (v_resto -> v_idx ->> 'recibido')::numeric end,\r\n              v_resto -> v_idx ->> 'referencia', v_verif);\r\n\r\n      insert into movimiento_caja (sesion_caja_id, tipo, metodo, monto, venta_id, cliente_id,\r\n                                   creado_por, idempotencia_clave, nota)\r\n      values (p_sesion_caja_id, 'VENTA', v_metodo, v_toma, v_venta.id, v_venta.cliente_id,\r\n              v_usuario, 'cobro_vtd:' || p_idempotencia || ':' || v_n, 'Cobro ' || v_venta.numero);\r\n\r\n      v_resto := jsonb_set(v_resto, array[v_idx::text, 'resto'], to_jsonb(v_rest_pago - v_toma));\r\n      v_rest_venta := v_rest_venta - v_toma;\r\n    end loop;\r\n\r\n    insert into venta_evento (venta_id, accion, motivo, usuario)\r\n    values (v_venta.id, 'COBRADA', 'Cobro en caja, sesión ' || p_sesion_caja_id, v_usuario);\r\n\r\n    v_ventas_out := v_ventas_out || jsonb_build_array(jsonb_build_object(\r\n                      'venta_id', v_venta.id, 'numero', v_venta.numero,\r\n                      'total', v_venta.total, 'estado', v_venta.estado));\r\n  end loop;\r\n\r\n  return jsonb_build_object(\r\n    'reintento', false,\r\n    'sesion_caja_id', p_sesion_caja_id,\r\n    'ventas', v_ventas_out,\r\n    'total', v_total,\r\n    'cambio', v_cambio,\r\n    'pendiente_verificacion', exists (\r\n      select 1 from venta_pago where venta_id = any(v_ids) and estado_verificacion = 'PENDIENTE')\r\n  );\r\nend;\r\n$function$\n",
+    "CREATE OR REPLACE FUNCTION hermes.contexto_confiable()\n RETURNS boolean\n LANGUAGE sql\n STABLE\n SET search_path TO 'pg_catalog'\nAS $function$\r\n  -- Rama 1: conexión directa a Postgres (editor SQL, psql, pg_cron, MCP).\r\n  --         El `(coalesce(nullif(current_setting('request.jwt.claim',true),''),nullif(current_setting('request.jwt.claims',true),''))::jsonb) is null` la hace inalcanzable desde PostgREST.\r\n  -- Rama 2: llamada con la service_role key (endpoints serverless).\r\n  select (session_user = 'postgres' and (coalesce(nullif(current_setting('request.jwt.claim',true),''),nullif(current_setting('request.jwt.claims',true),''))::jsonb) is null)\r\n      or coalesce((coalesce(nullif(current_setting('request.jwt.claim',true),''),nullif(current_setting('request.jwt.claims',true),''))::jsonb) ->> 'role', '') = 'service_role';\r\n$function$\n",
+    "CREATE OR REPLACE FUNCTION hermes.exigir_operador_pos()\n RETURNS void\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'hermes'\nAS $function$\nbegin\n if hermes.contexto_confiable() then return; end if;\n if auth.uid() is null or not exists(select 1 from public.perfil\n   where id=auth.uid() and activo and rol in ('admin','gerente','cajero')) then\n   raise exception 'No autorizado para operar caja' using errcode='42501';\n end if;\nend $function$\n"
+  ],
+  "vtdPorCobrar": " SELECT v.id AS venta_id,\n    v.numero,\n    v.estado,\n    v.cliente_id,\n    c.nombre AS cliente_nombre,\n    v.total,\n    v.creado_por,\n    v.creado_en,\n    v.sesion_caja_id AS sesion_creacion_id,\n    v.pago_posterior,\n    v.pago_posterior_motivo,\n    v.pago_posterior_contacto\n   FROM venta v\n     LEFT JOIN cliente c ON c.id = v.cliente_id\n  WHERE v.numero ~~ 'VTD-%'::text AND (v.estado = ANY (ARRAY['ABIERTA'::estado_venta, 'COMPLETADA'::estado_venta])) AND v.cobro_exigible AND v.total > 0::numeric AND NOT (EXISTS ( SELECT 1\n           FROM venta_pago p\n          WHERE p.venta_id = v.id));"
+}
