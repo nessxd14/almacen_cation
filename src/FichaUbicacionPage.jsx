@@ -7,6 +7,7 @@ import { useSucursal } from './lib/useSucursal';
 import { sucursalDeFicha, textoUbicacion } from './lib/fichaProducto';
 import { cargarFichaUbicacion } from './lib/fichaUbicacion';
 import './fichas.css';
+import { codigoUbicacion, nombreMueble } from './lib/ubicacionTexto';
 
 const cantidadFmt = n => n == null ? 'Sin registro' : new Intl.NumberFormat('es-BO', { maximumFractionDigits: 4 }).format(n);
 const fechaFmt = fecha => fecha ? new Intl.DateTimeFormat('es-BO', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/La_Paz' }).format(new Date(fecha)) : 'Sin registro';
@@ -52,7 +53,7 @@ function ConsultaUbicacion({ ubicacionId, sucursal }) {
     <header className="ficha-hero ficha-hero-no-photo"><div>
       <span className="fichas-eyebrow">FICHA DE UBICACIÓN · {sucursal.nombre}</span>
       <h1><MapPin size={24} /> {textoUbicacion(ubicacion) || 'Ubicación sin descripción'}</h1>
-      <dl className="ficha-attributes">{[['Zona', ubicacion.codigo_zona], ['Estante', ubicacion.estante], ['Nivel', ubicacion.nivel], ['Compartimiento', ubicacion.compartimiento]].map(([campo, valor]) => <div key={campo}><dt>{campo}</dt><dd>{valor == null || valor === '' ? 'Sin registrar' : valor}</dd></div>)}</dl>
+      <dl className="ficha-attributes">{[['Zona', ubicacion.codigo_zona], ['Mueble', nombreMueble(ubicacion)], ['Compartimiento', ubicacion.compartimiento], ['Código', codigoUbicacion(ubicacion)]].map(([campo, valor]) => <div key={campo}><dt>{campo}</dt><dd>{valor == null || valor === '' ? 'Sin registrar' : valor}</dd></div>)}</dl>
       <div className="fichas-actions"><button className="fichas-button" onClick={actualizar}><RefreshCw size={16} /> Actualizar</button></div>
       <p className="fichas-note">Última consulta: {fechaFmt(consultadoEn)}</p>
     </div></header>

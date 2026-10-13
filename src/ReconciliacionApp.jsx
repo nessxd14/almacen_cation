@@ -26,9 +26,9 @@ import {
   Scale, CheckCircle, XCircle, AlertTriangle,
   ChevronDown, ChevronUp, Loader, ArrowLeft, PackageCheck,
 } from "lucide-react";
+import { etiquetaUbicacion } from "./lib/ubicacionTexto";
 
-const labelUbicacion = (u) =>
-  u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
+const labelUbicacion = (u) => (u ? etiquetaUbicacion(u) : "—");
 
 export default function ReconciliacionApp() {
   const usuarioActual = useUsuarioActual();

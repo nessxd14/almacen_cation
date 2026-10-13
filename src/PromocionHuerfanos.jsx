@@ -24,6 +24,7 @@ import {
   ArrowUpFromLine, Link, PlusCircle, Trash2,
   CheckCircle, AlertCircle, Loader, RefreshCw,
 } from "lucide-react";
+import { etiquetaUbicacion } from "./lib/ubicacionTexto";
 
 export default function PromocionHuerfanos() {
   const [huerfanos, setHuerfanos] = useState([]);
@@ -82,7 +83,7 @@ export default function PromocionHuerfanos() {
 
   const labelUbicacion = (h) => {
     const u = h.ubicacion;
-    return u ? [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-") : "—";
+    return u ? etiquetaUbicacion(u) : "—";
   };
 
   /* ── promover: vincular a presentación existente ─────────────────── */

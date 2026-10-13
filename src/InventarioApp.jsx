@@ -12,6 +12,7 @@ import {
   Boxes, Package, DollarSign, AlertTriangle, PackageX, Search,
   ArrowUpDown, ArrowUp, ArrowDown, MapPin, SlidersHorizontal, ImageOff, ScanLine, ClipboardList, X,
 } from "lucide-react";
+import { etiquetaUbicacion as etiquetaComun } from "./lib/ubicacionTexto";
 
 const UMBRAL_STORAGE_KEY = "wms_umbral_default";
 
@@ -25,12 +26,8 @@ function cantidadFmt(v) {
   const n = Number(v || 0);
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 }
-function etiquetaUbicacion(zona, estante, nivel, compartimiento) {
-  const partes = [zona];
-  if (estante && nivel) partes.push(`${estante} ${nivel}`);
-  else if (estante) partes.push(estante);
-  if (compartimiento) partes.push(compartimiento);
-  return partes.join(" › ");
+function etiquetaUbicacion(codigo_zona, estante, nivel, compartimiento) {
+  return etiquetaComun({ codigo_zona, estante, nivel, compartimiento });
 }
 
 // Agrupa filas (producto×ubicación) por familia, preservando el orden de

@@ -30,6 +30,7 @@ import {
   Camera, Search, MapPin, CheckCircle, AlertCircle, AlertTriangle, Info,
   Wifi, WifiOff, ClipboardList, ArrowLeft, Plus, Loader, ImageOff, RefreshCw,
 } from "lucide-react";
+import { etiquetaUbicacion } from "./lib/ubicacionTexto";
 
 const FLASH_STYLES = {
   ok: "bg-green-50 text-green-700",
@@ -66,8 +67,7 @@ const uuid = () =>
     ? crypto.randomUUID()
     : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 const nowISO = () => new Date().toISOString();
-const labelUbicacion = (u) =>
-  [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-");
+const labelUbicacion = (u) => etiquetaUbicacion(u);
 
 /* ── IndexedDB para offline ───────────────────────────────────────────── */
 const DB_NAME = "conteo_wms";

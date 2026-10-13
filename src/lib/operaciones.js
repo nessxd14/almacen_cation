@@ -25,6 +25,7 @@
 import { supabase } from "../supabaseClient";
 import { sanearFiltro } from "./filtroTexto";
 import { stockDespachable } from "./stockSucursal";
+import { etiquetaUbicacion } from "./ubicacionTexto";
 
 const uuid = () =>
   crypto.randomUUID ? crypto.randomUUID() : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -36,7 +37,7 @@ const hoy = () => new Date().toISOString().slice(0, 10);
 // sucursal (brief W5 #5). Sin él, comportamiento idéntico a siempre.
 export const labelUbicacion = (u, { nombreSucursal } = {}) => {
   if (!u) return "—";
-  const base = [u.codigo_zona, u.estante, u.nivel, u.compartimiento].filter(Boolean).join("-");
+  const base = etiquetaUbicacion(u);
   if (typeof nombreSucursal !== "function" || u.sucursal_id == null) return base;
   const nombre = nombreSucursal(u.sucursal_id);
   return nombre ? `${nombre} · ${base}` : base;
