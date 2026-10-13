@@ -505,23 +505,23 @@ export function estadoSaldoLinea(saldoLibre, pendienteLinea) {
  * ══════════════════════════════════════════════════════════════════════ */
 
 /* ── rechazar una línea puntual (POR_DESPACHAR/PENDIENTE -> RECHAZADO) ── */
-export async function rechazarPedidoLinea({ lineaId, motivo, usuario }) {
-  const { data, error } = await supabase.rpc("rechazar_pedido_linea", {
+export async function rechazarPedidoLinea({ lineaId, motivo }) {
+  const { data, error } = await supabase.rpc("rechazar_linea_pedido_auditada", {
     p_pedido_linea_id: Number(lineaId),
     p_motivo: motivo || null,
-    p_usuario: usuario,
   });
-  return { resultado: data, error };
+  return { resultado: data, error: error?.code === "PGRST202"
+    ? { ...error, message: "El rechazo con historial aún no está habilitado. Solicita la actualización del sistema." } : error };
 }
 
 /* ── rechazar TODAS las líneas pendientes de un pedido de una sola vez ── */
-export async function rechazarPedido({ pedidoId, motivo, usuario }) {
-  const { data, error } = await supabase.rpc("rechazar_pedido", {
+export async function rechazarPedido({ pedidoId, motivo }) {
+  const { data, error } = await supabase.rpc("rechazar_pedido_auditado", {
     p_pedido_id: Number(pedidoId),
     p_motivo: motivo || null,
-    p_usuario: usuario,
   });
-  return { resultado: data, error };
+  return { resultado: data, error: error?.code === "PGRST202"
+    ? { ...error, message: "El rechazo con historial aún no está habilitado. Solicita la actualización del sistema." } : error };
 }
 
 /* ── cerrar la tanda actual: deja en el pedido solo lo que se despachó de

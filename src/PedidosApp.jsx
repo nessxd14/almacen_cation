@@ -1191,8 +1191,9 @@ function FilaLinea({
   }
 
   async function rechazarLinea() {
-    const motivo = window.prompt("Motivo (opcional) para rechazar esta línea:");
+    const motivo = window.prompt("Motivo obligatorio para rechazar esta línea:");
     if (motivo === null) return;
+    if (!motivo.trim()) { showFlash("Escribe el motivo del rechazo."); return; }
     setRechazandoLinea(true);
     const { error } = await rechazarPedidoLinea({ lineaId: linea.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
     setRechazandoLinea(false);
@@ -1532,8 +1533,9 @@ function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
   const showFlash = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 3000); };
 
   async function rechazar() {
-    const motivo = window.prompt("Motivo (opcional) para rechazar este ítem:");
+    const motivo = window.prompt("Motivo obligatorio para rechazar este ítem:");
     if (motivo === null) return;
+    if (!motivo.trim()) { showFlash("Escribe el motivo del rechazo."); return; }
     setRechazando(true);
     const { error } = await rechazarPedidoLinea({ lineaId: linea.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
     setRechazando(false);
@@ -1962,7 +1964,7 @@ export function DetallePedido({ pedidoId, onBack }) {
 
   // Mismo criterio que usa rechazar_pedido en el server para decidir qué
   // líneas afecta — visible solo si hay algo que de verdad se rechazaría.
-  const TERMINALES_RECHAZO_PEDIDO = new Set(["DESPACHADA", "COMPRADO_DIRECTO", "RECHAZADO"]);
+  const TERMINALES_RECHAZO_PEDIDO = new Set(["DESPACHADA", "COMPRADO_DIRECTO", "RECHAZADO", "CAMBIADA", "RETIRADA"]);
   const hayLineaPendiente = lineas.some((l) => !TERMINALES_RECHAZO_PEDIDO.has(l.estado));
   // Mismo criterio que usa cerrar_tanda_pedido en el server (líneas
   // PENDIENTE/POR_DESPACHAR) — solo para no mostrar el botón cuando no hay
@@ -1970,8 +1972,9 @@ export function DetallePedido({ pedidoId, onBack }) {
   const hayLineaParaCerrarTanda = lineas.some((l) => l.estado === "PENDIENTE" || l.estado === "POR_DESPACHAR");
 
   async function rechazarPedidoCompleto() {
-    const motivo = window.prompt("Motivo (opcional) para rechazar TODAS las líneas pendientes de este pedido:");
+    const motivo = window.prompt("Motivo obligatorio para rechazar TODAS las líneas pendientes de este pedido:");
     if (motivo === null) return;
+    if (!motivo.trim()) { setFlashRechazo({ type: "error", msg: "Escribe el motivo del rechazo." }); return; }
     setRechazandoPedido(true);
     setFlashRechazo(null);
     const { resultado, error } = await rechazarPedido({ pedidoId: pedido.id, motivo: motivo.trim() || null, usuario: usuarioActual.nombre });
