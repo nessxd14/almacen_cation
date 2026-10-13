@@ -16,6 +16,20 @@ El QR de ubicación establece el lugar de origen dentro del carrito; se valida c
 
 La VTD se entrega completa: ante faltantes, Caja corrige el ticket y el preparador actualiza el checklist. Los cambios de productos, cantidades, presentación o cabecera invalidan la revisión. Continúan siendo legibles las barras antiguas `VTD-AAAA-NNNNN`.
 
+## Corrección de revisión, despacho y cobro — 13 de octubre
+
+Aplicada en Supabase: `20261013143239_fix_cierre_revision_cobro_vtd_pedidos.sql`. Los tres pedidos completados cuyo checklist seguía en `VERIFICADO` quedaron en `DESPACHADO`, con un evento de sincronización por preparación. La aplicación de esta migración no registra cobros ni movimientos de stock.
+
+En Pedido, verificar conserva el checklist. El despacho existente registra las salidas; cuando todas las cantidades preparadas figuran despachadas, el checklist se cierra automáticamente. Un despacho incompleto permanece verificado. Una entrega parcial puede quedar despachada con el pedido todavía abierto; el siguiente escaneo toma la preparación de lo restante.
+
+En VTD, **Caja cobra; Almacén verifica y entrega**. Autorizar la salida completa `venta` y registra Kardex una vez. Si Caja recibe una confirmación atrasada y vuelve a consultar `completar_venta`, recupera la venta completada sin repetir la salida. Una VTD que aún está abierta sigue exigiendo al verificador asignado y el cobro o la marca de pago posterior.
+
+La bandeja de Caja consulta la entrega y se actualiza al volver a la ventana, cada minuto mientras está visible y con el botón de actualización. Cobrar VTD permite ventas abiertas y completadas pendientes de pago; no entrega material ni modifica stock. El recibo conjunto sigue conservando el cambio y los medios de pago.
+
+El servidor guarda la respuesta completa de cada cobro en un caché privado con RLS y sin permisos de lectura/escritura para clientes. El reintento conserva ventas, turno, total, cambio y señal de pago digital pendiente; una solicitud distinta o de otro usuario se rechaza. Para recibos anteriores, se recuperan los movimientos reales comparando la clave literalmente. Si un efectivo antiguo repartido perdió el dato de recibido, su cambio no se reconstruye ni se inventa. La verificación del pago QR/transferencia por el gerente sigue separada de la verificación física.
+
+Validación: 219 pruebas de Almacén, PostgreSQL aislado con las RPC vigentes, 594 pruebas de POS/Caja y su integración financiera, compilación de ambas aplicaciones y lint de los archivos modificados de Caja. Las pruebas incluyen entregas parciales, doble confirmación, stock único, cobro antes/después de entregar, pago posterior, tickets gratuitos, recibos anteriores, pagos mixtos, caja cerrada y rollback ante fallo.
+
 ## Acceso y persistencia
 
 La entrada es `/operaciones`; para vendedores, el inicio de Almacén dirige al portal móvil. El perfil `vendedor` y su sucursal Tienda se configuran mediante los perfiles existentes. El vendedor puede armar y corregir su carrito, consultar su avance y presentar el QR. La verificación y autorización de origen requieren `almacenero`, `operario`, `gerente` o `admin`, con la sucursal autorizada. La recepción pertenece a Tienda destino.

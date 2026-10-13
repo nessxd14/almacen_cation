@@ -1,15 +1,20 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { testCierreCaja } from './cierre-vtd-pedidos.integration.mjs';
 
 // Sólo esquema y funciones públicas inspeccionadas; nunca contiene datos de negocio.
 // Todos los documentos, personas y movimientos de esta prueba viven en memoria.
 const fixture = JSON.parse(await fs.readFile(new URL('./flujos_qr.fixture.json', import.meta.url), 'utf8'));
+const cajaFixture = JSON.parse(await fs.readFile(new URL('./cierre_vtd_caja.fixture.json', import.meta.url), 'utf8'));
+const despachoFixture = JSON.parse(await fs.readFile(new URL('./despacho_pedido.fixture.json', import.meta.url), 'utf8'));
+fixture.tables.push(...cajaFixture.tables,...despachoFixture.tables);
+fixture.functions.push(...cajaFixture.functions,...despachoFixture.functions);
 const db = new PGlite();
 const q = value => '"' + value.replaceAll('"', '""') + '"';
 try {
   await db.exec(`create role anon;create role authenticated;create role service_role;
-    create schema auth;create schema almacen_operaciones;
+    create schema auth;create schema almacen_operaciones;create schema hermes;
     create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
     create function auth.jwt() returns jsonb language sql stable as $$select nullif(current_setting('request.jwt.claims',true),'')::jsonb$$;
     grant usage on schema auth to authenticated;
@@ -22,6 +27,7 @@ try {
     for (const c of t.constraints || []) if (['p','u','c','x'].includes(c.type)) await db.exec(`alter table ${q(t.name)} add constraint ${q(c.name)} ${c.definition};`);
   }
   for (const f of fixture.functions) await db.exec(f + ';');
+  await db.exec('create view public.v_vtd_por_cobrar as '+cajaFixture.vtdPorCobrar);
   for (const t of fixture.triggers) await db.exec(t + ';');
   await db.exec(`create trigger venta_exigir_cobro before update of estado on venta for each row execute function _venta_exigir_cobro_vtd();
     grant usage on schema public to authenticated;grant select,insert,update,delete on all tables in schema public to authenticated;
@@ -30,6 +36,7 @@ try {
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261010005103_fix_operaciones_nueva_entrega.sql', import.meta.url), 'utf8'));
   await db.exec('set check_function_bodies=true;');
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261012195525_flujos_qr_vtd_traslado_virtual.sql', import.meta.url), 'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261013143239_fix_cierre_revision_cobro_vtd_pedidos.sql', import.meta.url), 'utf8'));
   console.log('OK: migración compilada en PostgreSQL aislado');
   await db.exec(`insert into sucursal(id,nombre,tipo,activo) values(1,'Almacén QA','fisica',true),(2,'Tienda QA','fisica',true),(3,'Otra QA','fisica',true);
     insert into perfil(id,nombre,email,rol,sucursal_id) values
@@ -158,6 +165,7 @@ try {
   await login(2);ped = await pedido('devolver',{observacion:'QA corregir'},ped.tarea.version);assert.equal(ped.tarea.estado,'PREPARANDO');assert.equal(await stock(1),40);
   await db.exec('set role authenticated;');assert.equal((await pedido('consultar')).tarea.preparador_id,uid(1),'API con rol real authenticated');await db.exec('reset role;');
   await login(3);await db.exec('set role authenticated;');assert.equal((await call('TRASLADO_VIRTUAL',cid)).tarea.preparador_id,uid(3),'Carrito con rol real authenticated');await db.exec('reset role;');
+  await testCierreCaja(db, { login, call, step, stock, count, uid });
   await db.query("select set_config('request.jwt.claim.sub','',false)");await assert.rejects(() => call('TRASLADO_VIRTUAL',cid), /perfil no tiene acceso/);
   console.log('OK: pedidos, asignación al escanear, verificador separado, devolución, RLS y sin stock durante checklist');
 } catch (error) {
