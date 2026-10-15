@@ -10,3 +10,4 @@
 .om-origen{border-left:3px solid #477ee1;padding:10px;background:#f1f6ff;border-radius:5px}
 .om-text-button{color:#235bb5;background:none;border:0;text-decoration:underline;font:inherit;padding:5px}
 .om-borrador{background:#edf0f4;color:#526170}.om-en_transito{background:#e4f0ff;color:#1c5dac}.om-recibido{background:#e3f5ec;color:#17623e}
+.om-preparacion-rapida{border:1px solid #b9d7e8;border-radius:13px;background:#eef7fc;padding:15px;margin:15px 0}.om-preparacion-rapida h3{font-size:16px;margin:0 0 10px}.om-preparacion-rapida p{font-size:13px;margin:10px 0;line-height:1.5}.om-preparacion-rapida ul{list-style:none;padding:0}.om-preparacion-rapida li{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-top:1px solid #cfe1ec;padding:10px 0;font-size:12px}.om-preparacion-rapida summary{font-size:13px;padding:9px 0;cursor:pointer}.om-preparacion-rapida .om-input-row{flex-wrap:wrap}.om-preparacion-rapida .om-input-row button{flex:1}

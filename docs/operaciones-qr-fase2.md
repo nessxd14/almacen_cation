@@ -30,6 +30,16 @@ El servidor guarda la respuesta completa de cada cobro en un caché privado con 
 
 Validación: 219 pruebas de Almacén, PostgreSQL aislado con las RPC vigentes, 594 pruebas de POS/Caja y su integración financiera, compilación de ambas aplicaciones y lint de los archivos modificados de Caja. Las pruebas incluyen entregas parciales, doble confirmación, stock único, cobro antes/después de entregar, pago posterior, tickets gratuitos, recibos anteriores, pagos mixtos, caja cerrada y rollback ante fallo.
 
+## Preparar por faltantes — 15 de octubre de 2026
+
+En la preparación de Pedido y VTD, el preparador asignado puede usar **Confirmar el resto completo**. Antes de guardar se muestra cuántas líneas se confirmarán y qué líneas ya declaradas se conservarán; las cantidades se pueden desplegar para consultarlas. Las líneas con un formulario abierto deben guardarse o cancelarse primero.
+
+Se puede registrar primero cada faltante y confirmar juntas las demás líneas, o confirmar todo completo y corregir después sólo las excepciones antes de terminar. Las cantidades y motivos ya guardados, incluidos los ceros, nunca se sobrescriben con el botón. Los productos que requieren resolver su estado siguen pendientes. En VTD, un faltante sigue exigiendo corregir el ticket en Caja antes de terminar.
+
+El guardado usa una sola RPC y una transacción para todas las líneas. Valida perfil activo, preparador, sucursal, estado, versión y cambios del documento; genera un evento auditado y una sola versión. Un fallo revierte el lote completo. No confirma la revisión, no termina la preparación automáticamente y no escribe stock, despachos ni cobros.
+
+Migración aplicada: `20261015141517_confirmar_resto_preparacion.sql`. Se conservan las RPC y los controles anteriores; la pantalla se publica al integrar el PR. Validación: 245 pruebas de Almacén, PostgreSQL aislado con 40 líneas/3 faltantes, VTD, versión desactualizada, permisos, rollback y ausencia de movimientos de stock; compilación, lint y pantalla a 320/390/736 px.
+
 ## Acceso y persistencia
 
 La entrada es `/operaciones`; para vendedores, el inicio de Almacén dirige al portal móvil. El perfil `vendedor` y su sucursal Tienda se configuran mediante los perfiles existentes. El vendedor puede armar y corregir su carrito, consultar su avance y presentar el QR. La verificación y autorización de origen requieren `almacenero`, `operario`, `gerente` o `admin`, con la sucursal autorizada. La recepción pertenece a Tienda destino.

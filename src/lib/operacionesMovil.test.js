@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { cantidadOperacion, idOperacion, interpretarCodigoOperacion, operarPedidoMovil, resumenOperacion } from './operacionesMovil';
+import { cantidadOperacion, idOperacion, interpretarCodigoOperacion, operarDocumentoMovil, operarPedidoMovil, planPreparacionCompleta, resumenOperacion } from './operacionesMovil';
 
 describe('QR compartidos de operaciones', () => {
   it('distingue el ticket VTD, sus barras antiguas y el QR de traslado', () => {
@@ -23,6 +23,18 @@ describe('QR compartidos de operaciones', () => {
   it.each(['0', '-1', '2.5', 'Infinity', '9007199254740992'])('rechaza IDs inválidos %s', texto => expect(idOperacion(texto)).toBeNull());
 });
 describe('cantidades de la entrega', () => {
+  it('completa sólo lo aún no declarado y mantiene faltantes, ceros y estados pendientes de resolver', () => {
+    const linea = { vigente: true, confirmada: false, preparada_base: 0, snapshot: { pendiente_base: 24, preparable: true } };
+    const completa = { ...linea, pedido_linea_id: 1 };
+    const parcial = { ...linea, pedido_linea_id: 2, confirmada: true, preparada_base: 12 };
+    const cero = { ...linea, pedido_linea_id: 3, confirmada: true };
+    const resolver = { ...linea, pedido_linea_id: 4, snapshot: { ...linea.snapshot, preparable: false } };
+    const plan = planPreparacionCompleta([completa, parcial, cero, resolver, { ...linea, vigente: false }]);
+    expect(plan.completar).toEqual([completa]);
+    expect(plan.preservadas).toEqual([parcial, cero]);
+    expect(plan.faltantes).toEqual([parcial, cero]);
+    expect(plan.porResolver).toEqual([resolver]);
+  });
   it('admite decimales y rechaza cantidades ambiguas', () => {
     expect(cantidadOperacion('1,25')).toBe(1.25);
     expect(cantidadOperacion('0')).toBe(0);
@@ -36,6 +48,13 @@ describe('cantidades de la entrega', () => {
     ];
     expect(resumenOperacion(lineas)).toEqual({ total: 2, preparadas: 2, revisar: 1, revisadas: 1, parcial: true });
   });
+});
+it('confirma el resto de VTD con una sola RPC y adapta las líneas sin enviar cantidades desde el cliente', async () => {
+  const cliente = { rpc: vi.fn().mockResolvedValue({ data: { documento: { id: 38 }, tarea: { version: 3 }, lineas: [{ id: 12 }], confirmacion_preparacion: { confirmadas: 1 } }, error: null }) };
+  const data = await operarDocumentoMovil(cliente, { tipo: 'vtd', documentoId: '38', sucursalId: 1, tareaId: 9, accion: 'confirmar_resto', version: 2 });
+  expect(cliente.rpc).toHaveBeenCalledWith('confirmar_resto_preparacion', { p_tipo: 'VTD', p_documento_id: '38', p_sucursal_id: 1, p_tarea_id: 9, p_version: 2 });
+  expect(data.lineas[0].pedido_linea_id).toBe(12);
+  expect(data.confirmacion_preparacion.confirmadas).toBe(1);
 });
 it('envía la versión y deja que el servidor determine el responsable', async () => {
   const cliente = { rpc: vi.fn().mockResolvedValue({ data: { tarea: { version: 3 } }, error: null }) };

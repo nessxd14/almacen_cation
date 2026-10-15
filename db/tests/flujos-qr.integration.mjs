@@ -2,6 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { testCierreCaja } from './cierre-vtd-pedidos.integration.mjs';
+import { testConfirmarResto } from './confirmar-resto.integration.mjs';
 
 // Sólo esquema y funciones públicas inspeccionadas; nunca contiene datos de negocio.
 // Todos los documentos, personas y movimientos de esta prueba viven en memoria.
@@ -37,6 +38,7 @@ try {
   await db.exec('set check_function_bodies=true;');
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261012195525_flujos_qr_vtd_traslado_virtual.sql', import.meta.url), 'utf8'));
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261013143239_fix_cierre_revision_cobro_vtd_pedidos.sql', import.meta.url), 'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261015141517_confirmar_resto_preparacion.sql', import.meta.url), 'utf8'));
   console.log('OK: migración compilada en PostgreSQL aislado');
   await db.exec(`insert into sucursal(id,nombre,tipo,activo) values(1,'Almacén QA','fisica',true),(2,'Tienda QA','fisica',true),(3,'Otra QA','fisica',true);
     insert into perfil(id,nombre,email,rol,sucursal_id) values
@@ -166,6 +168,7 @@ try {
   await db.exec('set role authenticated;');assert.equal((await pedido('consultar')).tarea.preparador_id,uid(1),'API con rol real authenticated');await db.exec('reset role;');
   await login(3);await db.exec('set role authenticated;');assert.equal((await call('TRASLADO_VIRTUAL',cid)).tarea.preparador_id,uid(3),'Carrito con rol real authenticated');await db.exec('reset role;');
   await testCierreCaja(db, { login, call, step, stock, count, uid });
+  await testConfirmarResto(db, { login, stock, count, uid });
   await db.query("select set_config('request.jwt.claim.sub','',false)");await assert.rejects(() => call('TRASLADO_VIRTUAL',cid), /perfil no tiene acceso/);
   console.log('OK: pedidos, asignación al escanear, verificador separado, devolución, RLS y sin stock durante checklist');
 } catch (error) {
