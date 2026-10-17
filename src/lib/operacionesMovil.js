@@ -43,7 +43,7 @@ export function cantidadOperacion(valor) {
   if (!Number.isFinite(numero) || numero > 1e12) throw new Error('La cantidad está fuera del rango permitido.');
   return numero;
 }
-export const nombresEstadoOperacion = { BORRADOR: 'Armando carrito', PREPARANDO: 'En preparación', PREPARADO: 'Listo para verificar', REVISANDO: 'En verificación', VERIFICADO: 'Entrega verificada', DESPACHADO: 'Despachado', EN_TRANSITO: 'En tránsito', RECIBIDO: 'Recibido en Tienda', ANULADO: 'Preparación anulada' };
+export const nombresEstadoOperacion = { SOLICITADO: 'Pendiente de verificar', EN_CAJA: 'Enviado a Caja', RETORNO_PENDIENTE: 'Material en retorno', RETORNADO: 'Retorno recibido', CANCELADO: 'Cancelado', BORRADOR: 'Armando carrito', PREPARANDO: 'En preparación', PREPARADO: 'Listo para verificar', REVISANDO: 'En verificación', VERIFICADO: 'Entrega verificada', DESPACHADO: 'Despachado', EN_TRANSITO: 'En tránsito', RECIBIDO: 'Recibido en Tienda', ANULADO: 'Preparación anulada' };
 export const cantidadTexto = valor => Number(valor ?? 0).toLocaleString('es-BO', { maximumFractionDigits: 6 });
 export function resumenOperacion(lineas = []) {
   const vigentes = lineas.filter(l => l.vigente);
@@ -104,13 +104,21 @@ export async function operarDocumentoMovil(cliente, { tipo = 'pedido', documento
     return tipo === 'pedido' ? data : adaptarDocumentoMovil(data);
   }
   if (tipo === 'pedido') return operarPedidoMovil(cliente, { pedidoId: documentoId, sucursalId, tareaId, accion, version, datos });
+  if (tipo === 'vtd' && ['consultar','escanear'].includes(accion)) {
+    const { data, error } = await cliente.rpc('operar_caja_almacen', { p_accion: accion === 'escanear' ? 'escanear' : 'consultar_vtd', p_operacion_id: null, p_sesion_id: null, p_datos: { venta_id: Number(documentoId) } });
+    if (error && error.code !== 'PGRST202') throw new Error(error.message || 'No se pudo consultar la operación de Caja.');
+    if (data?.operacion) return { cajaAlmacen: data };
+  }
   return adaptarDocumentoMovil(await solicitarDocumentoMovil(cliente, { tipo, documentoId, accion, version, datos }));
 }
 export async function listarDocumentosMovil(cliente, sucursalId, rol) {
-  const [pedidos, extra] = await Promise.all([
+  const [pedidos, extra, caja] = await Promise.all([
     rolesAlmacen.has(rol) ? listarOperacionesMovil(cliente, sucursalId) : Promise.resolve([]),
     solicitarDocumentoMovil(cliente, { accion: 'listar', datos: { sucursal_id: sucursalId } }),
+    rolesAlmacen.has(rol) ? cliente.rpc('operar_caja_almacen', { p_accion: 'listar_almacen', p_operacion_id: null, p_sesion_id: null, p_datos: {} }) : Promise.resolve({ data: null, error: null }),
   ]);
-  return [...pedidos.map(t => ({ ...t, tipo: 'pedido', documento_id: t.pedido_id })), ...(extra.documentos || []).map(t => ({ ...t, pedido: { numero: t.numero, cliente: { nombre: t.cliente } } }))]
+  if (caja.error && caja.error.code !== 'PGRST202') throw new Error(caja.error.message || 'No se pudieron consultar las entregas de Caja.');
+  const vinculados = (caja.data?.documentos || []).map(t => ({ ...t, id: `caja-${t.venta_id}`, tipo: 'vtd', documento_id: t.venta_id, actualizado_en: t.enviado_en || t.escaneado_en || '', preparador_nombre: 'Operación de Caja', pedido: { numero: t.numero, cliente: { nombre: '' } } }));
+  return [...pedidos.map(t => ({ ...t, tipo: 'pedido', documento_id: t.pedido_id })), ...(extra.documentos || []).filter(t => !vinculados.some(v => v.documento_id === t.documento_id && String(t.tipo).toLowerCase() === 'vtd')).map(t => ({ ...t, pedido: { numero: t.numero, cliente: { nombre: t.cliente } } })), ...vinculados]
     .sort((a, b) => String(b.actualizado_en).localeCompare(String(a.actualizado_en)));
 }

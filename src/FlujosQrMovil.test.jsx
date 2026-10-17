@@ -31,7 +31,7 @@ const mount = async ruta => act(async()=>root.render(<MemoryRouter initialEntrie
   <Route path="/operaciones/vtd/:id" element={<OperacionesMovilApp tipoDocumento="vtd"/>}/>
   <Route path="/operaciones/pedidos/:id" element={<OperacionesMovilApp/>}/>
 </Routes></MemoryRouter>));
-const calls = accion => qa.rpc.mock.calls.filter(([,p])=>p.p_accion===accion);
+const calls = accion => qa.rpc.mock.calls.filter(([rpc,p])=>rpc==='operar_documento_movil' && p.p_accion===accion);
 const data = () => structuredClone(qa.doc);
 function capture(name){
   if(!env.CATION_QA_OUTPUT)return;
