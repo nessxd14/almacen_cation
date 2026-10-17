@@ -9,6 +9,7 @@ import CarritoTrasladoVirtual from './CarritoTrasladoVirtual';
 import RecepcionTrasladoVirtual from './RecepcionTrasladoVirtual';
 import CodigoDocumentoQr from './CodigoDocumentoQr';
 import ConfirmarRestoPreparacion from './ConfirmarRestoPreparacion';
+import VtdCajaAlmacen from './VtdCajaAlmacen';
 import { cantidadOperacion, cantidadTexto, etiquetaDocumento, idOperacion, interpretarCodigoOperacion, listarDocumentosMovil, nombresEstadoOperacion, operarDocumentoMovil, resumenOperacion, rolesAlmacen, rolesOperacionesMovil, rutaDocumentoMovil, solicitarDocumentoMovil } from './lib/operacionesMovil';
 import './operaciones-movil.css';
 import { etiquetaUbicacion } from './lib/ubicacionTexto';
@@ -156,7 +157,9 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
   const soyRevisor = tarea?.revisor_id === usuario.id;
   const puedePreparar = esAlmacen && tipo !== 'traslado_virtual' && tarea?.estado === 'PREPARANDO' && soyPreparador && !cambios && !pedidoCerrado;
   const puedeRevisar = esAlmacen && !soyPreparador && tarea?.estado === 'REVISANDO' && soyRevisor && !cambios && !pedidoCerrado;
-  const tareas = lista.filter(t => vista === 'historial' ? ['DESPACHADO','ANULADO','RECIBIDO'].includes(t.estado) : !['DESPACHADO','ANULADO','RECIBIDO'].includes(t.estado) && (t.preparador_id === usuario.id || t.revisor_id === usuario.id || t.estado === 'PREPARADO' || t.estado === 'EN_TRANSITO'));
+  const tareas = lista.filter(t => vista === 'historial' ? ['DESPACHADO','ANULADO','RECIBIDO'].includes(t.estado) : !['DESPACHADO','ANULADO','RECIBIDO'].includes(t.estado) && (t.preparador_id === usuario.id || t.revisor_id === usuario.id || t.estado === 'PREPARADO' || t.estado === 'EN_TRANSITO' || ['SOLICITADO','EN_CAJA','RETORNO_PENDIENTE'].includes(t.estado)));
+
+  if (datos?.cajaAlmacen) return <VtdCajaAlmacen registro={datos.cajaAlmacen} ventaId={pedidoId} onChanged={registro => setDatos({ cajaAlmacen: registro })} />;
 
   return <>
     {error && <div className="om-aviso om-error" role="alert"><AlertTriangle size={19} /><span>{error}</span></div>}

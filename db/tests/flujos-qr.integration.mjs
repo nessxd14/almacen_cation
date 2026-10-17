@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { testCierreCaja } from './cierre-vtd-pedidos.integration.mjs';
 import { testConfirmarResto } from './confirmar-resto.integration.mjs';
+import { testCajaOperacion } from './caja-operacion.integration.mjs';
 
 // Sólo esquema y funciones públicas inspeccionadas; nunca contiene datos de negocio.
 // Todos los documentos, personas y movimientos de esta prueba viven en memoria.
@@ -169,6 +170,7 @@ try {
   await login(3);await db.exec('set role authenticated;');assert.equal((await call('TRASLADO_VIRTUAL',cid)).tarea.preparador_id,uid(3),'Carrito con rol real authenticated');await db.exec('reset role;');
   await testCierreCaja(db, { login, call, step, stock, count, uid });
   await testConfirmarResto(db, { login, stock, count, uid });
+  await testCajaOperacion(db, { login, stock, count });
   await db.query("select set_config('request.jwt.claim.sub','',false)");await assert.rejects(() => call('TRASLADO_VIRTUAL',cid), /perfil no tiene acceso/);
   console.log('OK: pedidos, asignación al escanear, verificador separado, devolución, RLS y sin stock durante checklist');
 } catch (error) {
