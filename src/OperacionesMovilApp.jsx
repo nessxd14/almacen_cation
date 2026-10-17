@@ -8,6 +8,7 @@ import EscanerCodigo from './EscanerCodigo';
 import CarritoTrasladoVirtual from './CarritoTrasladoVirtual';
 import RecepcionTrasladoVirtual from './RecepcionTrasladoVirtual';
 import CodigoDocumentoQr from './CodigoDocumentoQr';
+import ConfirmarRestoPreparacion from './ConfirmarRestoPreparacion';
 import { cantidadOperacion, cantidadTexto, etiquetaDocumento, idOperacion, interpretarCodigoOperacion, listarDocumentosMovil, nombresEstadoOperacion, operarDocumentoMovil, resumenOperacion, rolesAlmacen, rolesOperacionesMovil, rutaDocumentoMovil, solicitarDocumentoMovil } from './lib/operacionesMovil';
 import './operaciones-movil.css';
 import { etiquetaUbicacion } from './lib/ubicacionTexto';
@@ -18,6 +19,8 @@ const unidad = s => s.presentacion || s.unidad_base;
 const factor = s => Number(s.factor) > 0 ? Number(s.factor) : 1;
 const cantidadEnPresentacion = (n, s) => `${cantidadTexto(Number(n) / factor(s))} ${unidad(s)}`;
 const eventos = { CARRITO_CREADO: 'Comenzó el carrito', AGREGAR: 'Añadió un producto', EDITAR: 'Corrigió una cantidad', QUITAR: 'Quitó un producto', ENVIAR: 'Terminó el alistado y lo envió a verificar', DEVOLVER: 'Devolvió el alistado para corregir', AUTORIZAR: 'Autorizó y registró la salida', RECIBIR: 'Confirmó la recepción en Tienda', PREPARACION_INICIADA: 'Tomó la preparación', GUARDAR_PREPARACION: 'Guardó una línea de preparación', PREPARADO: 'Terminó la preparación', TOMAR_REVISION: 'Tomó la verificación', GUARDAR_REVISION: 'Comprobó un producto y su cantidad', VERIFICADO: 'Confirmó la revisión de esta entrega', SINCRONIZAR: 'Actualizó los cambios del documento', REABRIR: 'Reabrió la preparación', REASIGNAR: 'Tomó a su cargo la preparación', ANULAR: 'Anuló la preparación', DESPACHO_REGISTRADO: 'Registró el despacho ya realizado' };
+
+eventos.RESTO_PREPARACION_CONFIRMADO = 'Confirmó las líneas completas restantes';
 
 export default function OperacionesMovilApp({ tipoDocumento = 'pedido' }) {
   const { id } = useParams();
@@ -98,14 +101,15 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
   }, [idsProductos, sucursalDocumento]);
 
   async function accion(nombre, payload = {}) {
-    if (bloqueado.current) return;
+    if (bloqueado.current) return false;
     bloqueado.current = true; setOcupado(true); setError(''); setAviso('');
     try {
-      const d = await operarDocumentoMovil(supabase, { tipo, documentoId: pedidoId, sucursalId: sucursal.id, tareaId: datos?.tarea?.id, accion: nombre, version: datos?.tarea?.version, datos: payload });
+      const d = await operarDocumentoMovil(supabase, { tipo, documentoId: pedidoId, sucursalId: sucursalDocumento, tareaId: datos?.tarea?.id, accion: nombre, version: datos?.tarea?.version, datos: payload });
       if (!vigente.current) return;
       setDatos(d); setEditor(null); setGestion(''); setMotivo('');
-      setAviso(nombre === 'verificado' ? 'Verificación guardada. La entrega está lista para autorizar su salida.' : 'Avance guardado en el almacén.');
-    } catch (e) { if (vigente.current) setError(e.message); }
+      setAviso(nombre === 'confirmar_resto' ? (d.confirmacion_preparacion?.confirmadas || 0) + ' líneas completas confirmadas. Se conservaron los faltantes guardados.' : nombre === 'verificado' ? 'Verificación guardada. La entrega está lista para autorizar su salida.' : 'Avance guardado en el almacén.');
+      return true;
+    } catch (e) { if (vigente.current) setError(e.message); return false; }
     finally { bloqueado.current = false; if (vigente.current) setOcupado(false); }
   }
   const abrirCodigo = useCallback(async texto => {
@@ -177,6 +181,7 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
       {tarea?.observacion && <p className="om-aviso">{tarea.observacion}</p>}
       {tarea && <div className="om-progreso"><span>{resumen.preparadas}/{resumen.total} líneas preparadas</span><span>{resumen.revisadas}/{resumen.revisar} revisadas</span>{resumen.parcial && <strong>Entrega parcial</strong>}</div>}
       {lineas.length === 0 && <p className="om-vacio">No hay líneas pendientes en esta sucursal.</p>}
+      {puedePreparar && <ConfirmarRestoPreparacion lineas={lineas} ocupado={ocupado || Boolean(editor)} onConfirmar={() => accion('confirmar_resto')} />}
       <div className="om-lineas">{lineas.map(l => <article className={`om-linea ${l.revisada_base != null ? 'om-linea-ok' : ''}`} key={l.pedido_linea_id}>
         <div className="om-linea-title"><Package size={20} /><div><h3>{l.snapshot.nombre}</h3><small>{l.snapshot.sku || (l.snapshot.es_personalizado ? 'Producto personalizado' : 'Sin SKU')} · {unidad(l.snapshot)}</small></div>{l.revisada_base != null && <CheckCircle2 size={23} className="om-check" />}</div>
         {l.snapshot.presentacion && <p className="om-equivalencia">1 {l.snapshot.presentacion} = {cantidadTexto(factor(l.snapshot))} {l.snapshot.unidad_base}</p>}

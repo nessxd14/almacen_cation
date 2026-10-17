@@ -48,6 +48,43 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); nodo.remove(); });
 
 describe('preparación y revisión en el celular', () => {
+  it('resume antes de confirmar el resto y conserva las líneas con faltantes', async () => {
+    const completa = structuredClone(qa.datos.lineas[0]);
+    const parcial = { ...completa, pedido_linea_id: 32, confirmada: true, preparada_base: 12, observacion: 'Falta una caja' };
+    qa.datos.lineas.push(parcial);
+    await montar();
+    await pulsar('Confirmar el resto completo');
+    expect(qa.rpc).toHaveBeenCalledTimes(1);
+    expect(nodo.textContent).toContain('1 con faltantes');
+    capturar('confirmar-resto');
+    expect(nodo.textContent).toContain('Confirmar 1 línea completa');
+    qa.siguiente = { ...qa.datos, tarea: { ...qa.datos.tarea, version: 2 }, lineas: [{ ...completa, confirmada: true, preparada_base: 24 }, parcial], confirmacion_preparacion: { confirmadas: 1 } };
+    await pulsar('Confirmar 1 línea');
+    expect(qa.rpc.mock.calls.at(-1)).toEqual(['confirmar_resto_preparacion', { p_tipo: 'PEDIDO', p_documento_id: '248', p_sucursal_id: 1, p_tarea_id: 10, p_version: 1 }]);
+    expect(nodo.textContent).toContain('Falta una caja');
+    expect(nodo.textContent).toContain('Se conservaron los faltantes');
+    expect(buscarBoton('Confirmar el resto completo')).toBeUndefined();
+    expect(buscarBoton('Terminar preparación')).toBeTruthy();
+    expect(buscarBoton('Confirmar revisión de esta entrega')).toBeUndefined();
+  });
+  it('cancelar el resumen no confirma líneas y editar una cantidad bloquea la confirmación conjunta', async () => {
+    await montar(); await pulsar('Confirmar el resto completo'); await pulsar('Cancelar');
+    expect(qa.rpc).toHaveBeenCalledTimes(1);
+    await pulsar('Preparar esta línea');
+    expect(buscarBoton('Confirmar el resto completo').disabled).toBe(true);
+  });
+  it('conserva el resumen si falla la confirmación del resto', async () => {
+    await montar(); await pulsar('Confirmar el resto completo'); qa.error = 'La preparación cambió en otro celular.';
+    await pulsar('Confirmar 1 línea');
+    expect(nodo.textContent).toContain('otro celular');
+    expect(buscarBoton('Confirmar 1 línea')).toBeTruthy();
+    expect(nodo.textContent).not.toContain('Se conservaron los faltantes');
+  });
+  it('la confirmación del resto no está disponible en la revisión ni para otro preparador', async () => {
+    qa.datos.tarea.preparador_id = 'otra-persona';
+    await montar();
+    expect(buscarBoton('Confirmar el resto completo')).toBeUndefined();
+  });
   it('abre el pedido del QR de Seller en la sucursal activa', async () => {
     await montar('/operaciones');
     capturar('inicio');
