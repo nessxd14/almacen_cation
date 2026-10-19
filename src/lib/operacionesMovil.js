@@ -48,7 +48,7 @@ export const cantidadTexto = valor => Number(valor ?? 0).toLocaleString('es-BO',
 export function resumenOperacion(lineas = []) {
   const vigentes = lineas.filter(l => l.vigente);
   const conCantidad = vigentes.filter(l => Number(l.preparada_base) > 0);
-  return { total: vigentes.length, preparadas: vigentes.filter(l => l.confirmada).length, revisar: conCantidad.length, revisadas: conCantidad.filter(l => l.revisada_base != null && Number(l.revisada_base) === Number(l.preparada_base)).length, parcial: vigentes.some(l => Number(l.preparada_base) < Number(l.snapshot.pendiente_base)) };
+  return { total: vigentes.length, preparadas: vigentes.filter(l => l.confirmada).length, revisar: conCantidad.length, revisadas: conCantidad.filter(l => l.revisada_base != null && Number(l.revisada_base) === Number(l.preparada_base)).length, parcial: vigentes.some(l => l.confirmada && Number(l.preparada_base) < Number(l.snapshot.pendiente_base)) };
 }
 export function planPreparacionCompleta(lineas = []) {
   const vigentes = lineas.filter(l => l.vigente);
