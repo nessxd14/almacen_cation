@@ -8,17 +8,24 @@ import EscanerCodigo from "./EscanerCodigo";
 import { comprimirYCodificar } from "./lib/capturaFoto";
 import { subirImagenProducto, tipoImagenValido } from "./lib/imagenProducto";
 import { useUsuarioActual } from "./lib/useAuth";
+import {
+  TIPOS_PRECIO, puedeEditarPrecios, factorDeCadena, opcionesContenedor,
+  textoEquivalencia, precioCalculado, advertenciaPrecioBajo, formatearBs, formatearCantidad,
+} from "./lib/presentaciones";
 import CatalogDialog from "./CatalogDialog";
 import ImagenProducto from "./ImagenProducto";
+import CampoUnidadBase from "./CampoUnidadBase";
 import "./producto.css";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function Toast({ msg, tipo = "ok", onClose }) {
   useEffect(() => {
-    const t = setTimeout(onClose, 3000);
+    // Los errores de la base (p. ej. los documentos que bloquean un cambio
+    // de factor) pueden ser largos: se dejan más tiempo en pantalla.
+    const t = setTimeout(onClose, tipo === "ok" ? 3000 : 9000);
     return () => clearTimeout(t);
-  }, [onClose]);
+  }, [onClose, tipo]);
   return (
     <div role={tipo === "ok" ? "status" : "alert"} className={`product-editor-feedback flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg
       ${tipo === "ok" ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>
@@ -33,6 +40,8 @@ function Toast({ msg, tipo = "ok", onClose }) {
 export default function EditarProducto({ producto, onClose, onGuardado }) {
   const usuarioActual = useUsuarioActual();
   const esAdmin = usuarioActual?.rol === "admin";
+  // Precios por presentación: admin y gerente (= app_es_admin() en la base).
+  const puedePrecios = puedeEditarPrecios(usuarioActual?.rol);
   const [toast, setToast] = useState(null);
   const show = (msg, tipo = "ok") => setToast({ msg, tipo });
 
@@ -64,6 +73,11 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [editandoPresentacionId, setEditandoPresentacionId] = useState(null);
   const [editNombre, setEditNombre] = useState("");
   const [editFactor, setEditFactor] = useState("");
+  // "unidades" → factor_unidad_base directo; "cadena" → N × otra presentación
+  // (contiene_presentacion_id + contiene_cantidad; el factor lo calcula el trigger).
+  const [editModo, setEditModo] = useState("unidades");
+  const [editContieneId, setEditContieneId] = useState("");
+  const [editCantidad, setEditCantidad] = useState("");
   const [guardandoEdicionPresentacion, setGuardandoEdicionPresentacion] = useState(false);
   // Confirmación simple antes de eliminar/desactivar: { id, tipo: "eliminar" | "desactivar" }
   const [confirmandoPresentacion, setConfirmandoPresentacion] = useState(null);
@@ -77,6 +91,16 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [mostrarNuevaPresentacion, setMostrarNuevaPresentacion] = useState(false);
   const [nuevaPresentNombre, setNuevaPresentNombre] = useState("");
   const [nuevoFactorPresentacion, setNuevoFactorPresentacion] = useState("");
+  const [nuevoModo, setNuevoModo] = useState("unidades");
+  const [nuevoContieneId, setNuevoContieneId] = useState("");
+  const [nuevaCantidad, setNuevaCantidad] = useState("");
+
+  // Precios por presentación: filas de v_presentacion_precio por id, y lo
+  // que se está tipeando por presentación ({ [id]: { precio: "", … } }).
+  const [preciosResueltos, setPreciosResueltos] = useState({});
+  const [preciosEdit, setPreciosEdit] = useState({});
+  const [preciosAbiertoId, setPreciosAbiertoId] = useState(null);
+  const [guardandoPreciosId, setGuardandoPreciosId] = useState(null);
   const [guardandoPresentacion, setGuardandoPresentacion] = useState(false);
 
   // Ficha técnica (producto.ficha_md / ficha_actualizada_en) — no viene en
@@ -122,16 +146,25 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const [{ data: pres }, { data: prodFicha }] = await Promise.all([
+    const [{ data: pres }, { data: prodFicha }, { data: vistaPrecios }] = await Promise.all([
       supabase
         .from("presentacion")
-        .select("id, nombre, factor_unidad_base, es_base, activo, identificador(id, valor, tipo, es_principal)")
+        .select(`id, nombre, factor_unidad_base, es_base, activo, contiene_presentacion_id, contiene_cantidad,
+          ${TIPOS_PRECIO.map(t => t.columna).join(", ")}, identificador(id, valor, tipo, es_principal)`)
         .eq("producto_id", producto.id)
-        .order("es_base", { ascending: false }),
+        .order("es_base", { ascending: false })
+        .order("factor_unidad_base"),
       supabase.from("producto").select("ficha_md, ficha_actualizada_en").eq("id", producto.id).single(),
+      puedePrecios
+        ? supabase.from("v_presentacion_precio").select("*").eq("producto_id", producto.id)
+        : Promise.resolve({ data: [] }),
     ]);
     const lista = pres || [];
     setPresentaciones(lista);
+    setPreciosResueltos(Object.fromEntries((vistaPrecios || []).map(r => [r.presentacion_id, r])));
+    setPreciosEdit(Object.fromEntries(lista.filter(p => !p.es_base).map(p => [
+      p.id, Object.fromEntries(TIPOS_PRECIO.map(t => [t.columna, p[t.columna] ?? ""])),
+    ])));
 
     setFichaMd(prodFicha?.ficha_md || "");
     setFichaActualizadaEn(prodFicha?.ficha_actualizada_en || null);
@@ -179,7 +212,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     }
     setIdentificadores(ids);
     setCargando(false);
-  }, [producto.id]);
+  }, [producto.id, puedePrecios]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -190,7 +223,6 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     const payload = {
       nombre: form.nombre.trim(),
       marca: form.marca.trim() || null,
-      unidad_base: form.unidad_base.trim() || "unidad",
       sku_interno: form.sku_interno.trim() || null,
       actualizado_en: new Date().toISOString(),
       ...(esAdmin ? {
@@ -227,69 +259,144 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     show("Ficha técnica guardada");
   }
 
+  // Nombre de "1 unidad" para todos los textos de equivalencia: la base
+  // manda (renombrarla copia el nombre a producto.unidad_base en la base).
+  const baseNombre = presentaciones.find(p => p.es_base)?.nombre || form.unidad_base || "Unidad";
+
+  // Validación común de alta/edición de una presentación no-base. Devuelve
+  // { error } o { campos } listos para el insert/update. En modo cadena el
+  // factor se calcula acá solo para el chequeo de duplicados: no se manda,
+  // lo calcula el trigger.
+  function validarPresentacion({ id = null, nombre, modo, factor, contieneId, cantidad }) {
+    nombre = nombre.trim();
+    if (!nombre) return { error: "El nombre de la presentación es obligatorio" };
+    const dup = presentaciones.some(p => p.id !== id && p.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (dup) return { error: "Ya existe una presentación con ese nombre" };
+
+    let factorFinal, campos;
+    if (modo === "cadena") {
+      if (!contieneId) return { error: "Elegí qué presentación trae adentro" };
+      const n = Number(cantidad);
+      if (!Number.isInteger(n) || n <= 1) return { error: "La cantidad debe ser un entero mayor a 1" };
+      factorFinal = factorDeCadena(presentaciones, contieneId, n);
+      if (factorFinal == null) return { error: "No se pudo calcular la equivalencia" };
+      campos = { nombre, contiene_presentacion_id: Number(contieneId), contiene_cantidad: n };
+    } else {
+      factorFinal = Number(factor);
+      if (!Number.isInteger(factorFinal) || factorFinal <= 1) return { error: "El factor debe ser un entero mayor a 1" };
+      campos = { nombre, factor_unidad_base: factorFinal, contiene_presentacion_id: null, contiene_cantidad: null };
+    }
+    const dupFactor = presentaciones.some(p => p.id !== id && Number(p.factor_unidad_base) === factorFinal);
+    if (dupFactor) return { error: "Ya existe una presentación con ese factor" };
+    return { campos };
+  }
+
   // ── Agregar presentación (siempre es_base = false — la base ya existe
   // desde el bootstrap y no se toca acá) ──
   async function agregarPresentacion() {
-    const nombre = nuevaPresentNombre.trim();
-    if (!nombre) { show("El nombre de la presentación es obligatorio", "err"); return; }
-    const factor = Number(nuevoFactorPresentacion);
-    if (!Number.isInteger(factor) || factor <= 1) { show("El factor debe ser un entero mayor a 1", "err"); return; }
-    const dup = presentaciones.some(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase());
-    if (dup) { show("Ya existe una presentación con ese nombre", "err"); return; }
-    const dupFactor = presentaciones.some(p => Number(p.factor_unidad_base) === factor);
-    if (dupFactor) { show("Ya existe una presentación con ese factor", "err"); return; }
+    const { error: invalida, campos } = validarPresentacion({
+      nombre: nuevaPresentNombre, modo: nuevoModo, factor: nuevoFactorPresentacion,
+      contieneId: nuevoContieneId, cantidad: nuevaCantidad,
+    });
+    if (invalida) { show(invalida, "err"); return; }
 
     setGuardandoPresentacion(true);
     const { error } = await supabase.from("presentacion").insert({
       producto_id: producto.id,
-      nombre,
-      factor_unidad_base: factor,
+      ...campos,
       es_base: false,
     });
     setGuardandoPresentacion(false);
-    if (error) { show("Error al agregar la presentación: " + error.message, "err"); return; }
+    // Mensaje de la base tal cual: los triggers explican qué está mal.
+    if (error) { show(error.message, "err"); return; }
 
     show("Presentación agregada");
-    setNuevaPresentNombre("");
-    setNuevoFactorPresentacion("");
-    setMostrarNuevaPresentacion(false);
+    cerrarNuevaPresentacion();
     cargar();
   }
 
-  // ── Editar presentación (nombre/factor — nunca la base) ──
+  function cerrarNuevaPresentacion() {
+    setMostrarNuevaPresentacion(false);
+    setNuevaPresentNombre("");
+    setNuevoFactorPresentacion("");
+    setNuevoModo("unidades");
+    setNuevoContieneId("");
+    setNuevaCantidad("");
+  }
+
+  // ── Editar presentación (nombre/factor/cadena; de la base solo el nombre) ──
   function empezarEdicionPresentacion(p) {
     setConfirmandoPresentacion(null);
     setEditandoPresentacionId(p.id);
     setEditNombre(p.nombre);
     setEditFactor(String(p.factor_unidad_base));
+    setEditModo(p.contiene_presentacion_id != null ? "cadena" : "unidades");
+    setEditContieneId(p.contiene_presentacion_id != null ? String(p.contiene_presentacion_id) : "");
+    setEditCantidad(p.contiene_cantidad != null ? String(Number(p.contiene_cantidad)) : "");
   }
 
   function cancelarEdicionPresentacion() {
     setEditandoPresentacionId(null);
     setEditNombre("");
     setEditFactor("");
+    setEditModo("unidades");
+    setEditContieneId("");
+    setEditCantidad("");
   }
 
   async function guardarEdicionPresentacion(id) {
-    const nombre = editNombre.trim();
-    if (!nombre) { show("El nombre de la presentación es obligatorio", "err"); return; }
-    const factor = Number(editFactor);
-    if (!Number.isInteger(factor) || factor <= 1) { show("El factor debe ser un entero mayor a 1", "err"); return; }
-    const dup = presentaciones.some(p => p.id !== id && p.nombre.trim().toLowerCase() === nombre.toLowerCase());
-    if (dup) { show("Ya existe una presentación con ese nombre", "err"); return; }
-    const dupFactor = presentaciones.some(p => p.id !== id && Number(p.factor_unidad_base) === factor);
-    if (dupFactor) { show("Ya existe una presentación con ese factor", "err"); return; }
+    const { error: invalida, campos } = validarPresentacion({
+      id, nombre: editNombre, modo: editModo, factor: editFactor,
+      contieneId: editContieneId, cantidad: editCantidad,
+    });
+    if (invalida) { show(invalida, "err"); return; }
 
     setGuardandoEdicionPresentacion(true);
-    const { error } = await supabase
-      .from("presentacion")
-      .update({ nombre, factor_unidad_base: factor })
-      .eq("id", id);
+    const { error } = await supabase.from("presentacion").update(campos).eq("id", id);
     setGuardandoEdicionPresentacion(false);
-    if (error) { show("Error al guardar la presentación: " + error.message, "err"); return; }
+    // Incluye el rechazo por documentos abiertos, con su lista: se muestra tal cual.
+    if (error) { show(error.message, "err"); return; }
 
     show("Presentación actualizada");
     cancelarEdicionPresentacion();
+    cargar();
+  }
+
+  // ── Renombrar la base ("¿Qué es 1 unidad?") — nunca factor ni precios ──
+  async function guardarNombreBase(id) {
+    const nombre = editNombre.trim();
+    if (!nombre) { show("Decí qué es 1 unidad (Hoja, Pieza, Metro…)", "err"); return; }
+    const dup = presentaciones.some(p => p.id !== id && p.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (dup) { show("Ya existe una presentación con ese nombre", "err"); return; }
+
+    setGuardandoEdicionPresentacion(true);
+    const { error } = await supabase.from("presentacion").update({ nombre }).eq("id", id);
+    setGuardandoEdicionPresentacion(false);
+    if (error) { show(error.message, "err"); return; }
+
+    // El trigger copió el nombre a producto.unidad_base.
+    setForm(f => ({ ...f, unidad_base: nombre }));
+    onGuardado?.({ unidad_base: nombre });
+    show("Unidad base actualizada");
+    cancelarEdicionPresentacion();
+    cargar();
+  }
+
+  // ── Precios propios de una presentación (vacío = null = se calcula) ──
+  async function guardarPreciosPresentacion(p) {
+    const edit = preciosEdit[p.id] || {};
+    const campos = {};
+    for (const { columna, label } of TIPOS_PRECIO) {
+      const v = String(edit[columna] ?? "").trim();
+      const n = v === "" ? null : Number(v);
+      if (n != null && (!Number.isFinite(n) || n < 0)) { show(`Precio ${label} inválido`, "err"); return; }
+      campos[columna] = n;
+    }
+    setGuardandoPreciosId(p.id);
+    const { error } = await supabase.from("presentacion").update(campos).eq("id", p.id);
+    setGuardandoPreciosId(null);
+    if (error) { show(error.message, "err"); return; }
+    show("Precios guardados");
     cargar();
   }
 
@@ -452,7 +559,14 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
               <Campo label="Nombre" value={form.nombre} onChange={v => setForm(f => ({ ...f, nombre: v }))} />
               <div className="grid grid-cols-2 gap-3">
                 <Campo label="Marca" value={form.marca} onChange={v => setForm(f => ({ ...f, marca: v }))} />
-                <Campo label="Unidad base" value={form.unidad_base} onChange={v => setForm(f => ({ ...f, unidad_base: v }))} />
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-slate-600">Unidad base</span>
+                  <button type="button" onClick={() => setSeccion("presentaciones")}
+                    title="Se cambia en Presentaciones (¿Qué es 1 unidad?)"
+                    className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">
+                    {baseNombre} <Pencil size={13} className="text-slate-400" />
+                  </button>
+                </div>
               </div>
               <Campo label="SKU interno" value={form.sku_interno} onChange={v => setForm(f => ({ ...f, sku_interno: v }))}
                 placeholder="Opcional" />
@@ -587,6 +701,15 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
             ) : (
               <div className="mb-3 space-y-1.5">
                 {presentaciones.map(p => {
+                  if (editandoPresentacionId === p.id && p.es_base) {
+                    return (
+                      <div key={p.id} className="space-y-2 rounded-lg bg-slate-50 p-3">
+                        <CampoUnidadBase value={editNombre} onChange={setEditNombre} />
+                        <BotonesEdicion guardando={guardandoEdicionPresentacion}
+                          onGuardar={() => guardarNombreBase(p.id)} onCancelar={cancelarEdicionPresentacion} />
+                      </div>
+                    );
+                  }
                   if (editandoPresentacionId === p.id) {
                     return (
                       <div key={p.id} className="space-y-2 rounded-lg bg-slate-50 p-3">
@@ -596,23 +719,15 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                           onChange={e => setEditNombre(e.target.value)}
                           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
                         />
-                        <input
-                          aria-label="Unidades por presentación" type="number" min="2" step="1"
-                          value={editFactor}
-                          onChange={e => setEditFactor(e.target.value)}
-                          placeholder={`Factor (unidades de "${form.unidad_base || "unidad"}" por presentación)`}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-                        />
-                        <div className="flex gap-2">
-                          <button onClick={() => guardarEdicionPresentacion(p.id)} disabled={guardandoEdicionPresentacion}
-                            className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
-                            <Save size={14} /> {guardandoEdicionPresentacion ? "Guardando…" : "Guardar"}
-                          </button>
-                          <button onClick={cancelarEdicionPresentacion}
-                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
-                            Cancelar
-                          </button>
-                        </div>
+                        <CamposContenido
+                          nombre={editNombre} baseNombre={baseNombre} presentaciones={presentaciones}
+                          opciones={opcionesContenedor(presentaciones, p.id)}
+                          modo={editModo} onModo={setEditModo}
+                          factor={editFactor} onFactor={setEditFactor}
+                          contieneId={editContieneId} onContieneId={setEditContieneId}
+                          cantidad={editCantidad} onCantidad={setEditCantidad} />
+                        <BotonesEdicion guardando={guardandoEdicionPresentacion}
+                          onGuardar={() => guardarEdicionPresentacion(p.id)} onCancelar={cancelarEdicionPresentacion} />
                       </div>
                     );
                   }
@@ -621,15 +736,37 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                   const tieneDocumentosAbiertos = presentacionesConDocumentosAbiertos.has(p.id);
                   const confirmando = confirmandoPresentacion?.id === p.id ? confirmandoPresentacion.tipo : null;
                   const codigosDeEsta = identificadores.filter(i => i.presentacion_id === p.id);
+                  const contenida = presentaciones.find(x => x.id === p.contiene_presentacion_id);
+                  const resuelto = preciosResueltos[p.id];
+                  const filaBase = Object.values(preciosResueltos).find(r => r.es_base);
+                  const aviso = !p.es_base && puedePrecios && resuelto && filaBase
+                    ? advertenciaPrecioBajo({
+                      nombre: p.nombre, precio: resuelto.precio_retail, factor: p.factor_unidad_base,
+                      baseNombre, precioBase: filaBase.precio_retail,
+                    })
+                    : null;
 
                   return (
                     <div key={p.id} className={`rounded-lg border px-3 py-2 ${p.activo === false ? "border-slate-100 opacity-50" : "border-slate-200"}`}>
                       <div className="flex items-center gap-2">
                         <Package2 size={14} className="shrink-0 text-slate-400" />
-                        <span className="flex-1 text-sm text-slate-800">{p.nombre}</span>
-                        <span className="text-xs text-slate-400">×{p.factor_unidad_base}</span>
+                        <span className="flex-1 text-sm text-slate-800">
+                          {p.nombre}
+                          {p.es_base
+                            ? <span className="ml-2 text-xs text-slate-400">= 1 unidad base</span>
+                            : <span className="ml-2 text-xs text-slate-400">
+                              = {formatearCantidad(p.factor_unidad_base)} {baseNombre}
+                              {contenida && !contenida.es_base && ` (${formatearCantidad(p.contiene_cantidad)} × ${contenida.nombre})`}
+                            </span>}
+                        </span>
                         {p.es_base && (
-                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">base</span>
+                          <>
+                            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">base</span>
+                            <button onClick={() => empezarEdicionPresentacion(p)}
+                              className="shrink-0 text-slate-400 hover:text-slate-700" title="¿Qué es 1 unidad?">
+                              <Pencil size={14} />
+                            </button>
+                          </>
                         )}
                         {!p.es_base && p.activo === false && (
                           <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">Inactiva</span>
@@ -681,6 +818,53 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                         </div>
                       )}
 
+                      {aviso && (
+                        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                          <AlertCircle size={13} className="mt-0.5 shrink-0" /> {aviso}
+                        </p>
+                      )}
+
+                      {/* Precios propios (admin/gerente). Vacío = se calcula. */}
+                      {!p.es_base && puedePrecios && (preciosAbiertoId === p.id ? (
+                        <div className="mt-2 space-y-1.5 rounded-lg bg-slate-50 p-2">
+                          {TIPOS_PRECIO.map(({ columna, resuelto: col, label }) => {
+                            const calc = precioCalculado(filaBase, col, p.factor_unidad_base);
+                            return (
+                              <label key={columna} className="flex items-center gap-2 text-xs text-slate-600">
+                                <span className="w-24 shrink-0">{label}</span>
+                                <span className="text-slate-400">Bs</span>
+                                <input type="number" min={0} step="0.01"
+                                  aria-label={`Precio ${label} de ${p.nombre}`}
+                                  value={preciosEdit[p.id]?.[columna] ?? ""}
+                                  onChange={e => setPreciosEdit(prev => ({ ...prev, [p.id]: { ...prev[p.id], [columna]: e.target.value } }))}
+                                  placeholder={calc != null ? `${formatearBs(calc)} (calculado)` : "Sin precio"}
+                                  className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1 text-right text-xs focus:border-slate-500 focus:outline-none" />
+                              </label>
+                            );
+                          })}
+                          <p className="text-xs text-slate-400">Vacío = precio del producto × {formatearCantidad(p.factor_unidad_base)}.</p>
+                          <div className="flex gap-2">
+                            <button onClick={() => guardarPreciosPresentacion(p)} disabled={guardandoPreciosId === p.id}
+                              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                              <Save size={12} /> {guardandoPreciosId === p.id ? "Guardando…" : "Guardar precios"}
+                            </button>
+                            <button onClick={() => setPreciosAbiertoId(null)}
+                              className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-100">
+                              Cerrar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => setPreciosAbiertoId(p.id)}
+                          className="mt-2 flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
+                          <Store size={12} /> Precios
+                          {resuelto && <span className="font-normal text-slate-500">
+                            · Público {resuelto.precio_retail != null ? formatearBs(resuelto.precio_retail) : "—"}
+                            {resuelto.tiene_precio_propio ? " (propio)" : " (calculado)"}
+                          </span>}
+                        </button>
+                      ))}
+
                       {tieneDocumentosAbiertos && !p.es_base && (
                         <p className="mt-2 text-xs text-amber-600">
                           Tiene pedidos o traslados abiertos — no se puede desactivar hasta que se cierren.
@@ -715,22 +899,22 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
                   aria-label="Nombre de la nueva presentación"
                   value={nuevaPresentNombre}
                   onChange={e => setNuevaPresentNombre(e.target.value)}
-                  placeholder='Ej. "Paquete (10 und)", "Caja (24 und)"'
+                  placeholder='Ej. "Paquete", "Caja", "Caja master"'
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
                 />
-                <input
-                  aria-label="Unidades por nueva presentación" type="number" min="2" step="1"
-                  value={nuevoFactorPresentacion}
-                  onChange={e => setNuevoFactorPresentacion(e.target.value)}
-                  placeholder={`Factor (unidades de "${form.unidad_base || "unidad"}" por presentación)`}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-                />
+                <CamposContenido
+                  nombre={nuevaPresentNombre} baseNombre={baseNombre} presentaciones={presentaciones}
+                  opciones={opcionesContenedor(presentaciones, null)}
+                  modo={nuevoModo} onModo={setNuevoModo}
+                  factor={nuevoFactorPresentacion} onFactor={setNuevoFactorPresentacion}
+                  contieneId={nuevoContieneId} onContieneId={setNuevoContieneId}
+                  cantidad={nuevaCantidad} onCantidad={setNuevaCantidad} />
                 <div className="flex gap-2">
                   <button onClick={agregarPresentacion} disabled={guardandoPresentacion}
                     className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
                     <Plus size={14} /> {guardandoPresentacion ? "Guardando…" : "Guardar presentación"}
                   </button>
-                  <button onClick={() => { setMostrarNuevaPresentacion(false); setNuevaPresentNombre(""); setNuevoFactorPresentacion(""); }}
+                  <button onClick={cerrarNuevaPresentacion}
                     className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
                     Cancelar
                   </button>
@@ -793,6 +977,72 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
 }
 
 // ─── Subcomponentes de campo ─────────────────────────────────────────────────
+
+function BotonesEdicion({ guardando, onGuardar, onCancelar }) {
+  return (
+    <div className="flex gap-2">
+      <button onClick={onGuardar} disabled={guardando}
+        className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+        <Save size={14} /> {guardando ? "Guardando…" : "Guardar"}
+      </button>
+      <button onClick={onCancelar}
+        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+        Cancelar
+      </button>
+    </div>
+  );
+}
+
+// "Trae…": N unidades base (factor directo) o N × otra presentación (cadena).
+function CamposContenido({
+  nombre, baseNombre, presentaciones, opciones, modo, onModo,
+  factor, onFactor, contieneId, onContieneId, cantidad, onCantidad,
+}) {
+  const contiene = presentaciones.find(p => String(p.id) === String(contieneId)) || null;
+  const factorCalc = modo === "cadena"
+    ? factorDeCadena(presentaciones, contieneId, cantidad)
+    : (Number(factor) > 0 ? Number(factor) : null);
+  const clase = "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none";
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs text-slate-600">
+        <span className="font-medium">Trae…</span>
+        {[["unidades", `N ${baseNombre}`], ["cadena", "N × otra presentación"]].map(([valor, label]) => (
+          <button key={valor} type="button" onClick={() => onModo(valor)} aria-pressed={modo === valor}
+            className={`rounded-full border px-2 py-0.5 ${modo === valor ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 hover:bg-slate-100"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {modo === "cadena" ? (
+        <div className="flex gap-2">
+          <input aria-label="Cantidad que trae" type="number" min="2" step="1" value={cantidad}
+            onChange={e => onCantidad(e.target.value)} placeholder="N" className={`w-20 ${clase}`} />
+          <span className="self-center text-sm text-slate-400">×</span>
+          <select aria-label="Presentación que trae adentro" value={contieneId}
+            onChange={e => onContieneId(e.target.value)} className={`min-w-0 flex-1 ${clase}`}>
+            <option value="">Elegí una presentación…</option>
+            {opciones.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}{p.es_base ? " (base)" : ` (= ${formatearCantidad(p.factor_unidad_base)} ${baseNombre})`}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <input aria-label="Unidades base por presentación" type="number" min="2" step="1" value={factor}
+          onChange={e => onFactor(e.target.value)}
+          placeholder={`Cuántas ${baseNombre} trae`} className={`w-full ${clase}`} />
+      )}
+      <p className="text-xs font-medium text-slate-500">
+        {textoEquivalencia({
+          nombre, factor: factorCalc, baseNombre,
+          contiene: modo === "cadena" ? contiene : null, cantidad: modo === "cadena" ? cantidad : null,
+        })}
+      </p>
+    </div>
+  );
+}
 
 function Campo({ label, value, onChange, placeholder }) {
   const id = useId();

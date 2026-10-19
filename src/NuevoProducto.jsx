@@ -7,7 +7,8 @@
  * - unidad_base es editable (texto libre, "unidad" por defecto) para dar de
  *   alta productos que se venden por metro/kilo — el tamaño de BULTO sigue
  *   viviendo siempre en `presentacion`, nunca en unidad_base.
- * - Siempre se crea la presentación base ('Unidad', factor 1, es_base) —
+ * - Siempre se crea la presentación base (factor 1, es_base), con el nombre
+ *   de "¿Qué es 1 unidad?" (Hoja, Pieza…; "Unidad" si queda vacío) —
  *   sin ella fallan registrar_venta/registrar_entrada. No se puede editar
  *   ni borrar acá.
  * - Cada presentación extra: factor entero > 1, sin factores repetidos
@@ -26,6 +27,7 @@ import { supabase } from "./supabaseClient";
 import { ejecutarOperacion, asegurarAsignacion, labelUbicacion } from "./lib/operaciones";
 import { useUsuarioActual } from "./lib/useAuth";
 import EscanerCodigo from "./EscanerCodigo";
+import CampoUnidadBase from "./CampoUnidadBase";
 import {
   X, Save, Loader, AlertCircle, Package2, Barcode, Camera, Plus, Trash2,
   Store, Users, Building2, Briefcase, Boxes, FileText,
@@ -66,7 +68,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
   const [nombre, setNombre] = useState("");
   const [marca, setMarca] = useState("");
   const [skuInterno, setSkuInterno] = useState("");
-  const [unidadBase, setUnidadBase] = useState("unidad");
+  const [unidadBase, setUnidadBase] = useState("Unidad");
 
   const [codigoBase, setCodigoBase] = useState("");
   // Presentaciones extra (bulto): [{ key, nombre, factor, codigo }]
@@ -170,11 +172,13 @@ export default function NuevoProducto({ onClose, onCreado }) {
 
     setGuardando(true);
 
+    // Mismo nombre para producto.unidad_base y la presentación base.
+    const nombreBase = unidadBase.trim() || "Unidad";
     const payloadProducto = {
       nombre: nombre.trim(),
       marca: marca.trim() || null,
       sku_interno: skuInterno.trim() || null,
-      unidad_base: unidadBase.trim() || "unidad",
+      unidad_base: nombreBase,
       activo: true,
       ...(esAdmin ? {
         precio_base: precios.precio_base === "" ? null : Number(precios.precio_base),
@@ -196,7 +200,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
 
     const { data: presBase, error: errBase } = await supabase
       .from("presentacion")
-      .insert({ producto_id: productoId, nombre: "Unidad", factor_unidad_base: 1, es_base: true })
+      .insert({ producto_id: productoId, nombre: nombreBase, factor_unidad_base: 1, es_base: true })
       .select("id").single();
     if (errBase) {
       await rollback(productoId, []);
@@ -298,9 +302,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Unidad base</label>
-                <input value={unidadBase} onChange={e => setUnidadBase(e.target.value)} placeholder="unidad, metro, kilo…"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none" />
+                <CampoUnidadBase value={unidadBase} onChange={setUnidadBase} />
                 <p className="mt-1 text-xs text-slate-400">El tamaño de bulto (Caja, Paquete…) se define abajo en Presentaciones, no acá.</p>
               </div>
             </div>
@@ -309,14 +311,15 @@ export default function NuevoProducto({ onClose, onCreado }) {
           {/* ── Presentaciones ── */}
           <section className="border-t border-slate-100 pt-5">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Presentaciones</h3>
-            <p className="mb-3 text-xs text-slate-400">La base ("Unidad", ×1) siempre se crea. Agregá las de bulto que necesites (Paquete, Caja…).</p>
+            <p className="mb-1 text-xs text-slate-400">La base ("{unidadBase.trim() || "Unidad"}", ×1) siempre se crea. Agregá las de bulto que necesites (Paquete, Caja…), con el factor en {unidadBase.trim() || "Unidad"}.</p>
+            <p className="mb-3 text-xs text-slate-400">Para armar una presentación dentro de otra (24 × Paquete) o ponerle precio propio, editá el producto después de crearlo.</p>
 
             <div className="space-y-2">
               {/* Base — fija, no editable */}
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <Package2 size={14} className="shrink-0 text-slate-400" />
-                  <span className="flex-1 text-sm font-medium text-slate-700">Unidad</span>
+                  <span className="flex-1 text-sm font-medium text-slate-700">{unidadBase.trim() || "Unidad"}</span>
                   <span className="text-xs text-slate-400">×1</span>
                   <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500">base</span>
                 </div>
@@ -341,7 +344,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
                       className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none" />
                     <input type="number" min="2" step="1" value={p.factor}
                       onChange={e => actualizarPresentacionExtra(p.key, "factor", e.target.value)}
-                      placeholder="Factor"
+                      placeholder="Factor" title={`Cuántas ${unidadBase.trim() || "Unidad"} trae`}
                       className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-right focus:border-slate-500 focus:outline-none" />
                     <button onClick={() => quitarPresentacionExtra(p.key)} className="text-slate-300 hover:text-red-500">
                       <Trash2 size={15} />
