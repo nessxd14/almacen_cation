@@ -25,7 +25,7 @@ Para resolver un `INCIERTO`, un administrador debe buscar la referencia en el te
 
 ## Configuración y despliegue
 
-1. Aplicar `supabase/migrations/20261019221227_evidencia_vtd_telegram.sql` y `20261019222415_invocacion_vtd_un_solo_uso.sql`. La configuración comienza con `activo=false`; los clientes anteriores continúan funcionando durante la publicación.
+1. Aplicar `supabase/migrations/20261019221227_evidencia_vtd_telegram.sql`, `20261019222415_invocacion_vtd_un_solo_uso.sql` y `20261019222755_espera_worker_vtd_telegram.sql`. La configuración comienza con `activo=false`; los clientes anteriores continúan funcionando durante la publicación.
 2. Guardar **TELEGRAM_BOT_TOKEN** como secreto de Edge Functions. Nunca usar `VITE_` para este token ni incorporarlo a Git.
 3. Desplegar `evidencia-vtd-telegram` con `verify_jwt=false`. La función valida una credencial aleatoria de un solo uso y cinco minutos de vigencia mediante una RPC exclusiva de `service_role`. La cola HTTP no contiene secretos reutilizables ni el token de Telegram.
 4. Configurar `evidencia_vtd.configuracion.worker_url` con la URL HTTPS de la función. Ejecutar el diagnóstico autenticado del worker (`accion=diagnostico`) para comprobar identidad del bot y acceso/permisos en el grupo.

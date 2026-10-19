@@ -10,6 +10,7 @@ export async function testEvidenciaVtd(db, { login, stock, count, uid }) {
     grant usage on schema storage to authenticated; grant insert on storage.objects to authenticated;`);
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261019221227_evidencia_vtd_telegram.sql', import.meta.url), 'utf8'));
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261019222415_invocacion_vtd_un_solo_uso.sql', import.meta.url), 'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261019222755_espera_worker_vtd_telegram.sql', import.meta.url), 'utf8'));
   await db.exec(`update evidencia_vtd.configuracion set activo=true;
     insert into venta(id,ubicacion_id,numero,subtotal,total,cobro_exigible,sesion_caja_id) values(702,4,'VTD-QA-EVIDENCIA',10,10,true,1);
     insert into venta_linea(id,venta_id,producto_id,presentacion_id,cantidad,cantidad_presentacion,precio_lista,precio_unitario) values(702,702,1,1,1,1,10,10);`);
