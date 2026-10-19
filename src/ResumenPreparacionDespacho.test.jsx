@@ -39,3 +39,12 @@ it('una consulta fallida no afirma que la preparación está verificada', async 
   expect(nodo.querySelector('[role="alert"]').textContent).toContain('Sin conexión');
   expect(nodo.textContent).not.toContain('verificada');
 });
+it('incluye lo no alistado y su motivo para que no desaparezca al pasar al despacho', async () => {
+  qa.data.lineas.push({ ...qa.data.lineas[0], pedido_linea_id: 32, preparada_base: 0, revisada_base: null, observacion: 'No se alistó a tiempo' });
+  await montar();
+  expect(nodo.querySelectorAll('tbody tr')).toHaveLength(2);
+  expect(nodo.textContent).toContain('No alistado');
+  expect(nodo.textContent).toContain('No se alistó a tiempo');
+  expect(nodo.textContent).toContain('24 unidad');
+  expect(qa.rpc).toHaveBeenCalledTimes(1);
+});

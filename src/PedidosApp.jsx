@@ -11,14 +11,14 @@
  * este tab es donde se resuelven backorders, compras directas y reversiones.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "./supabaseClient";
 import EscanerCodigo from "./EscanerCodigo";
 import TypeaheadProducto from "./TypeaheadProducto";
 import {
   ubicacionesParaOperacion, calcularPick, desglosePresentaciones, armarDesglose,
-  crearPedido, despacharLinea, despacharLineaForzado, turnoLinea, despacharLineas, revertirEvento, comprarDirecto,
+  crearPedido, despacharLineaForzado, turnoLinea, despacharLineas, revertirEvento, comprarDirecto,
   estadoSaldoLinea, saldoDisponiblePedido, saldoVendible,
   codigosGrisPorProducto, stockPorSucursalProducto,
   rechazarPedidoLinea, rechazarPedido, cambiarPedidoLinea, restarPedidoLinea,
@@ -26,13 +26,16 @@ import {
   enviarLineaACompra, cancelarCompra,
 } from "./lib/operaciones";
 import {
-  armarPayloadDespacho, lineasConFaltante, totalUnidadesSeleccion, formatoEquivalencia,
+  armarPayloadDespacho, formatoEquivalencia,
 } from "./lib/despacho";
 import { avisoDisponibilidad, lineasSinCobertura } from "./lib/disponibilidad";
 import { etiquetaEstadoCompra, cantidadSugeridaCompra } from "./lib/compras";
 import { objetivoPick, haySobreTurno, MOTIVOS_DESPACHO_FORZADO, MOTIVO_OTRO, motivoValido, motivoFinal } from "./lib/reserva";
 import CodigosLinea from "./CodigosLinea";
 import BarraSeleccion from "./BarraSeleccion";
+import ConfirmarDespacho from './ConfirmarDespacho';
+import { coincideLineaDespacho, grupoDespacho, planDespacho } from './lib/despachoUI';
+import './despacho-ui.css';
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
 import { resolverAutores, nombreAutor, solicitantePedido } from "./lib/autoria";
 import { useUsuarioActual } from "./lib/useAuth";
@@ -137,19 +140,6 @@ function BadgeLinea({ estado }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
 
-// Desglose de líneas por estado — no cambia ninguna lógica de completado
-// (recalcular_estado_pedido sigue siendo la única fuente de verdad para
-// pedido.estado), es puramente informativo para distinguir un pedido que
-// se completó sin novedades de uno que se completó con rechazos/cambios.
-// Orden estable = el mismo orden en que aparece cada estado en ESTADOS_LINEA.
-function desgloseLineas(lineas) {
-  const conteo = new Map();
-  for (const l of lineas || []) conteo.set(l.estado, (conteo.get(l.estado) || 0) + 1);
-  return Object.keys(ESTADOS_LINEA)
-    .filter((estado) => conteo.get(estado) > 0)
-    .map((estado) => ({ estado, cantidad: conteo.get(estado), ...ESTADOS_LINEA[estado] }));
-}
-
 // Chips compactos junto al badge en la lista — solo cuando hay algo distinto
 // de "todo despachado" (rechazos o cambios), para no ensuciar el caso normal.
 function ChipsDesglosePedido({ lineas }) {
@@ -169,24 +159,7 @@ function ChipsDesglosePedido({ lineas }) {
   );
 }
 
-// Resumen agregado para el detalle — a diferencia de los chips de la lista,
-// acá se muestra siempre (no solo cuando hay novedades): es la cuenta rápida
-// de "cuántas quedaron en cada estado" sin tener que contar los badges a mano.
-function ResumenLineasPedido({ lineas }) {
-  const desglose = desgloseLineas(lineas);
-  if (desglose.length === 0) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {desglose.map(({ estado, cantidad, label, cls }) => (
-        <span key={estado} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{cantidad} {label}</span>
-      ))}
-    </div>
-  );
-}
 
-// Indicador informativo de saldo disponible vs. lo pendiente de la línea —
-// no bloquea "Despachar" ni cambia el pick automático, solo avisa si otras
-// líneas (de cualquier pedido) ya comprometieron el stock libre.
 const ESTILOS_SALDO = {
   verde: { cls: "bg-emerald-100 text-emerald-700", icon: "✓" },
   ambar: { cls: "bg-amber-100 text-amber-700",     icon: "!" },
@@ -278,15 +251,15 @@ function ListaPedidos({ onNuevo }) {
       .some(v => v?.toLowerCase().includes(textoBusqueda))));
 
   return (
-    <div className="max-w-7xl mx-auto pt-4 px-4 space-y-4">
+    <div className="dispatch-inbox max-w-7xl mx-auto pt-4 px-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          <ClipboardList size={20} /> Pedidos
-        </h1>
-        <button onClick={onNuevo}
+        <div><small className="dispatch-eyebrow">CENTRO DE SALIDAS</small><h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <ClipboardList size={20} /> Pedidos y despachos
+        </h1><p className="dispatch-inbox-intro">Del QR del pedido al alistado, la verificación y la salida.</p></div>
+        <div className="dispatch-inbox-actions"><Link to="/operaciones" className="dispatch-scan-entry"><ScanLine size={18} /> Escanear pedido</Link><button onClick={onNuevo}
           className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700">
           <Plus size={15} /> Nuevo pedido
-        </button>
+        </button></div>
       </div>
 
       <div className="cation-filters flex flex-wrap items-center gap-2">
@@ -1017,7 +990,8 @@ function FilaLinea({
   const [ubicacionesDisponibles, setUbicacionesDisponibles] = useState([]);
   const [desglose, setDesglose] = useState(null);
   const [cargandoPick, setCargandoPick] = useState(false);
-  const [despachando, setDespachando] = useState(false);
+  const [errorPick, setErrorPick] = useState('');
+  const pickCalculado = useRef(null);
   const [mostrarComprado, setMostrarComprado] = useState(false);
   const [nota, setNota] = useState("");
   const [costo, setCosto] = useState("");
@@ -1061,8 +1035,11 @@ function FilaLinea({
   // igual" (forzado) — ahí sí se calcula sobre lo pendiente completo.
   useEffect(() => {
     if ((!abierto && !seleccionada) || !puedeDespachar) return;
+    const clave = `${linea.id}:${pendiente}:${forzado}`;
+    if (pickCalculado.current === clave) return;
     let activo = true;
-    setCargandoPick(true);
+    // La consulta externa invalida el pick anterior antes de iniciarse.
+    setCargandoPick(true); setErrorPick('');
     turnoLinea(linea.id).then((t) => {
       if (!activo) return;
       setTurno(t);
@@ -1079,18 +1056,19 @@ function FilaLinea({
       setDesglose(desg);
       setUbicacionesDisponibles(ubs.ubicaciones);
       setCargandoPick(false);
-    });
+      pickCalculado.current = clave;
+    }).catch(e => { if (activo) { setCargandoPick(false); setErrorPick(e.message || 'No se pudieron calcular las ubicaciones. Abre nuevamente la línea para reintentar.'); } });
     return () => { activo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [abierto, seleccionada, linea.id, forzado]);
+  }, [abierto, seleccionada, linea.id, pendiente, forzado]);
 
   // Espeja el pick (auto o editado) hacia DetallePedido mientras la línea
   // está seleccionada — es lo que arma el payload de despachar_lineas.
   useEffect(() => {
     if (!seleccionada) return;
-    onPickChange(linea.id, { asignaciones, pendiente });
+    onPickChange(linea.id, { asignaciones, pendiente, cargando: cargandoPick, error: errorPick, ubicaciones: ubicacionesDisponibles });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seleccionada, asignaciones, pendiente]);
+  }, [seleccionada, asignaciones, pendiente, cargandoPick, errorPick, ubicacionesDisponibles]);
 
   // countdown para revertir (Tienda, dentro de ventana)
   const eventoRevertible = (eventos || []).find((e) => !e.revertido && e.reversible_hasta && new Date(e.reversible_hasta) > new Date());
@@ -1114,29 +1092,6 @@ function FilaLinea({
   }
 
   const totalAsignado = asignaciones.reduce((s, a) => s + Number(a.cantidad_base || 0), 0);
-
-  // Despacho de ESTA línea sola: patchea el estado local en vez de
-  // recargar el pedido entero (brief W5 #3) — despachar_linea ya devuelve
-  // todo lo necesario (estado, cantidad_despachada, pendiente).
-  async function confirmarDespacho() {
-    const filtradas = asignaciones.filter((a) => Number(a.cantidad_base) > 0);
-    if (filtradas.length === 0) { showFlash("Asigná una cantidad mayor a cero en al menos una ubicación"); return; }
-    if (totalAsignado > pendiente + 0.0001) { showFlash(`El total asignado (${totalAsignado}) excede lo pendiente (${pendiente})`); return; }
-
-    setDespachando(true);
-    const { resultado, error } = await despacharLinea({ lineaId: linea.id, asignaciones: filtradas, usuario: usuarioActual.nombre });
-    setDespachando(false);
-    if (error) { showFlash("Error: " + error.message); return; }
-    setAbierto(false);
-    onLineaPatch(linea.id, { estado: resultado.estado, cantidad_despachada: resultado.cantidad_despachada });
-    onEventoNuevo(linea.id, {
-      id: resultado.evento_id, pedido_linea_id: linea.id, cantidad_base: totalAsignado,
-      creado_en: new Date().toISOString(), reversible_hasta: resultado.reversible_hasta, revertido: false,
-    });
-    // Despachada por su cuenta: si estaba en la selección del lote, ya no
-    // pertenece ahí (puedeDespachar pasa a false y la casilla desaparece).
-    if (seleccionada) onToggleSeleccion(linea.id);
-  }
 
   // Brief W8: pisar el turno exige motivo, usuario y hora — nunca en
   // silencio. despachar_linea_forzado escribe la bitácora en la misma
@@ -1162,7 +1117,6 @@ function FilaLinea({
       id: resultado.evento_id, pedido_linea_id: linea.id, cantidad_base: totalAsignado,
       creado_en: new Date().toISOString(), reversible_hasta: resultado.reversible_hasta, revertido: false,
     });
-    if (seleccionada) onToggleSeleccion(linea.id);
   }
 
   async function confirmarCompraDirecta() {
@@ -1173,7 +1127,6 @@ function FilaLinea({
     if (error) { showFlash("Error: " + error.message); return; }
     setMostrarComprado(false);
     onLineaPatch(linea.id, { estado: "COMPRADO_DIRECTO", compra_directa_nota: nota.trim(), compra_directa_costo: costo ? Number(costo) : null });
-    if (seleccionada) onToggleSeleccion(linea.id);
   }
 
   // Motivo opcional (brief W-B): el prompt hace de "confirm simple" — un
@@ -1187,7 +1140,6 @@ function FilaLinea({
     setRestando(false);
     if (error) { showFlash("Error: " + error.message); return; }
     onLineaPatch(linea.id, { estado: "RETIRADA" });
-    if (seleccionada) onToggleSeleccion(linea.id);
   }
 
   async function rechazarLinea() {
@@ -1199,7 +1151,6 @@ function FilaLinea({
     setRechazandoLinea(false);
     if (error) { showFlash("Error: " + error.message); return; }
     onLineaPatch(linea.id, { estado: "RECHAZADO" });
-    if (seleccionada) onToggleSeleccion(linea.id);
   }
 
   // Brief W-PC: cubierto sugiere cuánto comprar (pendiente − lo ya cubierto por
@@ -1234,13 +1185,9 @@ function FilaLinea({
 
   return (
     <div className={`rounded-xl border bg-white ${seleccionada ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-200"}`}>
-      <button onClick={() => setAbierto((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left">
-        {puedeDespachar && (
-          <input type="checkbox" checked={seleccionada} onClick={(e) => e.stopPropagation()}
-            onChange={() => onToggleSeleccion(linea.id)}
-            className="shrink-0" />
-        )}
+      <div className="dispatch-row-header">
+        {puedeDespachar && <input aria-label={`Seleccionar ${linea.producto?.nombre || 'producto'}`} type="checkbox" checked={seleccionada} onChange={() => onToggleSeleccion(linea.id)} />}
+        <button onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} className="dispatch-row-toggle flex w-full items-center gap-3 px-4 py-3 text-left">
         {abierto ? <ChevronUp size={16} className="text-slate-400 shrink-0" /> : <ChevronDown size={16} className="text-slate-400 shrink-0" />}
         <div className="min-w-0 flex-1">
           <p title={linea.producto?.nombre} className="line-clamp-2 text-sm font-medium text-slate-800">{linea.producto?.nombre}</p>
@@ -1258,7 +1205,9 @@ function FilaLinea({
         {linea.estado === "PENDIENTE" && (
           <span className="text-xs text-amber-600">pend. {cantidadFmt(pendiente)}</span>
         )}
-      </button>
+      </button></div>
+      <div className="dispatch-row-quantities"><span>Pedido<strong>{textoCantidadLinea(linea)}</strong></span><span>Despachado<strong>{cantidadFmt(linea.cantidad_despachada)} {linea.producto?.unidad_base}</strong></span><span className={pendiente > 0 ? 'is-pending' : ''}>Pendiente<strong>{cantidadFmt(pendiente)} {linea.producto?.unidad_base}</strong></span></div>
+      {seleccionada && <p className={`dispatch-pick-status ${errorPick || !cargandoPick && totalAsignado <= 0 ? 'is-error' : ''}`}>{cargandoPick ? 'Calculando cantidades y ubicaciones…' : errorPick || `Salida asignada: ${cantidadFmt(totalAsignado)} ${linea.producto?.unidad_base || ''} · ${cantidadFmt(Math.max(0, pendiente - totalAsignado))} quedarán pendientes`}</p>}
 
       {linea.estado === "POR_COMPRAR" && compra && (
         <div className="px-4 pb-3 text-xs text-orange-700 space-y-0.5">
@@ -1302,7 +1251,8 @@ function FilaLinea({
 
           {puedeDespachar && (
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Pick automático (editable)</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Ubicaciones y cantidades de salida</p>
+              {errorPick && <p role="alert" className="dispatch-line-error">{errorPick}</p>}
               {cargandoPick ? (
                 <p className="flex items-center gap-1 text-xs text-slate-400"><Loader size={12} className="animate-spin" /> Calculando…</p>
               ) : (
@@ -1311,16 +1261,16 @@ function FilaLinea({
                     {asignaciones.map((a, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <MapPin size={13} className="text-slate-400 shrink-0" />
-                        <select value={a.ubicacion_id} onChange={(e) => actualizarAsignacion(i, "ubicacion_id", Number(e.target.value))}
+                        <select aria-label={`Ubicación de salida ${i + 1}`} value={a.ubicacion_id} onChange={(e) => actualizarAsignacion(i, "ubicacion_id", Number(e.target.value))}
                           className="flex-1 rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
                           {ubicacionesDisponibles.map((u) => (
                             <option key={u.id} value={u.id}>{u.label} (stock: {u.cantidad_base})</option>
                           ))}
                         </select>
-                        <input type="number" min="0" step="any" value={a.cantidad_base}
+                        <input aria-label={`Cantidad de salida ${i + 1} en ${linea.producto?.unidad_base}`} type="number" min="0" step="any" value={a.cantidad_base}
                           onChange={(e) => actualizarAsignacion(i, "cantidad_base", e.target.value)}
                           className="w-24 rounded-lg border px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
-                        <button onClick={() => quitarAsignacion(i)} className="text-slate-300 hover:text-red-500">
+                        <button aria-label={`Quitar ubicación ${i + 1}`} onClick={() => quitarAsignacion(i)} className="text-slate-300 hover:text-red-500">
                           <X size={15} />
                         </button>
                       </div>
@@ -1391,10 +1341,9 @@ function FilaLinea({
                   )}
 
                   {!forzado && (
-                    <button onClick={confirmarDespacho} disabled={despachando}
+                    <button onClick={() => onToggleSeleccion(linea.id)} disabled={seleccionada || cargandoPick || Boolean(errorPick) || !(totalAsignado > 0) || totalAsignado > pendiente + .0001}
                       className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
-                      {despachando && <Loader size={14} className="animate-spin" />}
-                      {despachando ? "Despachando…" : linea.estado === "PENDIENTE" ? "Despachar pendiente" : "Despachar"}
+                      <CheckSquare size={15} /> {seleccionada ? 'Incluido en la salida' : 'Añadir a la salida'}
                     </button>
                   )}
                 </>
@@ -1795,9 +1744,13 @@ export function DetallePedido({ pedidoId, onBack }) {
   // Modal de Cambiar línea — compartido por FilaLinea y FilaEspecial, se
   // levanta acá para no duplicar el componente. null = cerrado.
   const [lineaCambiando, setLineaCambiando] = useState(null);
+  const [busquedaLineas, setBusquedaLineas] = useState('');
+  const [filtroLineas, setFiltroLineas] = useState('todas');
+  const [revisionLote, setRevisionLote] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
+    setSeleccion(new Set()); setPicksPorLinea(new Map());
     const [{ data: p }, { data: ls }] = await Promise.all([
       supabase.from("pedido")
         .select("*, cliente:cliente_id ( nombre, tipo_precio )")
@@ -1874,6 +1827,8 @@ export function DetallePedido({ pedidoId, onBack }) {
   // + picks por una acción sobre una sola línea.
   const patchLinea = useCallback((lineaId, patch) => {
     setLineas((prev) => prev.map((l) => l.id === lineaId ? { ...l, ...patch } : l));
+    setSeleccion(prev => { const next = new Set(prev); next.delete(lineaId); return next; });
+    setPicksPorLinea(prev => { const next = new Map(prev); next.delete(lineaId); return next; });
   }, []);
   const agregarEvento = useCallback((lineaId, evento) => {
     setEventosPorLinea((prev) => ({ ...prev, [lineaId]: [evento, ...(prev[lineaId] || [])] }));
@@ -1949,18 +1904,20 @@ export function DetallePedido({ pedidoId, onBack }) {
   const lineasEspeciales = lineas.filter((l) => l.es_personalizado);
 
   const puedeDespacharLinea = (l) => l.estado === "POR_DESPACHAR" || (l.estado === "PENDIENTE" && habilitadas.has(l.id));
-  const idsDespachables = new Set([
-    ...lineasCatalogo.filter(puedeDespacharLinea).map((l) => l.id),
-    ...lineasEspeciales.filter((l) => l.estado === "ESPECIAL").map((l) => l.id),
-  ]);
+  const visibles = lineas.filter(l => coincideLineaDespacho(l, filtroLineas, busquedaLineas));
+  const idsVisibles = new Set(visibles.map(l => l.id));
+  const idsDespachables = new Set(lineasCatalogo.filter(l => puedeDespacharLinea(l) && idsVisibles.has(l.id)).map(l => l.id));
   const todasSeleccionadas = idsDespachables.size > 0 && [...idsDespachables].every((id) => seleccion.has(id));
 
   function toggleSeleccionarTodas() {
-    setSeleccion(todasSeleccionadas ? new Set() : new Set(idsDespachables));
+    setSeleccion(prev => { const next = new Set(prev); for (const id of idsDespachables) { if (todasSeleccionadas) next.delete(id); else next.add(id); } return next; });
   }
 
   const lineasPorId = new Map(lineas.map((l) => [l.id, l]));
-  const totalUnidades = totalUnidadesSeleccion(seleccion, lineasPorId);
+  const plan = planDespacho(seleccion, picksPorLinea, lineasPorId);
+  const conteos = { todas: lineas.length, pendiente: 0, compra: 0, entregado: 0, cerrado: 0 };
+  for (const l of lineas) conteos[grupoDespacho(l)]++;
+  const seleccionOculta = [...seleccion].filter(id => !idsVisibles.has(id)).length;
 
   // Mismo criterio que usa rechazar_pedido en el server para decidir qué
   // líneas afecta — visible solo si hay algo que de verdad se rechazaría.
@@ -2014,20 +1971,10 @@ export function DetallePedido({ pedidoId, onBack }) {
   // detalle de qué se compró en cada una) — se cierran de a uno desde
   // FilaEspecial, así que `seleccion` acá adentro solo trae catálogo.
   async function confirmarDespachoLote() {
-    const faltantes = lineasConFaltante(seleccion, picksPorLinea);
-    if (faltantes.length > 0) {
-      const ok = window.confirm(
-        `${faltantes.length} línea${faltantes.length === 1 ? "" : "s"} quedará${faltantes.length === 1 ? "" : "n"} parcialmente pendiente${faltantes.length === 1 ? "" : "s"} (el pick no cubre lo pendiente). ¿Despachar igual?`
-      );
-      if (!ok) return;
-    }
-
+    if (despachandoLote) return;
+    const actual = planDespacho(seleccion, picksPorLinea, lineasPorId);
+    if (!actual.listo) { setFlashLote({ type: 'error', msg: 'Resuelve las cantidades de todas las líneas seleccionadas antes de continuar.' }); return; }
     const payload = armarPayloadDespacho(seleccion, picksPorLinea);
-    if (payload.length === 0) {
-      setFlashLote({ type: "error", msg: "Nada para despachar todavía — abrí o dejá calcular el pick de al menos una línea." });
-      return;
-    }
-
     setDespachandoLote(true);
     setFlashLote(null);
     try {
@@ -2037,6 +1984,8 @@ export function DetallePedido({ pedidoId, onBack }) {
       // queda despachada — el mensaje de error dice cuál.
       const { error } = await despacharLineas({ lineas: payload, usuario: usuarioActual.nombre });
       if (error) { setFlashLote({ type: "error", msg: "Despacho por lote falló, ninguna línea quedó despachada: " + error.message }); return; }
+      setRevisionLote(null);
+      setFlashLote({ type: 'ok', msg: 'Salida registrada. Las cantidades restantes siguen pendientes.' });
       setSeleccion(new Set());
       setPicksPorLinea(new Map());
       await cargar(); // única recarga completa, al final del lote
@@ -2046,9 +1995,10 @@ export function DetallePedido({ pedidoId, onBack }) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto pt-4 px-4 pb-8">
-      <div className="print:hidden space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="dispatch-workspace">
+      <div className="print:hidden space-y-4" inert={despachandoLote ? true : undefined}>
+        <div className="dispatch-page-heading"><div><small>ALMACÉN / PEDIDOS</small><h2>Despacho de pedido</h2><p>Organiza la salida y controla lo que queda pendiente.</p></div><span className="dispatch-header-icon"><Warehouse size={27} /></span></div>
+        <div className="dispatch-order-header flex flex-wrap items-center gap-2">
           <button onClick={onBack} aria-label="Volver a pedidos" className="ui-icon-button text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
           <h1 className="text-lg font-semibold text-slate-800">Pedido #{pedido.id}</h1>
           <BadgePedido estado={pedido.estado} />
@@ -2125,20 +2075,23 @@ export function DetallePedido({ pedidoId, onBack }) {
           </div>
         )}
 
-        <ResumenLineasPedido lineas={lineas} />
+        <div className="dispatch-overview" aria-label="Resumen del despacho">{[['pendiente', 'Por despachar'], ['compra', 'Por comprar'], ['entregado', 'Entregados'], ['cerrado', 'Retirados / cerrados']].map(([id, label]) => <button key={id} className={`dispatch-metric dispatch-metric-${id}`} aria-pressed={filtroLineas === id} onClick={() => setFiltroLineas(filtroLineas === id ? 'todas' : id)}><span>{label}</span><strong>{conteos[id]}</strong><small>productos</small></button>)}</div>
 
         {pedido.total != null && (
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 space-y-0.5">
+          <details className="dispatch-totals rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 space-y-0.5"><summary>Importe del pedido · {fmtDinero(pedido.total)}</summary>
             <p className="flex justify-between"><span>Subtotal</span> <span>{fmtDinero(pedido.subtotal)}</span></p>
             <p className="flex justify-between"><span>Descuento general</span> <span>{fmtDinero(pedido.descuento_general)}</span></p>
             <p className="flex justify-between border-t border-slate-200 pt-1 font-semibold text-slate-900"><span>Total</span> <span>{fmtDinero(pedido.total)}</span></p>
-          </div>
+          </details>
         )}
 
+        <section className="dispatch-product-tools" aria-label="Buscar y filtrar líneas"><div className="dispatch-section-title"><h2>Productos del pedido</h2><span>{visibles.length} de {lineas.length}</span></div><label className="dispatch-search"><Search size={18} /><span className="sr-only">Buscar productos del pedido</span><input value={busquedaLineas} onChange={e => setBusquedaLineas(e.target.value)} placeholder="Buscar producto, SKU o presentación…" />{busquedaLineas && <button onClick={() => setBusquedaLineas('')} aria-label="Limpiar búsqueda de líneas"><X size={16} /></button>}</label><div className="dispatch-filters" aria-label="Estado de las líneas">{[['todas','Todos'],['pendiente','Por despachar'],['compra','Por comprar'],['entregado','Entregados'],['cerrado','Cerrados']].map(([id,label]) => <button key={id} aria-pressed={filtroLineas === id} onClick={() => setFiltroLineas(id)}>{label}<span>{conteos[id]}</span></button>)}</div></section>
+        {flashLote && !revisionLote && <p role={flashLote.type === 'error' ? 'alert' : 'status'} className={`dispatch-message ${flashLote.type === 'error' ? 'is-error' : ''}`}>{flashLote.msg}</p>}
+        {seleccionOculta > 0 && <p className="dispatch-notice">{seleccionOculta} productos seleccionados están fuera del filtro actual. También se incluirán en la revisión de salida.</p>}
         {idsDespachables.size > 0 && (
           <label className="flex items-center gap-2 text-xs text-slate-500">
             <input type="checkbox" checked={todasSeleccionadas} onChange={toggleSeleccionarTodas} />
-            Seleccionar todas las despachables ({idsDespachables.size})
+            Seleccionar productos visibles para despacho ({idsDespachables.size})
           </label>
         )}
 
@@ -2148,9 +2101,10 @@ export function DetallePedido({ pedidoId, onBack }) {
           </div>
         )}
 
-        <div className="space-y-2">
+        {!visibles.length && <div className="dispatch-empty"><Search size={26} /><p>No hay productos que coincidan con esta búsqueda.</p><button onClick={() => { setFiltroLineas('todas'); setBusquedaLineas(''); }}>Limpiar filtros</button></div>}
+        <div className="dispatch-lines space-y-2">
           {lineasCatalogo.map((l) => (
-            <FilaLinea
+            <div key={l.id} hidden={!idsVisibles.has(l.id)}><FilaLinea
               key={l.id}
               linea={l}
               eventos={eventosPorLinea[l.id]}
@@ -2168,14 +2122,14 @@ export function DetallePedido({ pedidoId, onBack }) {
               onAbrirCambiar={setLineaCambiando}
               compra={compraPorLinea.get(l.id)}
               onRecargar={cargar}
-            />
+            /></div>
           ))}
         </div>
 
-        {lineasEspeciales.length > 0 && (
+        {lineasEspeciales.some(l => idsVisibles.has(l.id)) && (
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-slate-600">Ítems especiales / a pedido</h2>
-            {lineasEspeciales.map((l) => (
+            {lineasEspeciales.filter(l => idsVisibles.has(l.id)).map((l) => (
               <FilaEspecial
                 key={l.id}
                 linea={l}
@@ -2196,21 +2150,24 @@ export function DetallePedido({ pedidoId, onBack }) {
       {seleccion.size > 0 && (
         <BarraSeleccion
           fixed
-          texto={`${seleccion.size} línea${seleccion.size === 1 ? "" : "s"} seleccionada${seleccion.size === 1 ? "" : "s"} · ${cantidadFmt(totalUnidades)} unidades`}
+          texto={`${seleccion.size} productos seleccionados · ${plan.parciales} con salida parcial`}
+          disabled={despachandoLote}
           onCerrar={() => setSeleccion(new Set())}
         >
           {flashLote && (
             <span className={`text-xs ${flashLote.type === "error" ? "text-red-600" : "text-blue-700"}`}>{flashLote.msg}</span>
           )}
-          <button onClick={confirmarDespachoLote} disabled={despachandoLote}
+          <button onClick={() => { setFlashLote(null); setRevisionLote(plan); }} disabled={despachandoLote || !plan.listo}
             className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50">
             {despachandoLote && <Loader size={12} className="animate-spin" />}
             <CheckSquare size={13} />
-            {despachandoLote ? "Despachando…" : "Despachar seleccionadas"}
+            {despachandoLote ? "Despachando…" : "Revisar salida"}
           </button>
         </BarraSeleccion>
       )}
 
+      {seleccion.size > 0 && !plan.listo && <div className="dispatch-selection-help" role="status">{plan.lineas.filter(l => l.error).length} productos necesitan cantidades válidas. Abre sus ubicaciones o quítalos de la selección.</div>}
+      {revisionLote && <ConfirmarDespacho plan={revisionLote} pedidoId={pedido.id} ocupado={despachandoLote} error={flashLote?.type === 'error' ? flashLote.msg : ''} onClose={() => setRevisionLote(null)} onConfirmar={confirmarDespachoLote} />}
       <ReporteImpresionPedido pedido={pedido} lineasCatalogo={lineasCatalogo} lineasEspeciales={lineasEspeciales} codigosPorProducto={codigosPorProducto} desglosePorLinea={desglosePorLinea} />
     </div>
   );

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ScanLine, ClipboardCheck, Package, History, LogOut, RefreshCw, CheckCircle2, AlertTriangle, Smartphone } from 'lucide-react';
+import { ArrowLeft, ScanLine, ClipboardCheck, History, LogOut, RefreshCw, CheckCircle2, AlertTriangle, Smartphone } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './lib/useAuth';
 import { useSucursal } from './lib/useSucursal';
@@ -10,15 +10,13 @@ import RecepcionTrasladoVirtual from './RecepcionTrasladoVirtual';
 import CodigoDocumentoQr from './CodigoDocumentoQr';
 import ConfirmarRestoPreparacion from './ConfirmarRestoPreparacion';
 import VtdCajaAlmacen from './VtdCajaAlmacen';
-import { cantidadOperacion, cantidadTexto, etiquetaDocumento, idOperacion, interpretarCodigoOperacion, listarDocumentosMovil, nombresEstadoOperacion, operarDocumentoMovil, resumenOperacion, rolesAlmacen, rolesOperacionesMovil, rutaDocumentoMovil, solicitarDocumentoMovil } from './lib/operacionesMovil';
+import { cantidadTexto, etiquetaDocumento, idOperacion, interpretarCodigoOperacion, listarDocumentosMovil, nombresEstadoOperacion, operarDocumentoMovil, resumenOperacion, rolesAlmacen, rolesOperacionesMovil, rutaDocumentoMovil, solicitarDocumentoMovil } from './lib/operacionesMovil';
 import './operaciones-movil.css';
-import { etiquetaUbicacion } from './lib/ubicacionTexto';
+import './preparacion-checklist.css';
+import PreparacionChecklist, { EtapasEntrega } from './PreparacionChecklist';
 
 const fecha = valor => valor ? new Date(valor).toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' }) : '';
 const tituloPedido = p => p?.numero || `#${p?.id}`;
-const unidad = s => s.presentacion || s.unidad_base;
-const factor = s => Number(s.factor) > 0 ? Number(s.factor) : 1;
-const cantidadEnPresentacion = (n, s) => `${cantidadTexto(Number(n) / factor(s))} ${unidad(s)}`;
 const eventos = { CARRITO_CREADO: 'Comenzó el carrito', AGREGAR: 'Añadió un producto', EDITAR: 'Corrigió una cantidad', QUITAR: 'Quitó un producto', ENVIAR: 'Terminó el alistado y lo envió a verificar', DEVOLVER: 'Devolvió el alistado para corregir', AUTORIZAR: 'Autorizó y registró la salida', RECIBIR: 'Confirmó la recepción en Tienda', PREPARACION_INICIADA: 'Tomó la preparación', GUARDAR_PREPARACION: 'Guardó una línea de preparación', PREPARADO: 'Terminó la preparación', TOMAR_REVISION: 'Tomó la verificación', GUARDAR_REVISION: 'Comprobó un producto y su cantidad', VERIFICADO: 'Confirmó la revisión de esta entrega', SINCRONIZAR: 'Actualizó los cambios del documento', REABRIR: 'Reabrió la preparación', REASIGNAR: 'Tomó a su cargo la preparación', ANULAR: 'Anuló la preparación', DESPACHO_REGISTRADO: 'Registró el despacho ya realizado' };
 
 eventos.RESTO_PREPARACION_CONFIRMADO = 'Confirmó las líneas completas restantes';
@@ -182,24 +180,12 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
       {tarea?.estado === 'PREPARADO' && soyPreparador && <p className="om-aviso">Presenta el QR a otra persona de Almacén para que verifique tu alistado.</p>}
       {tarea?.estado === 'REVISANDO' && !soyRevisor && <p className="om-aviso">{tarea.revisor_nombre} tiene a cargo la verificación.</p>}
       {tarea?.observacion && <p className="om-aviso">{tarea.observacion}</p>}
-      {tarea && <div className="om-progreso"><span>{resumen.preparadas}/{resumen.total} líneas preparadas</span><span>{resumen.revisadas}/{resumen.revisar} revisadas</span>{resumen.parcial && <strong>Entrega parcial</strong>}</div>}
-      {lineas.length === 0 && <p className="om-vacio">No hay líneas pendientes en esta sucursal.</p>}
+      <EtapasEntrega estado={tarea?.estado} entregada={datos.entregada} />
+      <PreparacionChecklist lineas={lineas} tipo={tipo} tarea={tarea} puedePreparar={puedePreparar} puedeRevisar={puedeRevisar} ocupado={ocupado} editor={editor} setEditor={setEditor} accion={accion} abrirScanner={abrirScanner} ubicaciones={ubicaciones} ubicacionesListas={ubicacionesClave === idsProductos} errorUbicaciones={errorUbicaciones} sucursalId={sucursalDocumento} esAlmacen={esAlmacen} />
       {puedePreparar && <ConfirmarRestoPreparacion lineas={lineas} ocupado={ocupado || Boolean(editor)} onConfirmar={() => accion('confirmar_resto')} />}
-      <div className="om-lineas">{lineas.map(l => <article className={`om-linea ${l.revisada_base != null ? 'om-linea-ok' : ''}`} key={l.pedido_linea_id}>
-        <div className="om-linea-title"><Package size={20} /><div><h3>{l.snapshot.nombre}</h3><small>{l.snapshot.sku || (l.snapshot.es_personalizado ? 'Producto personalizado' : 'Sin SKU')} · {unidad(l.snapshot)}</small></div>{l.revisada_base != null && <CheckCircle2 size={23} className="om-check" />}</div>
-        {l.snapshot.presentacion && <p className="om-equivalencia">1 {l.snapshot.presentacion} = {cantidadTexto(factor(l.snapshot))} {l.snapshot.unidad_base}</p>}
-        {l.snapshot.nota && <p className="om-aviso">{l.snapshot.nota}</p>}
-        <div className="om-cantidades"><div><small>{tipo === 'traslado_virtual' ? 'Declarado' : 'Pendiente al preparar'}</small><strong>{cantidadEnPresentacion(l.snapshot.pendiente_base, l.snapshot)}</strong></div><div><small>En esta entrega</small><strong>{cantidadEnPresentacion(l.preparada_base, l.snapshot)}</strong></div></div>
-        {l.snapshot.ubicacion && <p className="om-origen"><strong>Retirado de:</strong> {l.snapshot.ubicacion}</p>}{l.snapshot.producto_id && esAlmacen && <div className="om-ubicaciones"><small>Ubicación asignada</small>{ubicacionesClave !== idsProductos ? <span>Consultando ubicaciones…</span> : errorUbicaciones ? <span>No se pudo consultar</span> : ubicaciones[l.snapshot.producto_id]?.length ? ubicaciones[l.snapshot.producto_id].map(u => <Link key={u.id} to={`/ubicaciones/${u.id}/ficha?sucursal=${sucursalDocumento}`}>{etiquetaUbicacion(u, { separador: ' · ' })}</Link>) : <span>Sin ubicación registrada</span>}<Link to={`/productos/${l.snapshot.producto_id}/ficha?sucursal=${sucursalDocumento}${l.snapshot.presentacion_id ? `&presentacion=${l.snapshot.presentacion_id}` : ''}`}>Ver ficha del producto</Link></div>}
-        {!l.snapshot.preparable && <p className="om-muted">{l.snapshot.estado === 'POR_COMPRAR' ? 'Pendiente de compra: registra 0 y el motivo para continuar con una entrega parcial.' : 'Resuelve el estado o la presentación de esta línea en el pedido antes de prepararla.'}</p>}
-        {l.observacion && <p className="om-nota"><strong>Observación:</strong> {l.observacion}</p>}
-        {l.confirmada && <p className="om-muted">Preparación guardada{l.revisada_base != null ? ` · ${l.revisor_nombre || 'Revisor'} comprobó por ${l.metodo_revision === 'escaneo' ? 'escaneo' : 'revisión visual'}` : ''}</p>}
-        {editor?.lineaId === l.pedido_linea_id ? <EditorLinea key={`${l.pedido_linea_id}:${editor.tipo}:${editor.codigo || ''}`} linea={l} editor={editor} ocupado={ocupado} onCancel={() => setEditor(null)} onGuardar={payload => accion(editor.tipo === 'preparacion' ? 'guardar_preparacion' : 'guardar_revision', payload)} /> : <div className="om-linea-actions">
-          {puedePreparar && <button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'preparacion' })}>{l.confirmada ? 'Editar preparación' : 'Preparar esta línea'}</button>}
-          {puedeRevisar && Number(l.preparada_base) > 0 && <><button className="om-primary" disabled={ocupado || Boolean(editor)} onClick={() => abrirScanner({ tipo: 'revision', lineaId: l.pedido_linea_id })}><ScanLine size={18} /> Escanear y contar</button><button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'revision', metodo: 'visual', codigo: '' })}>Comprobar visualmente</button><button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'revision', metodo: 'escaneo', codigo: '' })}>Ingresar código</button></>}
-        </div>}
-      </article>)}</div>
-      {tarea && !cerrado && !pedidoCerrado && !cambios && <div className="om-finalizar">
+      {tarea && !cerrado && !pedidoCerrado && !cambios && <div className="om-finalizar" aria-label="Siguiente paso de la entrega">
+        {puedePreparar && resumen.preparadas !== resumen.total && <p className="om-muted">Registra las {resumen.total - resumen.preparadas} líneas sin alistar para poder terminar. Si no se prepararon, indica el motivo.</p>}
+        {puedePreparar && resumen.preparadas === resumen.total && !resumen.revisar && <p className="om-muted">No hay cantidades alistadas para entregar. Puedes corregir la preparación o gestionarla más abajo.</p>}
         {puedePreparar && <button className="om-primary om-wide" disabled={ocupado || Boolean(editor) || resumen.preparadas !== resumen.total || !resumen.revisar || (tipo === 'vtd' && resumen.parcial)} onClick={() => accion('preparado')}>Terminar preparación</button>}
         {tarea.estado === 'PREPARADO' && esAlmacen && <button className="om-primary om-wide" disabled={ocupado || soyPreparador} onClick={() => accion('tomar_revision')}>Tomar revisión</button>}
         {puedeRevisar && <button className="om-primary om-wide" disabled={ocupado || Boolean(editor) || resumen.revisadas !== resumen.revisar || !resumen.revisar} onClick={() => accion('verificado')}>Confirmar revisión de esta entrega</button>}
@@ -216,39 +202,4 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
     </> : <button className="om-secondary" onClick={cargar}>Reintentar consulta</button>}
     {scanner && <EscanerCodigo onDetect={alDetectar} onClose={() => setScanner(null)} />}
   </>;
-}
-
-function EditorLinea({ linea, editor, ocupado, onCancel, onGuardar }) {
-  const s = linea.snapshot;
-  const preparacion = editor.tipo === 'preparacion';
-  const cantidadInicial = Number(linea.confirmada ? linea.preparada_base : s.preparable ? s.pendiente_base : 0);
-  const iniciarEnBase = Math.abs(Math.round(cantidadInicial / factor(s) * 1e6) / 1e6 * factor(s) - cantidadInicial) > Number.EPSILON * Math.max(1, cantidadInicial) * 8;
-  const [enBase, setEnBase] = useState(iniciarEnBase);
-  const [cantidad, setCantidad] = useState(preparacion ? String(cantidadInicial / (iniciarEnBase ? 1 : factor(s))) : '');
-  const [observacion, setObservacion] = useState(linea.observacion || '');
-  const [codigo, setCodigo] = useState(editor.codigo || '');
-  const [error, setError] = useState('');
-  async function guardar(e) {
-    e.preventDefault(); setError('');
-    try {
-      const n = cantidadOperacion(cantidad) * (enBase ? 1 : factor(s));
-      const base = Math.round(n * 1e6) / 1e6;
-      if (Math.abs(base-n) > Number.EPSILON * Math.max(1, n) * 8) throw new Error('La conversión debe dar una cantidad con hasta 6 decimales en unidades base.');
-      if (preparacion && base > Number(s.pendiente_base)) throw new Error('La cantidad supera lo pendiente del pedido.');
-      if (preparacion && base < Number(s.pendiente_base) && !observacion.trim()) throw new Error('Indica el motivo de la cantidad que queda pendiente.');
-      if (!preparacion && base !== Number(linea.preparada_base)) throw new Error('La cantidad contada no coincide con la preparada. Reabre la preparación para corregirla.');
-      if (!preparacion && editor.metodo === 'escaneo' && !codigo.trim()) throw new Error('Ingresa o escanea el código de este producto.');
-      await onGuardar({ linea_id: linea.pedido_linea_id, cantidad_base: base, ...(preparacion ? { observacion: observacion.trim() } : { metodo: editor.metodo, codigo: codigo.trim() }) });
-    } catch (e) { setError(e.message); }
-  }
-  return <form className="om-editor" onSubmit={guardar}>
-    <strong>{preparacion ? 'Cantidad preparada para esta entrega' : 'Comprueba el producto, la presentación y cuenta lo preparado'}</strong>
-    {!preparacion && editor.metodo === 'escaneo' && <label>Código leído<input value={codigo} onChange={e => setCodigo(e.target.value)} autoComplete="off" maxLength={2048} /></label>}
-    {factor(s) !== 1 && <label>Unidad de conteo<select value={enBase ? 'base' : 'presentacion'} disabled={ocupado} onChange={e => { const base = e.target.value === 'base'; setEnBase(base); setCantidad(preparacion ? String(cantidadInicial / (base ? 1 : factor(s))) : ''); }}><option value="presentacion">{unidad(s)} · {cantidadTexto(factor(s))} {s.unidad_base}</option><option value="base">{s.unidad_base} (unidad base)</option></select></label>}
-    <label>{preparacion ? 'Preparado' : 'Cantidad contada'} en {enBase ? s.unidad_base : unidad(s)}<input autoFocus inputMode="decimal" value={cantidad} onChange={e => setCantidad(e.target.value)} required autoComplete="off" disabled={ocupado} /></label>
-    {preparacion && <label>Observación o motivo del faltante<textarea maxLength={1000} value={observacion} onChange={e => setObservacion(e.target.value)} /></label>}
-    {!preparacion && <p className="om-muted">Escanear identifica el producto. Confirma también su empaque y la cantidad que tienes delante.</p>}
-    {error && <p className="om-error-text" role="alert">{error}</p>}
-    <div className="om-input-row"><button className="om-primary" disabled={ocupado}>{ocupado ? 'Guardando…' : preparacion ? 'Guardar preparación' : 'Guardar comprobación'}</button><button type="button" className="om-secondary" disabled={ocupado} onClick={onCancel}>Cancelar</button></div>
-  </form>;
 }
