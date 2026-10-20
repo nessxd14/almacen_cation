@@ -2,8 +2,8 @@
 const BUCKET = 'evidencias_vtd';
 const respuesta = (datos, status = 200) => Response.json(datos, { status });
 
-async function rpc(admin, accion, datos = {}) {
-  const { data, error } = await admin.rpc('worker_evidencia_vtd', { p_accion: accion, p_datos: datos });
+async function rpc(admin, accion, datos = {}, rpcName = 'worker_evidencia_vtd') {
+  const { data, error } = await admin.rpc(rpcName, { p_accion: accion, p_datos: datos });
   if (error) throw new Error('No se pudo guardar el estado del envío.');
   return data;
 }
@@ -30,18 +30,18 @@ export async function comprobarBot(fetchImpl, token, config) {
   return { bot: '@cation_bbb_bot', grupo: config.chat_id, tema: config.tema_id };
 }
 
-export async function enviarLote({ admin, fetchImpl, token, config, lote }) {
+export async function enviarLote({ admin, fetchImpl, token, config, lote, rpcName = 'worker_evidencia_vtd', bucket = BUCKET }) {
   const base = { id: lote.id, lease: lote.lease };
   const files = [];
   try {
     for (const ruta of lote.rutas) {
-      const { data, error } = await admin.storage.from(BUCKET).download(ruta);
+      const { data, error } = await admin.storage.from(bucket).download(ruta);
       if (error || !data || !data.size || data.size > 1048576 || data.type !== 'image/jpeg') throw new Error('Foto no disponible.');
       const magic = new Uint8Array(await data.slice(0, 3).arrayBuffer());
       if (magic[0] !== 255 || magic[1] !== 216 || magic[2] !== 255) throw new Error('El archivo no es una foto JPEG.');
       files.push(data);
     }
-  } catch { await rpc(admin, 'error', base); return 'error'; }
+  } catch { await rpc(admin, 'error', base, rpcName); return 'error'; }
   const body = new FormData();
   body.set('chat_id', config.chat_id); body.set('message_thread_id', String(config.tema_id));
   const caption = lote.caption.slice(0, 1000);
@@ -55,49 +55,49 @@ export async function enviarLote({ admin, fetchImpl, token, config, lote }) {
   try {
     const { data, status } = await telegram(fetchImpl, token, single ? 'sendPhoto' : 'sendMediaGroup', body);
     if (status >= 500) throw new Error('Resultado desconocido.');
-    if (!data.ok) { await rpc(admin, 'error', { ...base, retry_after: Number(data.parameters?.retry_after) || null }); return 'error'; }
+    if (!data.ok) { await rpc(admin, 'error', { ...base, retry_after: Number(data.parameters?.retry_after) || null }, rpcName); return 'error'; }
     const messages = single ? [data.result] : data.result;
     if (!Array.isArray(messages) || messages.length !== files.length || messages.some(m => !Number.isSafeInteger(m.message_id) || String(m.chat?.id) !== config.chat_id || m.message_thread_id !== Number(config.tema_id) || !m.photo?.length)) throw new Error('Confirmación incompleta.');
     receipts = messages.map(m => ({ message_id: m.message_id, file_id: m.photo.at(-1).file_id, file_unique_id: m.photo.at(-1).file_unique_id }));
   } catch {
     // Telegram no ofrece clave de idempotencia. Ante timeout no se repite a ciegas.
-    await rpc(admin, 'incierto', base); return 'incierto';
+    await rpc(admin, 'incierto', base, rpcName); return 'incierto';
   }
   // Reintentar sólo el guardado de la confirmación, nunca la publicación en Telegram.
   for (let i = 0; i < 3; i++) {
-    try { await rpc(admin, 'confirmar', { ...base, telegram: receipts }); return 'enviado'; }
+    try { await rpc(admin, 'confirmar', { ...base, telegram: receipts }, rpcName); return 'enviado'; }
     catch { if (i === 2) throw new Error('El envío requiere comprobar su confirmación.'); }
   }
 }
 
-export async function limpiarFotos(admin) {
+export async function limpiarFotos(admin, { rpcName = 'worker_evidencia_vtd', bucket = BUCKET } = {}) {
   let borrados = 0;
-  for (const lote of await rpc(admin, 'limpiar')) {
-    const { error } = await admin.storage.from(BUCKET).remove(lote.rutas);
-    if (!error) { await rpc(admin, 'borrado', { id: lote.id }); borrados++; }
+  for (const lote of await rpc(admin, 'limpiar', {}, rpcName)) {
+    const { error } = await admin.storage.from(bucket).remove(lote.rutas);
+    if (!error) { await rpc(admin, 'borrado', { id: lote.id }, rpcName); borrados++; }
   }
   return borrados;
 }
 
-export async function manejarWorker(req, { admin, token, fetchImpl = fetch }) {
+export async function manejarWorker(req, { admin, token, fetchImpl = fetch, rpcName = 'worker_evidencia_vtd', bucket = BUCKET }) {
   if (req.method !== 'POST') return respuesta({ error: 'Método no permitido.' }, 405);
   if (Number(req.headers.get('content-length')) > 4096) return respuesta({ error: 'Solicitud inválida.' }, 413);
   let body;
   try { const raw = await req.text(); if (raw.length > 4096) return respuesta({ error: 'Solicitud inválida.' }, 413); body = JSON.parse(raw); }
   catch { return respuesta({ error: 'Solicitud inválida.' }, 400); }
   try {
-    if (!(await rpc(admin, 'autorizar', { token: typeof body?.token === 'string' ? body.token : '' }))?.autorizado) return respuesta({ error: 'No autorizado.' }, 401);
-    const config = await rpc(admin, 'configuracion');
+    if (!(await rpc(admin, 'autorizar', { token: typeof body?.token === 'string' ? body.token : '' }, rpcName))?.autorizado) return respuesta({ error: 'No autorizado.' }, 401);
+    const config = await rpc(admin, 'configuracion', {}, rpcName);
     if (body.accion === 'diagnostico') return respuesta({ ok: true, ...await comprobarBot(fetchImpl, token, config) });
-    const borrados = await limpiarFotos(admin);
+    const borrados = await limpiarFotos(admin, { rpcName, bucket });
     if (!config.activo) return respuesta({ ok: true, activo: false, borrados });
     await comprobarBot(fetchImpl, token, config);
     const resultados = [];
     // Lotes pequeños para respetar la duración de la función y las cuotas del grupo.
     for (let i = 0; i < 2; i++) {
-      const lote = await rpc(admin, 'reclamar');
+      const lote = await rpc(admin, 'reclamar', {}, rpcName);
       if (!lote) break;
-      resultados.push(await enviarLote({ admin, fetchImpl, token, config, lote }));
+      resultados.push(await enviarLote({ admin, fetchImpl, token, config: lote.chat_id ? { ...config, chat_id: lote.chat_id, tema_id: lote.tema_id } : config, lote, rpcName, bucket }));
     }
     return respuesta({ ok: true, resultados, borrados });
   } catch (e) {

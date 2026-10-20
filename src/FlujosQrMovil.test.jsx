@@ -50,7 +50,8 @@ beforeEach(()=>{
   qa.codigo='/productos/1/ficha?sucursal=1&presentacion=2';
   qa.doc={documento:{id:9,numero:'TV-9',estado:'ABIERTO',cliente:'Destino: Tienda QA',tipo:'traslado_virtual',sucursal_origen_id:1,sucursal_destino_id:2},tarea:{id:9,tipo:'TRASLADO_VIRTUAL',sucursal_origen_id:1,sucursal_destino_id:2,estado:'BORRADOR',version:1,preparador_id:'vende',preparador_nombre:'Persona QA'},lineas:[],eventos:[],cambios:[],entregada:false};
   qa.qr.mockReset().mockResolvedValue('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1kAAAAASUVORK5CYII=');
-  qa.rpc.mockReset().mockImplementation(async(_,p)=>{
+  qa.rpc.mockReset().mockImplementation(async(rpc,p)=>{
+    if(rpc==='operar_evidencia_operacion')return {data:{activo:false,contexto:{},envios:[]},error:null};
     if(qa.fallo && ['agregar','enviar','autorizar'].includes(p.p_accion))return {data:null,error:{message:qa.fallo}};
     if(p.p_accion==='contexto')return {data:{sucursales:[{id:1,nombre:'Almacén QA'},{id:2,nombre:'Tienda QA'}],sucursal_asignada_id:qa.sucursal},error:null};
     if(p.p_accion==='producto')return {data:{producto:{id:1,nombre:'Bolígrafos QA',sku:'QA-1',unidad_base:'UNIDAD'},presentacion_id:2,presentaciones:[{id:1,nombre:'Unidad',factor:1,es_base:true},{id:2,nombre:'Caja',factor:12}],ubicaciones:[{id:1,nombre:'A · 01',cantidad_base:100}]},error:null};
