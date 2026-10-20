@@ -863,11 +863,20 @@ export async function stockPorSucursalProducto(productoId) {
 export async function stockDisponibleSucursal(productoIds, sucursalId) {
   const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
   if (ids.length === 0 || !sucursalId) return new Map();
-  const { data } = await supabase
-    .from("stock_actual")
-    .select("producto_id, cantidad_base, ubicacion:ubicacion_id(sucursal_id, excluye_disponible)")
-    .in("producto_id", ids);
-  return stockDespachable(data || [], sucursalId);
+  const rows = [];
+  for (let start = 0; start < ids.length; start += 100) {
+    let offset = 0;
+    for (;;) {
+      const { data, error } = await supabase.from('stock_actual')
+        .select('producto_id, cantidad_base, ubicacion:ubicacion_id!inner(sucursal_id, excluye_disponible)')
+        .in('producto_id', ids.slice(start, start + 100)).eq('ubicacion.sucursal_id', sucursalId)
+        .gt('cantidad_base', 0).order('producto_id').order('ubicacion_id').range(offset, offset + 499);
+      if (error) throw error;
+      if (!data?.length) break;
+      rows.push(...data); offset += data.length;
+    }
+  }
+  return stockDespachable(rows, sucursalId);
 }
 
 /* ── stock por sucursal para un lote de producto_id (una página de tabla,
