@@ -42,6 +42,7 @@ try {
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261012195525_flujos_qr_vtd_traslado_virtual.sql', import.meta.url), 'utf8'));
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261013143239_fix_cierre_revision_cobro_vtd_pedidos.sql', import.meta.url), 'utf8'));
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261015141517_confirmar_resto_preparacion.sql', import.meta.url), 'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261020141453_fix_flujo_traslados.sql', import.meta.url), 'utf8'));
   console.log('OK: migración compilada en PostgreSQL aislado');
   await db.exec(`insert into sucursal(id,nombre,tipo,activo) values(1,'Almacén QA','fisica',true),(2,'Tienda QA','fisica',true),(3,'Otra QA','fisica',true);
     insert into perfil(id,nombre,email,rol,sucursal_id) values
