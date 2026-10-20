@@ -30,6 +30,24 @@ it('una sola imagen usa sendPhoto', async () => {
   expect(await enviar({ lote: { ...lote, rutas: ['qa/1.jpg'] } })).toBe('enviado');
   expect(fetchImpl.mock.calls[0][0].endsWith('/sendPhoto')).toBe(true);
 });
+it.each([9,17226])('el worker de operaciones respeta el tema %i reservado por cada lote', async tema => {
+  const from=vi.fn().mockReturnValue({download,remove});admin.storage.from=from;
+  let reclamados=0;
+  call.mockImplementation(async(_name,{p_accion})=>({error:null,data:
+    p_accion==='autorizar'?{autorizado:true}:p_accion==='configuracion'?{...config,tema_id:9}:
+    p_accion==='limpiar'?[]:p_accion==='reclamar'?(reclamados++===0?{...lote,chat_id:config.chat_id,tema_id:tema}:null):{ok:true}}));
+  fetchImpl.mockImplementation(async(url)=>url.endsWith('/getMe')?ok({id:9,username:'cation_bbb_bot'}):
+    url.endsWith('/getChat')?ok({id:Number(config.chat_id),is_forum:true}):url.endsWith('/getChatMember')?ok({status:'administrator'}):
+    ok(recibos.map(r=>({...r,message_thread_id:tema}))));
+  const response=await manejarWorker(new Request('https://qa.invalid',{method:'POST',body:'{"token":"nonce-qa"}'}),{
+    admin,token:'TOKEN_PRIVADO_QA',fetchImpl,rpcName:'worker_evidencia_operacion',bucket:'evidencias_operaciones',
+  });
+  expect(response.status).toBe(200);expect((await response.json()).resultados).toEqual(['enviado']);
+  const envio=fetchImpl.mock.calls.find(([url])=>url.endsWith('/sendMediaGroup'));
+  expect(envio[1].body.get('message_thread_id')).toBe(String(tema));
+  expect(call.mock.calls.every(([nombre])=>nombre==='worker_evidencia_operacion')).toBe(true);
+  expect(from).toHaveBeenCalledWith('evidencias_operaciones');expect(from).not.toHaveBeenCalledWith('evidencias_vtd');
+});
 it('no publica ni confirma un archivo que no se pudo descargar', async () => {
   download.mockResolvedValue({ data: null, error: new Error('sin archivo') });
   expect(await enviar()).toBe('error'); expect(fetchImpl).not.toHaveBeenCalled();
