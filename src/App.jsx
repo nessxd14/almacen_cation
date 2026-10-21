@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import ConteoApp          from "./ConteoApp";
+import ReportesAlmacenApp from "./ReportesAlmacenApp";
 import FaltantesApp       from "./FaltantesApp";
 import ReconciliacionApp  from "./ReconciliacionApp";
 import PromocionHuerfanos from "./PromocionHuerfanos";
@@ -38,6 +39,7 @@ import "./ux.css";
 const TABS = [
   { id: "inventario", label: "Estado",        icon: Warehouse,       Comp: InventarioApp },
   { id: "conteo",     label: "Conteo",        icon: ClipboardList,   Comp: ConteoApp },
+  { id: "reportes",   label: "Reportes de turno", icon: ClipboardList, Comp: ReportesAlmacenApp, roles: ["admin", "gerente", "almacenero", "operario"] },
   { id: "surtido",    label: "Surtido",       icon: Tags,            Comp: SurtidoApp },
   { id: "faltantes",  label: "Faltantes",     icon: AlertTriangle,   Comp: FaltantesApp },
   { id: "concilia",   label: "Conciliación",  icon: Scale,           Comp: ReconciliacionApp },
@@ -64,7 +66,7 @@ const TABS = [
 // de sucursal se queda fuera de todos ellos porque es contexto global, no
 // pertenece a ningún grupo.
 const GRUPOS = [
-  { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "surtido", "faltantes", "concilia", "huerfanos"] },
+  { id: "existencias",  label: "Existencias",  icon: Warehouse,  tabs: ["inventario", "conteo", "reportes", "surtido", "faltantes", "concilia", "huerfanos"] },
   { id: "catalogo-grp", label: "Catálogo",     icon: BookOpen,   tabs: ["catalogo", "fichas", "precios", "revision"] },
   { id: "movimientos",  label: "Movimientos",  icon: Truck,      tabs: ["pedidos", "movil", "compras", "ventadirecta", "traslados", "historial", "oper"] },
   { id: "admin-grp",    label: "Admin",        icon: Settings,   tabs: ["admin"] },
@@ -123,9 +125,10 @@ export default function App() {
     );
   }
 
-  const tabsVisibles = usuario.rol === "admin"
-    ? TABS
-    : TABS.filter((t) => !TABS_SOLO_ADMIN.has(t.id));
+  const tabsVisibles = TABS.filter((t) =>
+    (usuario.rol === "admin" || !TABS_SOLO_ADMIN.has(t.id)) &&
+    (!t.roles || t.roles.includes(usuario.rol))
+  );
   const idsVisibles = new Set(tabsVisibles.map((t) => t.id));
 
   const tabActivo = tabsVisibles.find((t) => t.id === tab) || tabsVisibles[0];
