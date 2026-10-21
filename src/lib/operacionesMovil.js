@@ -21,8 +21,8 @@ export function interpretarCodigoOperacion(valor) {
       if (url.searchParams.has('ne')) throw new Error('Este QR corresponde a una nota de entrega. Escanea el QR del pedido para preparar una entrega.');
       return { tipo: 'pedido', id: pedido[1] };
     }
-    const operacion = ruta.match(/^\/operaciones\/(pedidos|vtd|traslados-virtuales)\/([1-9]\d*)\/?$/);
-    if (operacion && idOperacion(operacion[2])) return { tipo: { pedidos: 'pedido', vtd: 'vtd', 'traslados-virtuales': 'traslado_virtual' }[operacion[1]], id: operacion[2] };
+    const operacion = ruta.match(/^\/operaciones\/(pedidos|vtd|traslados|traslados-virtuales)\/([1-9]\d*)\/?$/);
+    if (operacion && idOperacion(operacion[2])) return { tipo: { pedidos: 'pedido', vtd: 'vtd', traslados: 'traslado', 'traslados-virtuales': 'traslado_virtual' }[operacion[1]], id: operacion[2] };
     const ficha = ruta.match(/^\/(productos|ubicaciones)\/([1-9]\d*)\/ficha\/?$/);
     if (ficha && idOperacion(ficha[2])) {
       return { tipo: ficha[1] === 'productos' ? 'producto' : 'ubicacion', id: ficha[2], sucursalId: idOperacion(url.searchParams.get('sucursal')), presentacionId: idOperacion(url.searchParams.get('presentacion')) };
@@ -79,7 +79,7 @@ export const rolesOperacionesMovil = new Set([...rolesAlmacen, 'vendedor', 'caje
 export const etiquetaDocumento = tipo => ({ pedido: 'Pedido', vtd: 'VTD', traslado_virtual: 'Traslado virtual' }[tipo] || 'Documento');
 export function rutaDocumentoMovil(tipo, id, escanear = false) {
   if (!idOperacion(id)) throw new Error('El documento no tiene un ID válido.');
-  const segmento = { pedido: 'pedidos', vtd: 'vtd', traslado_virtual: 'traslados-virtuales' }[tipo];
+  const segmento = { pedido: 'pedidos', vtd: 'vtd', traslado: 'traslados', traslado_virtual: 'traslados-virtuales' }[tipo];
   if (!segmento) throw new Error('Tipo de documento no válido.');
   return `/operaciones/${segmento}/${id}${escanear ? '?escanear=1' : ''}`;
 }

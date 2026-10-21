@@ -66,7 +66,7 @@ export async function enviarPedido({admin,fetchImpl=fetch,token,config,lote}) {
   }
   for(let i=0;i<lote.mensajes.length;i++) {
     if(lote.mensajes_telegram?.[String(i)])continue;
-    const texto=`📋 ${lote.etapa==='PREPARACION'?'Alistado':'Salida'} · Detalle ${i+1}/${lote.mensajes.length} · Entrega #${lote.entrega_id}\n${lote.mensajes[i]}`;
+    const texto=`📋 ${lote.etapa==='PREPARACION'?'Alistado':lote.tipo==='TRASLADO'?'Entrega y recepción':'Salida'} · Detalle ${i+1}/${lote.mensajes.length} · Entrega #${lote.entrega_id}\n${lote.mensajes[i]}`;
     if(texto.length>4096)throw new Error('El detalle supera el límite de Telegram.');
     const body=new URLSearchParams({chat_id:config.chat_id,message_thread_id:String(config.tema_id),text:texto,
       reply_parameters:JSON.stringify({message_id:fotos[0].message_id,allow_sending_without_reply:true})});
@@ -86,7 +86,7 @@ export async function manejarPedidosWorker(req,{admin,token,fetchImpl=fetch}) {
   try {
     if(!(await rpc(admin,'autorizar',{token:typeof body?.token==='string'?body.token:''}))?.autorizado)return Response.json({error:'No autorizado.'},{status:401});
     const config=await rpc(admin,'configuracion');
-    if(body.accion==='diagnostico')return Response.json({ok:true,pedidos_dos_actores:true,...await comprobarBot(fetchImpl,token,config)});
+    if(body.accion==='diagnostico')return Response.json({ok:true,pedidos_dos_actores:true,traslados_qr:true,...await comprobarBot(fetchImpl,token,config)});
     const borrados=await limpiarFotos(admin,{rpcName:RPC,bucket:BUCKET});
     if(!config.activo)return Response.json({ok:true,activo:false,borrados});
     await comprobarBot(fetchImpl,token,config);
@@ -94,7 +94,7 @@ export async function manejarPedidosWorker(req,{admin,token,fetchImpl=fetch}) {
     for(let i=0;i<2;i++) {
       const lote=await rpc(admin,'reclamar');if(!lote)break;
       const destino=lote.chat_id?{...config,chat_id:lote.chat_id,tema_id:lote.tema_id}:config;
-      resultados.push(lote.tipo==='PEDIDO' && lote.mensajes?.length
+      resultados.push(['PEDIDO','TRASLADO'].includes(lote.tipo) && lote.mensajes?.length
         ?await enviarPedido({admin,token,fetchImpl,config:destino,lote})
         :await enviarLote({admin,token,fetchImpl,config:destino,lote,rpcName:RPC,bucket:BUCKET}));
     }
