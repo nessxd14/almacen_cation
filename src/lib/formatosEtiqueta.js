@@ -12,6 +12,8 @@ export const FORMATOS_ETIQUETA = [
   { id: 'mini', nombre: 'Mini · 50 × 30 mm', grupo: 'Productos', descripcion: 'Identificación breve para productos y espacios pequeños.', ancho: 50, alto: 30, fuente: 6, qr: 15, relleno: 1.5, ubicacion: false },
   { id: 'estanteria', nombre: 'Estantería · 70 × 40 mm', grupo: 'Almacén', descripcion: 'Producto y ubicación visibles en el frente de la repisa.', ancho: 70, alto: 40, fuente: 7, qr: 19, relleno: 2 },
   { id: 'caja_bulto', nombre: 'Caja y bulto · 90 × 50 mm', grupo: 'Almacén', descripcion: 'Presentación y equivalencia registradas para identificar el contenido.', ancho: 90, alto: 50, fuente: 8, qr: 22, relleno: 2.5 },
+  { id: 'caja_grande', nombre: 'Caja grande · 150 × 100 mm', grupo: 'Almacén', descripcion: 'Código destacado y características en casillas, adaptadas a cada producto. El contenido procede de la presentación elegida.', ancho: 150, alto: 100, fuente: 10, qr: 28, relleno: 4, atributos: true, ubicacion: false, marca: true },
+  { id: 'lectura_distancia', nombre: 'Lectura a distancia · 150 × 100 mm', grupo: 'Almacén', descripcion: 'Nombre grande primero, código en franja y características del producto. Para reconocer cajas, paquetes y bolsas a distancia.', ancho: 150, alto: 100, fuente: 10, qr: 28, relleno: 4, atributos: true, ubicacion: false, marca: true, estilo: 'industrial' },
   { id: 'ubicacion', nombre: 'Ubicación · 100 × 50 mm', grupo: 'Almacén', descripcion: 'Código del lugar destacado y QR para consultar sus productos.', ancho: 100, alto: 50, fuente: 10, qr: 26, relleno: 3, codigo: false, presentacion: false },
   { id: 'qr_rapido', nombre: 'QR rápido · 40 × 40 mm', grupo: 'Productos', descripcion: 'Acceso a la ficha digital con un QR central y código breve.', ancho: 40, alto: 40, fuente: 6, qr: 24, relleno: 1.5, ubicacion: false, presentacion: false },
   { id: 'control_lote', nombre: 'Control de lote · 70 × 40 mm', grupo: 'Recepción', descripcion: 'Producto y presentación con campos manuales de lote y fecha de ingreso.', ancho: 70, alto: 40, fuente: 6.5, qr: 18, relleno: 1.5, ubicacion: false },
@@ -23,6 +25,7 @@ export const FORMATO_INICIAL = {
 };
 
 const DISENOS = new Set(FORMATOS_ETIQUETA.map(formato => formato.id));
+export const esEtiquetaDeEmpaque = diseno => ['caja_bulto', 'caja_grande', 'lectura_distancia'].includes(diseno);
 const ENUMERACIONES = {
   papel: ['hoja', 'rollo'], orientacion: ['vertical', 'horizontal'],
   estilo: ['corporativo', 'industrial', 'minimalista'], simbologia: ['automatico', 'CODE128', 'EAN13'],

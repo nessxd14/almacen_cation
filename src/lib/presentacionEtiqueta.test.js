@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { presentacionesActivas, resolverPresentacion, textoPresentacion, codigosDePresentacion } from './presentacionEtiqueta';
+import { presentacionesActivas, resolverPresentacion, textoPresentacion, codigosDePresentacion, tieneContenidoRegistrado, textoContenidoPresentacion } from './presentacionEtiqueta';
 
 const presentaciones = [
   { id: 3, nombre: 'Caja', activo: true, factor_unidad_base: '12', identificador: [{ id: 30, tipo: 'barra', valor: '1234567890128', activo: true }] },
@@ -34,6 +34,16 @@ describe('presentaciones de la etiqueta', () => {
       expect.objectContaining({ id: 30, valor: '1234567890128', presentacion: 'Caja', presentacion_id: 3 }),
     ]);
     expect(codigosDePresentacion({ ...presentaciones[0], activo: false })).toEqual([]);
+  });
+  it('el contenido fijo conserva la unidad base y el factor, incluso cuando se vende por peso o longitud', () => {
+    expect(textoContenidoPresentacion(presentaciones[0], 'UND')).toBe('12 UND');
+    expect(textoContenidoPresentacion({ nombre: 'Bolsa', factor_unidad_base: 1 }, 'kg')).toBe('1 kg');
+    expect(textoContenidoPresentacion({ nombre: 'Rollo', factor_unidad_base: 0.5 }, 'm')).toMatch(/^0[,.]5 m$/);
+    for (const p of [null, { nombre: '', factor_unidad_base: 10 }, { nombre: 'Caja', factor_unidad_base: 0 }, { ...presentaciones[0], activo: false }]) {
+      expect(tieneContenidoRegistrado(p, 'UND')).toBe(false);
+      expect(textoContenidoPresentacion(p, 'UND')).toBe('Equivalencia sin registrar');
+    }
+    expect(tieneContenidoRegistrado(presentaciones[0], '  ')).toBe(false);
   });
   it('filtra barras inactivas o vacías y prioriza la principal', () => {
     const codigos = codigosDePresentacion({ id: 7, nombre: 'Pack', identificador: [

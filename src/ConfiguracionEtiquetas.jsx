@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Save, Trash2 } from 'lucide-react';
-import { FORMATO_INICIAL, FORMATOS_ETIQUETA, normalizarFormato } from './lib/formatosEtiqueta';
+import { FORMATO_INICIAL, FORMATOS_ETIQUETA, normalizarFormato, esEtiquetaDeEmpaque } from './lib/formatosEtiqueta';
 
 const grupos = ['Productos', 'Almacén', 'Recepción'];
 
@@ -19,7 +19,7 @@ export default function ConfiguracionEtiquetas({ formato, setFormato, guardados,
   return <section className="fichas-panel fichas-settings"><h3>Formato de impresión</h3>
     <label className="fichas-field">Diseño de etiqueta<select aria-label="Formato" value={formato.diseno} onChange={e => {
       const elegido = FORMATOS_ETIQUETA.find(f => f.diseno === e.target.value);
-      if (elegido) setFormato(f => ({ ...FORMATO_INICIAL, ...elegido, papel: f.papel, orientacion: f.orientacion, margen: f.margen, separacion: f.separacion, giroAutomatico: f.giroAutomatico, estilo: f.estilo }));
+      if (elegido) setFormato(f => ({ ...FORMATO_INICIAL, ...elegido, papel: f.papel, orientacion: f.orientacion, margen: f.margen, separacion: f.separacion, giroAutomatico: f.giroAutomatico, estilo: ['caja_grande', 'lectura_distancia'].includes(elegido.diseno) ? elegido.estilo : f.estilo }));
     }}>{grupos.map(grupo => <optgroup key={grupo} label={grupo}>{FORMATOS_ETIQUETA.filter(f => f.grupo === grupo).map(f => <option key={f.id} value={f.diseno}>{f.nombre}</option>)}</optgroup>)}</select></label>
     <p className="fichas-note">{preset?.descripcion}</p>
     {guardados.length > 0 && <label className="fichas-field">Mis formatos<select aria-label="Mis formatos" value="" onChange={e => { const elegido = normalizarFormato(guardados[Number(e.target.value)]?.formato); if (elegido) setFormato(elegido); }}><option value="" disabled>Cargar un formato guardado</option>{guardados.map((g, i) => <option key={g.nombre} value={i}>{g.nombre}</option>)}</select></label>}
@@ -30,7 +30,7 @@ export default function ConfiguracionEtiquetas({ formato, setFormato, guardados,
     {formato.papel === 'hoja' && <><label className="fichas-field">Orientación de hoja<select aria-label="Orientación de hoja" value={formato.orientacion} onChange={e => cambiar('orientacion', e.target.value)}><option value="vertical">Vertical</option><option value="horizontal">Horizontal</option></select></label><label className="fichas-check"><input type="checkbox" checked={formato.giroAutomatico} onChange={e => cambiar('giroAutomatico', e.target.checked)} /> Girar etiquetas para aprovechar la hoja</label></>}
     <details className="fichas-advanced"><summary>Ajustar medidas y contenido</summary>
       <div className="fichas-fields-grid">{numeros.map(([campo, label, min, max]) => <label className="fichas-field" key={campo}>{label}<input type="number" min={min} max={max} step="0.5" value={formato[campo]} onChange={e => cambiar(campo, Number(e.target.value))} /></label>)}</div>
-      {!esUbicacion && <fieldset className="fichas-options"><legend>Contenido de la etiqueta</legend>{opciones.map(([campo, label]) => <label key={campo}><input type="checkbox" checked={formato[campo]} disabled={campo === 'presentacion' && formato.diseno === 'caja_bulto'} onChange={e => cambiar(campo, e.target.checked)} />{label}</label>)}</fieldset>}
+      {!esUbicacion && <fieldset className="fichas-options"><legend>Contenido de la etiqueta</legend>{opciones.map(([campo, label]) => <label key={campo}><input type="checkbox" checked={campo === 'presentacion' && esEtiquetaDeEmpaque(formato.diseno) ? true : formato[campo]} disabled={campo === 'presentacion' && esEtiquetaDeEmpaque(formato.diseno)} onChange={e => cambiar(campo, e.target.checked)} />{label}</label>)}</fieldset>}
       {formato.barras && !esUbicacion && <label className="fichas-field">Tipo de código de barras<select aria-label="Tipo de código de barras" value={formato.simbologia} onChange={e => cambiar('simbologia', e.target.value)}><option value="automatico">Automático según el código</option><option value="CODE128">Code 128</option><option value="EAN13">EAN-13</option></select></label>}
     </details>
     <p className="fichas-note">El QR abre la ficha actual. Las existencias se consultan en pantalla.</p>
