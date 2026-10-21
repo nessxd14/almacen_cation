@@ -60,4 +60,29 @@ describe('confirmación de capturas', () => {
       tx.oncomplete(); await save; expect(completed).toBe(true);
     } finally { vi.unstubAllGlobals(); }
   });
+  it('guarda todas las presentaciones en una transacción y espera su confirmación', async () => {
+    let tx;
+    const put = vi.fn();
+    const transaction = vi.fn(() => { tx = { objectStore: () => ({ put }) }; return tx; });
+    const request = {};
+    vi.stubGlobal('indexedDB', { open: () => { queueMicrotask(() => { request.result = { transaction }; request.onsuccess(); }); return request; } });
+    try {
+      const queue = await abrirColaConteo(); let completed = false;
+      const save = queue.guardarLote([{ uuid: 'cajas' }, { uuid: 'unidades' }]).then(() => { completed = true; });
+      expect(transaction).toHaveBeenCalledTimes(1); expect(put).toHaveBeenCalledTimes(2);
+      await Promise.resolve(); expect(completed).toBe(false);
+      tx.oncomplete(); await save; expect(completed).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('aborta todo el lote cuando una presentación no se puede persistir', async () => {
+    const abort = vi.fn();
+    const put = vi.fn().mockImplementationOnce(() => ({})).mockImplementationOnce(() => { throw new Error('Sin espacio'); });
+    const request = {};
+    vi.stubGlobal('indexedDB', { open: () => { queueMicrotask(() => { request.result = { transaction: () => ({ abort, objectStore: () => ({ put }) }) }; request.onsuccess(); }); return request; } });
+    try {
+      const queue = await abrirColaConteo();
+      await expect(queue.guardarLote([{ uuid: 'cajas' }, { uuid: 'unidades' }])).rejects.toThrow('Sin espacio');
+      expect(abort).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
 });

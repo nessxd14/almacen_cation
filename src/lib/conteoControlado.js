@@ -28,13 +28,18 @@ export async function abrirColaConteo() {
   });
   const tx = (mode, operation) => new Promise((resolve, reject) => {
     const transaction = db.transaction('capturas', mode);
-    const request = operation(transaction.objectStore('capturas'));
-    transaction.oncomplete = () => resolve(request.result);
+    let request;
+    transaction.oncomplete = () => resolve(request?.result);
     transaction.onabort = transaction.onerror = () => reject(new Error('No se pudo guardar la captura en este dispositivo.'));
+    try { request = operation(transaction.objectStore('capturas')); }
+    catch (error) { transaction.abort(); reject(error); }
   });
   return {
     listar: () => tx('readonly', s => s.getAll()),
     guardar: captura => tx('readwrite', s => s.put(captura)),
+    // Cajas y unidades se confirman juntas en el dispositivo. Un fallo no deja
+    // media declaración persistida que pudiera duplicarse al volver a guardar.
+    guardarLote: capturas => tx('readwrite', s => { for (const captura of capturas) s.put(captura); }),
     quitar: uuid => tx('readwrite', s => s.delete(uuid)),
     cerrar: () => db.close(),
   };

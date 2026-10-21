@@ -82,6 +82,20 @@ Los cinco avisos informativos nuevos de RLS sin política corresponden exclusiva
 
 ## Estado de entrega y siguientes etapas
 
+### Interfaz de declaración por producto · 21 de octubre de 2026
+
+El inicio ofrece declarar existencias iniciales, verificar una ubicación o verificar productos específicos. Se conserva la elección de una persona o dos rondas independientes y el bloqueo de toda la ubicación, incluso en alcances parciales.
+
+Durante la captura, la lista permite abrir pendientes, consultar los productos ya contados y buscar por nombre, SKU o código de barras. El escáner selecciona la presentación de la etiqueta y abre la ficha del producto. Cada ficha reúne sus presentaciones activas para contar empaques cerrados y unidades sueltas a la vez. El total representa toda la existencia física de ese producto en esa ubicación, no un ingreso adicional. El esperado continúa oculto durante la captura.
+
+**Guardar y siguiente** persiste todas las presentaciones en una sola transacción IndexedDB antes de pasar al siguiente pendiente. Una foto del producto respalda las capturas de sus presentaciones; cada captura conserva su UUID y foto privada en el servicio existente. La sincronización puede confirmar cada presentación por separado: mientras quede alguna pendiente, el producto sigue por sincronizar y la ronda no se puede finalizar. Reintentar no vuelve a generar la declaración. Un fallo local conserva cantidades y foto en el formulario para reintentar; no se anuncia guardado durable.
+
+Los campos vacíos no declaran cero. **Verifiqué: no hay este producto** prepara el cero explícito y sigue requiriendo evidencia. Los borradores se conservan al alternar entre productos durante la misma sesión de pantalla y bloquean la finalización hasta guardarlos o descartarlos; no son persistencia offline hasta pulsar Guardar. Una declaración vigente se consulta sin ofrecer otra carga aditiva: para reemplazar el total hay que anular sus capturas con motivo y volver a declarar el producto completo.
+
+Supervisión dispone de una tabla con filtros por productos pendientes, diferencias y todos, y abre una ficha de aprobación a la vez. Guardar no cambia stock; únicamente **Aplicar conteo y liberar ubicación**, después de las aprobaciones, establece las nuevas existencias. No se cambió el contrato ni la migración del motor y no se ajustaron datos reales durante la implementación.
+
+Validación de esta actualización: pruebas de captura mixta, cero explícito, persistencia por lote, fallo local, sincronización parcial y reconexión, avance al siguiente producto, bloqueo de duplicados, borradores y artículos sin catálogo; además del integrador PostgreSQL aislado existente. Las pantallas con datos sintéticos se verifican a 320, 390 y 1280 px. La comprobación de cámara y operación con usuarios reales corresponde al piloto físico.
+
 La migración está aplicada. La interfaz está implementada y compilada en el repositorio local; este trabajo no publicó un despliegue de Almacén. Antes del uso operativo general hay que publicar esta interfaz y hacer el piloto físico de una ubicación con usuarios reales, incluyendo cámara, reconexión y supervisión.
 
 Quedan para una etapa posterior: tolerancias por cantidad/valor a costo, programación de conteos ABC, métricas de exactitud, clasificación estructurada de causas, compensación de movimientos concurrentes y diagnóstico individual de los 11 negativos ESTRICTO encontrados en la revisión inicial.
