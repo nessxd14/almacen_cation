@@ -1,5 +1,13 @@
 # React + Vite
 
+## Reportes de almacén y entrega de turnos
+
+En **Existencias → Reportes de turno** se genera la hoja de conteo ciego, se imprime o guarda como PDF, se transcriben las cantidades y se comparan antes de entregar. Incluye recepción por otra persona, movimientos diarios y programación cíclica. Consulta [la guía de reportes](docs/reportes-turno-almacen.md) y ejecuta `npm run test:reportes` para validar el motor sin datos del negocio.
+
+## Conteo físico y control de existencias
+
+Conteo y Conciliación comparten el flujo con corte por ubicación, rondas independientes y aprobación antes de aplicar. Consulta [la guía de conteo controlado](docs/conteo-fisico-controlado.md) para el piloto, los datos anteriores y las pruebas (`npm run test:conteo`).
+
 ## Fichas digitales y etiquetas de almacén
 
 - En **Catálogo → Fichas y etiquetas** se seleccionan productos y se imprimen individualmente o por lote. En el detalle de cada producto está el botón **Ficha y etiqueta**.

@@ -1,0 +1,1229 @@
+{
+  "enums": [
+    {
+      "name": "estado_conciliacion",
+      "values": [
+        "PENDIENTE",
+        "CONCILIADA",
+        "INYECTADA",
+        "DESCARTADA"
+      ]
+    },
+    {
+      "name": "metodo_resolucion",
+      "values": [
+        "AUTO_SIMPLE",
+        "AUTO_COINCIDE",
+        "MANUAL"
+      ]
+    },
+    {
+      "name": "tipo_movimiento",
+      "values": [
+        "INV_INICIAL",
+        "ENTRADA",
+        "SALIDA",
+        "AJUSTE",
+        "TRASLADO"
+      ]
+    },
+    {
+      "name": "estado_traslado_linea",
+      "values": [
+        "POR_DESPACHAR",
+        "DESPACHADA",
+        "RECHAZADO",
+        "CAMBIADA",
+        "RETIRADA"
+      ]
+    },
+    {
+      "name": "categoria_pedido",
+      "values": [
+        "MAYOR",
+        "TIENDA",
+        "INSTITUCIONAL",
+        "MUNICIPAL",
+        "CORPORATIVO"
+      ]
+    },
+    {
+      "name": "estado_pedido",
+      "values": [
+        "ABIERTO",
+        "COMPLETADO",
+        "CANCELADO"
+      ]
+    },
+    {
+      "name": "estado_linea",
+      "values": [
+        "POR_DESPACHAR",
+        "DESPACHADA",
+        "PENDIENTE",
+        "POR_COMPRAR",
+        "COMPRADO_DIRECTO",
+        "ESPECIAL",
+        "RECHAZADO",
+        "CAMBIADA",
+        "RETIRADA"
+      ]
+    },
+    {
+      "name": "tipo_precio_cliente",
+      "values": [
+        "retail",
+        "mayorista",
+        "corporativo",
+        "institucion"
+      ]
+    },
+    {
+      "name": "estado_venta",
+      "values": [
+        "ABIERTA",
+        "COMPLETADA",
+        "ANULADA"
+      ]
+    },
+    {
+      "name": "estado_cotizacion",
+      "values": [
+        "BORRADOR",
+        "APROBADA",
+        "CONVERTIDA",
+        "VENCIDA",
+        "ANULADA"
+      ]
+    },
+    {
+      "name": "estado_sesion_caja",
+      "values": [
+        "ABIERTA",
+        "CERRADA",
+        "EN_REVISION"
+      ]
+    },
+    {
+      "name": "tipo_movimiento_caja",
+      "values": [
+        "VENTA",
+        "ANTICIPO",
+        "INGRESO",
+        "EGRESO",
+        "ANULACION"
+      ]
+    },
+    {
+      "name": "metodo_pago",
+      "values": [
+        "EFECTIVO",
+        "QR",
+        "TRANSFERENCIA",
+        "SIGEP",
+        "CHEQUE",
+        "DEPOSITO"
+      ]
+    },
+    {
+      "name": "condicion_pago",
+      "values": [
+        "CONTADO",
+        "PAGO_PARCIAL",
+        "SIGEP",
+        "TRANSFERENCIA_BANCARIA",
+        "QR",
+        "CREDITO"
+      ]
+    },
+    {
+      "name": "estado_traslado",
+      "values": [
+        "SOLICITADO",
+        "EN_TRANSITO",
+        "RECIBIDO",
+        "RECHAZADO",
+        "CANCELADO"
+      ]
+    },
+    {
+      "name": "motivo_traslado",
+      "values": [
+        "VENTA_DIRECTA",
+        "REPOSICION",
+        "DEVOLUCION"
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "name": "conciliacion_linea",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "sesion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "presentacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ubicacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cantidad_conteo_1",
+          "type": "numeric(14,3)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cantidad_conteo_2",
+          "type": "numeric(14,3)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "contador_1",
+          "type": "character varying(120)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "contador_2",
+          "type": "character varying(120)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cantidad_conciliada",
+          "type": "numeric(14,3)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "factor_a_base_snap",
+          "type": "numeric(14,4)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cantidad_base_conciliada",
+          "type": "numeric(18,4)",
+          "default": "(cantidad_conciliada * factor_a_base_snap)",
+          "notnull": false,
+          "identity": "",
+          "generated": "s"
+        },
+        {
+          "name": "metodo_resolucion",
+          "type": "metodo_resolucion",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "estado",
+          "type": "estado_conciliacion",
+          "default": "'PENDIENTE'::estado_conciliacion",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "resuelto_por",
+          "type": "character varying(120)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "resuelto_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "conciliacion_linea_cantidad_conciliada_check",
+          "definition": "CHECK ((cantidad_conciliada >= (0)::numeric))"
+        },
+        {
+          "name": "conciliacion_linea_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "uq_concil_slot",
+          "definition": "UNIQUE (sesion_id, presentacion_id, ubicacion_id)"
+        }
+      ]
+    },
+    {
+      "name": "kardex_transacciones",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "producto_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ubicacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cantidad",
+          "type": "numeric(18,4)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "tipo_movimiento",
+          "type": "tipo_movimiento",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "referencia",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "origen_sesion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "origen_conciliacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "costo_unitario_base",
+          "type": "numeric(18,6)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "fecha_efectiva",
+          "type": "date",
+          "default": "CURRENT_DATE",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "creado_por",
+          "type": "character varying(120)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "presentacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cantidad_origen",
+          "type": "numeric(14,3)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "factor_a_base_snap",
+          "type": "numeric(14,4)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "motivo",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "traslado_grupo_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "idempotencia_clave",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "kardex_transacciones_cantidad_check",
+          "definition": "CHECK ((cantidad <> (0)::numeric))"
+        },
+        {
+          "name": "kardex_transacciones_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "uq_kardex_idem",
+          "definition": "UNIQUE (idempotencia_clave)"
+        },
+        {
+          "name": "uq_kardex_origen",
+          "definition": "UNIQUE (origen_conciliacion_id)"
+        }
+      ]
+    },
+    {
+      "name": "perfil",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "nombre",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "rol",
+          "type": "text",
+          "default": "'operario'::text",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "activo",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "sucursal_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "hermes_acceso",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "perfil_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "perfil_rol_check",
+          "definition": "CHECK ((rol = ANY (ARRAY['admin'::text, 'gerente'::text, 'cajero'::text, 'vendedor'::text, 'almacenero'::text, 'operario'::text])))"
+        }
+      ]
+    },
+    {
+      "name": "presentacion",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "producto_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "nombre",
+          "type": "character varying(80)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "factor_unidad_base",
+          "type": "numeric(14,4)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "es_base",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "activo",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "presentacion_factor_unidad_base_check",
+          "definition": "CHECK ((factor_unidad_base > (0)::numeric))"
+        },
+        {
+          "name": "presentacion_pkey",
+          "definition": "PRIMARY KEY (id)"
+        }
+      ]
+    },
+    {
+      "name": "producto",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "familia_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "nombre",
+          "type": "character varying(250)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "sku_interno",
+          "type": "character varying(64)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "marca",
+          "type": "character varying(120)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unidad_base",
+          "type": "character varying(40)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "precio_base",
+          "type": "numeric(14,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "activo",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "shopify_variant_id",
+          "type": "character varying(64)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "shopify_inventory_item_id",
+          "type": "character varying(64)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "actualizado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "imagen_url",
+          "type": "character varying(500)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "precio_mayoreo",
+          "type": "numeric(14,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "precio_institucion",
+          "type": "numeric(14,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "stock_min",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "punto_reorden",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "precio_corporativo",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ficha_md",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ficha_actualizada_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "precio_municipal",
+          "type": "numeric",
+          "default": "precio_corporativo",
+          "notnull": false,
+          "identity": "",
+          "generated": "s"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "producto_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "producto_sku_interno_key",
+          "definition": "UNIQUE (sku_interno)"
+        }
+      ]
+    },
+    {
+      "name": "producto_sucursal",
+      "columns": [
+        {
+          "name": "producto_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "sucursal_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "se_vende",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "control_stock",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "stock_min",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "punto_reorden",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "inventariado_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "inventariado_por",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "producto_sucursal_control_stock_check",
+          "definition": "CHECK ((control_stock = ANY (ARRAY['ESTRICTO'::text, 'LIBRE'::text])))"
+        },
+        {
+          "name": "producto_sucursal_pkey",
+          "definition": "PRIMARY KEY (producto_id, sucursal_id)"
+        }
+      ]
+    },
+    {
+      "name": "producto_ubicacion",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "producto_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ubicacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "es_principal",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "producto_ubicacion_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "producto_ubicacion_producto_id_ubicacion_id_key",
+          "definition": "UNIQUE (producto_id, ubicacion_id)"
+        }
+      ]
+    },
+    {
+      "name": "sesion_conteo",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "nombre",
+          "type": "character varying(160)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "metodo",
+          "type": "character varying(20)",
+          "default": "'SIMPLE'::character varying",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "estado",
+          "type": "character varying(20)",
+          "default": "'ABIERTA'::character varying",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "iniciada_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cerrada_en",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ubicacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cerrada_por",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "sesion_conteo_estado_check",
+          "definition": "CHECK (((estado)::text = ANY (ARRAY[('ABIERTA'::character varying)::text, ('CERRADA'::character varying)::text, ('CONCILIADA'::character varying)::text, ('INYECTADA'::character varying)::text])))"
+        },
+        {
+          "name": "sesion_conteo_metodo_check",
+          "definition": "CHECK (((metodo)::text = ANY (ARRAY[('SIMPLE'::character varying)::text, ('DOBLE_CIEGO'::character varying)::text])))"
+        },
+        {
+          "name": "sesion_conteo_pkey",
+          "definition": "PRIMARY KEY (id)"
+        }
+      ]
+    },
+    {
+      "name": "stock_actual",
+      "columns": [
+        {
+          "name": "producto_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ubicacion_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cantidad_base",
+          "type": "numeric(18,4)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "actualizado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "stock_actual_pkey",
+          "definition": "PRIMARY KEY (producto_id, ubicacion_id)"
+        }
+      ]
+    },
+    {
+      "name": "sucursal",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "nombre",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "tipo",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "visible_online",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "activo",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "control_stock_default",
+          "type": "text",
+          "default": "'ESTRICTO'::text",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "sucursal_control_stock_default_chk",
+          "definition": "CHECK ((control_stock_default = ANY (ARRAY['ESTRICTO'::text, 'LIBRE'::text])))"
+        },
+        {
+          "name": "sucursal_nombre_key",
+          "definition": "UNIQUE (nombre)"
+        },
+        {
+          "name": "sucursal_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "sucursal_tipo_check",
+          "definition": "CHECK ((tipo = ANY (ARRAY['fisica'::text, 'virtual'::text])))"
+        }
+      ]
+    },
+    {
+      "name": "ubicacion",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "codigo_zona",
+          "type": "character varying(80)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "estante",
+          "type": "character varying(80)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "nivel",
+          "type": "character varying(80)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "compartimiento",
+          "type": "character varying",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "sucursal_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "es_recepcion",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "excluye_disponible",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "ubicacion_mueble_formato",
+          "definition": "CHECK (((estante IS NULL) OR ((estante)::text <> ALL ((ARRAY['Estante'::character varying, 'Pallet'::character varying])::text[])) OR (((nivel)::text ~ '^[A-Z]$'::text) AND ((compartimiento IS NULL) OR ((compartimiento)::text ~ '^[1-9][0-9]?$'::text)))))"
+        },
+        {
+          "name": "ubicacion_pkey",
+          "definition": "PRIMARY KEY (id)"
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    "CREATE TRIGGER kardex_mantiene_stock AFTER INSERT ON public.kardex_transacciones FOR EACH ROW EXECUTE FUNCTION trg_stock_desde_kardex()",
+    "CREATE TRIGGER kardex_no_delete BEFORE DELETE ON public.kardex_transacciones FOR EACH ROW EXECUTE FUNCTION trg_kardex_append_only()",
+    "CREATE TRIGGER kardex_no_update BEFORE UPDATE ON public.kardex_transacciones FOR EACH ROW EXECUTE FUNCTION trg_kardex_append_only()",
+    "CREATE TRIGGER precio_solo_admin BEFORE UPDATE ON public.producto FOR EACH ROW EXECUTE FUNCTION trg_precio_solo_admin()"
+  ],
+  "functions": [
+    "CREATE OR REPLACE FUNCTION public.trg_kardex_append_only()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n    RAISE EXCEPTION 'kardex_transacciones es append-only: % no permitido', TG_OP;\r\nEND;\r\n$function$\n",
+    "CREATE OR REPLACE FUNCTION public.trg_stock_desde_kardex()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n    INSERT INTO stock_actual (producto_id, ubicacion_id, cantidad_base, actualizado_en)\r\n    VALUES (NEW.producto_id, NEW.ubicacion_id, NEW.cantidad, now())\r\n    ON CONFLICT (producto_id, ubicacion_id) DO UPDATE\r\n        SET cantidad_base  = stock_actual.cantidad_base + EXCLUDED.cantidad_base,\r\n            actualizado_en = now();\r\n    RETURN NEW;\r\nEND;\r\n$function$\n",
+    "CREATE OR REPLACE FUNCTION public.trg_precio_solo_admin()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare v_rol text;\r\nbegin\r\n  if new.precio_base         is not distinct from old.precio_base\r\n and new.precio_mayoreo      is not distinct from old.precio_mayoreo\r\n and new.precio_institucion  is not distinct from old.precio_institucion\r\n and new.precio_corporativo  is not distinct from old.precio_corporativo then\r\n    return new;\r\n  end if;\r\n  v_rol := coalesce(current_setting('request.jwt.claims', true)::jsonb->>'role', 'servidor');\r\n  if v_rol in ('anon','authenticated') and not app_es_admin() then\r\n    raise exception 'Solo un usuario con rol admin puede modificar los precios del catálogo (producto %).', old.id\r\n      using errcode = '42501';\r\n  end if;\r\n  return new;\r\nend $function$\n",
+    "CREATE OR REPLACE FUNCTION public.marcar_inventariado(p_producto_id bigint, p_sucursal_id bigint)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_actor text;\r\nbegin\r\n  if not app_puede_inventariar() then\r\n    raise exception 'Un cajero no puede marcar productos como inventariados.'\r\n      using errcode = '42501';\r\n  end if;\r\n\r\n  v_actor := coalesce(\r\n    (select nombre from perfil where id = auth.uid()),\r\n    auth.jwt() ->> 'email',\r\n    current_user);\r\n\r\n  insert into producto_sucursal (producto_id, sucursal_id, se_vende, control_stock, inventariado_en, inventariado_por)\r\n  values (p_producto_id, p_sucursal_id, true, 'ESTRICTO', now(), v_actor)\r\n  on conflict (producto_id, sucursal_id) do update\r\n    set control_stock   = 'ESTRICTO',\r\n        se_vende        = true,\r\n        inventariado_en = coalesce(producto_sucursal.inventariado_en, now()),\r\n        inventariado_por = coalesce(producto_sucursal.inventariado_por, v_actor);\r\nend;\r\n$function$\n"
+  ]
+}

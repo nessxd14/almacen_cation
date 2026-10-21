@@ -98,6 +98,7 @@ export async function cargarFichaProducto(cliente, productoId, sucursalId) {
     disponibilidad: () => cliente.rpc('saldo_vendible', { p_producto_ids: [Number(productoId)], p_sucursal_id: Number(sucursalId) }),
     movimientos: () => cliente.from('kardex_transacciones').select(`id, cantidad, tipo_movimiento, referencia, creado_por, creado_en, ubicacion:ubicacion_id!inner(${CAMPOS_UBICACION})`).eq('producto_id', productoId).eq('ubicacion.sucursal_id', sucursalId).order('creado_en', { ascending: false }).order('id', { ascending: false }).limit(6),
     conteo: () => cliente.from('kardex_transacciones').select('id, creado_en, creado_por, origen_conciliacion_id, ubicacion:ubicacion_id!inner(sucursal_id)').eq('producto_id', productoId).eq('ubicacion.sucursal_id', sucursalId).not('origen_conciliacion_id', 'is', null).order('creado_en', { ascending: false }).order('id', { ascending: false }).limit(1),
+    verificacion: () => cliente.rpc('operar_conteo', { p_accion: 'ultimo', p_sesion_id: null, p_datos: { producto_id: Number(productoId), sucursal_id: Number(sucursalId) } }),
   };
   const nombres = Object.keys(consultas);
   const resultados = await Promise.allSettled(nombres.map(nombre => consultas[nombre]()));
@@ -113,5 +114,8 @@ export async function cargarFichaProducto(cliente, productoId, sucursalId) {
   });
   ficha.disponibilidad = ficha.disponibilidad?.find(r => String(r.producto_id) === String(productoId)) ?? null;
   ficha.conteo = ficha.conteo?.[0] ?? null;
+  // Un conteo sin diferencia no crea Kardex, pero también verifica existencias.
+  if (ficha.verificacion && (!ficha.conteo || new Date(ficha.verificacion.creado_en) >= new Date(ficha.conteo.creado_en))) ficha.conteo = ficha.verificacion;
+  if (ficha.errores.verificacion) { ficha.errores.conteo = 'No se pudo comprobar la última verificación de existencias.'; delete ficha.errores.verificacion; }
   return ficha;
 }

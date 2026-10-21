@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:qr": "node db/tests/flujos-qr.integration.mjs"
+    "test:qr": "node db/tests/flujos-qr.integration.mjs",
+    "test:conteo": "node db/tests/conteo-controlado.integration.mjs",
+    "test:reportes": "node db/tests/reportes-turno.integration.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",

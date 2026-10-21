@@ -67,7 +67,7 @@ function clienteSimulado(stockError) {
         : () => query });
       return query;
     },
-    rpc: async () => ({ data: [{ producto_id: 42, vendible: 0, reservado: 0 }] }),
+    rpc: async name => ({ data: name === 'operar_conteo' ? null : [{ producto_id: 42, vendible: 0, reservado: 0 }] }),
   };
 }
 
@@ -83,5 +83,13 @@ describe('lectura de ficha', () => {
     const ficha = await cargarFichaProducto(clienteSimulado(false), 42, 1);
     expect(ficha.stock).toEqual([]);
     expect(ficha.errores).toEqual({});
+  });
+  it('muestra la verificación sin diferencia aunque no haya movimiento de ajuste', async () => {
+    const cliente = clienteSimulado(false), original = cliente.rpc;
+    cliente.rpc = async (name, args) => name === 'operar_conteo'
+      ? { data: { sesion_id: 9, creado_en: '2026-10-19T12:00:00Z', creado_por: 'Supervisión QA', origen_conciliacion_id: 5 } }
+      : original(name, args);
+    const ficha = await cargarFichaProducto(cliente, 42, 1);
+    expect(ficha.conteo).toMatchObject({ sesion_id: 9, creado_por: 'Supervisión QA' });
   });
 });
