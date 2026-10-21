@@ -38,15 +38,15 @@ export default function EvidenciaOperacion({ tipo, documentoId, entregaId, versi
   }
   if (datos && !datos.activo && !datos.envios.length && !error) return null;
   return <section className="om-pedido om-evidencia">
-    <h3>{tipo === 'pedido' ? 'Fotos del retiro del pedido' : 'Fotos del traslado'}</h3>
+    <h3>{tipo === 'pedido' ? datos?.contexto?.dos_actores && !datos.contexto.puede_capturar?'Evidencias de esta entrega':datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos del retiro del pedido' : 'Fotos del traslado'}</h3>
     {datos?.activo && datos.contexto.puede_capturar && <>
-      <p>Adjunta entre 1 y 10 fotos del material. Se enviarán al tema {tipo === 'pedido' ? 'Pedidos al confirmar el retiro' : 'Traslados al autorizar la salida'}.</p>
+      <p>Adjunta entre 1 y 10 fotos del material. Se enviarán al tema {tipo === 'pedido' ? datos.contexto.etapa==='PREPARACION'?'Pedidos al enviar a verificación':'Pedidos al confirmar el retiro' : 'Traslados al autorizar la salida'}.</p>
       <label>Tomar foto<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
       <label>Elegir fotos<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label>
       <p aria-live="polite">{fotos.length} de 10 fotos seleccionadas</p>
       <div className="om-evidencia-fotos">{fotos.map((foto,i) => <Foto key={`${i}:${foto.name}`} foto={foto} indice={i} busy={busy} onQuitar={() => onFotos(fotos.filter((_,index) => index!==i))} />)}</div>
     </>}
-    {datos?.envios.map(e => <div className="om-evidencia-estado" key={e.id}><strong>{estados[e.estado]}</strong><p>{e.cantidad} foto(s)</p>
+    {datos?.envios.map(e => <div className="om-evidencia-estado" key={e.id}><strong>{e.etapa==='PREPARACION'?'📦 Alistado · ':e.etapa==='SALIDA'?'🚚 Salida · ':''}{estados[e.estado]}</strong><p>{e.cantidad} foto(s)</p>
       {e.enlace && <a href={e.enlace} target="_blank" rel="noreferrer">Ver evidencia en Telegram</a>}
       {e.estado === 'ERROR' && <><p>{e.error}</p><button disabled={busy || reintentando} onClick={() => reintentar(e.id)}>Reintentar envío de fotos</button></>}
       {e.estado === 'INCIERTO' && <p>Un administrador debe comprobar si el álbum se publicó antes de reintentarlo.</p>}

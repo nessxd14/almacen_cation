@@ -11,7 +11,7 @@ function cantidadLinea(linea) {
     + (factor > 1 && Number.isInteger(cajas) ? ' · ' + cantidadTexto(cajas) + ' ' + s.presentacion : '');
 }
 
-export default function ConfirmarRestoPreparacion({ lineas, ocupado, onConfirmar }) {
+export default function ConfirmarRestoPreparacion({ lineas, ocupado, onConfirmar, dosActores = false }) {
   const [mostrar, setMostrar] = useState(false);
   const plan = planPreparacionCompleta(lineas);
   const n = plan.completar.length;
@@ -21,7 +21,7 @@ export default function ConfirmarRestoPreparacion({ lineas, ocupado, onConfirmar
   }
   return <section className="om-preparacion-rapida" aria-label="Confirmación rápida de preparación">
     {!mostrar ? <>
-      <button className="om-primary om-wide" disabled={ocupado} onClick={() => setMostrar(true)}><CheckCheck size={19} /> Confirmar el resto completo</button>
+      <button className="om-primary om-wide" disabled={ocupado} onClick={() => setMostrar(true)}><CheckCheck size={19} /> {dosActores ? 'Todo lo demás preparado' : 'Confirmar el resto completo'}</button>
       <p className="om-muted">Registra primero las líneas con faltantes. Luego confirma juntas las demás.</p>
     </> : <>
       <h3>Confirmar {n} {n === 1 ? 'línea completa' : 'líneas completas'}</h3>

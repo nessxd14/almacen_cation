@@ -4,6 +4,7 @@ import { Check, CheckCircle2, AlertTriangle, Package, ScanLine, Search, X, MapPi
 import { cantidadOperacion, cantidadTexto } from './lib/operacionesMovil';
 import { coincideLineaPreparacion, estadoPreparacion, resumenChecklist, revisionCompleta } from './lib/preparacionUI';
 import { etiquetaUbicacion } from './lib/ubicacionTexto';
+import CantidadPedido from './CantidadPedido';
 
 const unidad = s => s.presentacion || s.unidad_base;
 const factor = s => Number(s.factor) > 0 ? Number(s.factor) : 1;
@@ -15,15 +16,15 @@ export function EtapasEntrega({ estado, entregada }) {
   return <ol className="om-etapas" aria-label="Etapas de la entrega">{['Alistar', 'Verificar', 'Despachar'].map((nombre, i) => <li key={nombre} className={i < paso ? 'is-done' : i === paso ? 'is-current' : ''} aria-current={i === paso ? 'step' : undefined}><span>{i < paso ? <Check size={14} /> : i + 1}</span>{nombre}</li>)}</ol>;
 }
 
-export default function PreparacionChecklist({ lineas, tipo, tarea, puedePreparar, puedeRevisar, ocupado, editor, setEditor, accion, abrirScanner, ubicaciones, ubicacionesListas, errorUbicaciones, sucursalId, esAlmacen }) {
+export default function PreparacionChecklist({ lineas, tipo, tarea, puedePreparar, puedeRevisar, ocupado, editor, setEditor, accion, abrirScanner, ubicaciones, ubicacionesListas, errorUbicaciones, sucursalId, esAlmacen, dosActores = false }) {
   const [filtro, setFiltro] = useState('todas');
   const [busqueda, setBusqueda] = useState('');
-  const r = resumenChecklist(lineas);
+  const r = resumenChecklist(lineas, dosActores);
   const revision = ['PREPARADO', 'REVISANDO', 'VERIFICADO'].includes(tarea?.estado);
   const filtros = revision
-    ? [['todas', 'Todos', r.total], ['por_revisar', 'Por verificar', r.por_revisar], ['revisado', 'Verificados', r.revisado], ['faltante', 'Con faltante', r.faltante], ['no_alistado', 'No alistados', r.no_alistado]]
+    ? [['todas', 'Todos', r.total], ['por_revisar', 'Por verificar', r.por_revisar], ['revisado', 'Verificados', r.revisado], ['faltante', 'Con faltante', r.faltante], ['no_alistado', dosActores?'Sin salida':'No alistados', r.no_alistado]]
     : [['todas', 'Todos', r.total], ['pendiente', 'Sin alistar', r.pendiente], ['completo', 'Completos', r.completo], ['faltante', 'Con faltante', r.faltante], ['no_alistado', 'No alistados', r.no_alistado]];
-  const visibles = lineas.filter(l => coincideLineaPreparacion(l, filtro, busqueda));
+  const visibles = lineas.filter(l => coincideLineaPreparacion(l, filtro, busqueda, dosActores));
   const hechas = revision ? r.revisado : r.total - r.pendiente;
   const total = revision ? r.revisado + r.por_revisar : r.total;
   return <section className="om-checklist" aria-label="Checklist de productos">
@@ -34,9 +35,9 @@ export default function PreparacionChecklist({ lineas, tipo, tarea, puedePrepara
     {!visibles.length && <div className="om-empty-filter"><Package size={28} /><strong>{lineas.length ? 'No hay productos en esta vista' : 'No hay líneas pendientes en esta sucursal'}</strong>{lineas.length > 0 && <button className="om-secondary" onClick={() => { setBusqueda(''); setFiltro('todas'); }}>Ver todos los productos</button>}</div>}
     <div className="om-lineas">{lineas.map((l, index) => {
       const s = l.snapshot;
-      const estado = estadoPreparacion(l);
-      const revisada = revisionCompleta(l);
-      const faltante = l.confirmada ? Math.max(0, Number(s.pendiente_base) - Number(l.preparada_base)) : null;
+      const estado = estadoPreparacion(l, dosActores);
+      const revisada = revisionCompleta(l, dosActores);
+      const faltante = l.confirmada ? Math.max(0, Number(s.pendiente_base) - Number(dosActores && l.revisada_base!=null ? l.revisada_base : l.preparada_base)) : null;
       return <article hidden={!visibles.includes(l)} className={`om-linea om-linea-${estado} ${revisada ? 'om-linea-ok' : ''}`} key={l.pedido_linea_id} aria-label={`${s.nombre}: ${etiquetas[estado]}`}>
         <div className="om-linea-title"><span className="om-item-number">{String(index + 1).padStart(2, '0')}</span><div><h3>{s.nombre}</h3><small>{s.sku || (s.es_personalizado ? 'Producto personalizado' : 'Sin SKU')}{s.presentacion ? ` · ${s.presentacion}` : ''}</small></div><span className={`om-item-state om-state-${revisada ? 'revisado' : estado}`}>{revisada ? <CheckCircle2 size={14} /> : estado === 'faltante' ? <AlertTriangle size={14} /> : estado === 'no_alistado' ? <MinusCircle size={14} /> : null}{revisada ? 'Verificado' : etiquetas[estado]}</span></div>
         {s.presentacion && factor(s) !== 1 && <p className="om-equivalencia">1 {s.presentacion} = {cantidadTexto(factor(s))} {s.unidad_base}</p>}
@@ -47,25 +48,30 @@ export default function PreparacionChecklist({ lineas, tipo, tarea, puedePrepara
         {!s.preparable && <p className="om-muted">{s.estado === 'POR_COMPRAR' ? 'Pendiente de compra: registra que no se alistó y el motivo.' : 'Resuelve el estado o la presentación en el pedido antes de alistar esta línea.'}</p>}
         {l.observacion && <p className="om-nota"><strong>Motivo / observación:</strong> {l.observacion}</p>}
         {revisada && <p className="om-muted">{l.revisor_nombre || 'Revisor'} comprobó por {l.metodo_revision === 'escaneo' ? 'escaneo' : 'revisión visual'}</p>}
-        {editor?.lineaId === l.pedido_linea_id ? <EditorLinea key={`${l.pedido_linea_id}:${editor.tipo}:${editor.intencion || ''}:${editor.codigo || ''}`} linea={l} editor={editor} ocupado={ocupado} onCancel={() => setEditor(null)} onGuardar={payload => accion(editor.tipo === 'preparacion' ? 'guardar_preparacion' : 'guardar_revision', payload)} /> : <div className="om-linea-actions">
-          {puedePreparar && <>{!l.confirmada && s.preparable && <button className="om-complete" disabled={ocupado || Boolean(editor)} onClick={() => accion('guardar_preparacion', { linea_id: l.pedido_linea_id, cantidad_base: Number(s.pendiente_base), observacion: l.observacion || '' })}><Check size={18} /> Completo</button>}<button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'preparacion', intencion: l.confirmada ? 'editar' : 'parcial' })}>{l.confirmada ? 'Editar preparación' : 'Registrar faltante'}</button>{!l.confirmada && <button className="om-not-picked" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'preparacion', intencion: 'ninguno' })}><MinusCircle size={16} /> No se alistó</button>}</>}
-          {puedeRevisar && Number(l.preparada_base) > 0 && <><button className="om-primary" disabled={ocupado || Boolean(editor)} onClick={() => abrirScanner({ tipo: 'revision', lineaId: l.pedido_linea_id })}><ScanLine size={18} /> Escanear y contar</button><button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'revision', metodo: 'visual', codigo: '' })}>Comprobar visualmente</button><button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'revision', metodo: 'escaneo', codigo: '' })}>Ingresar código</button></>}
-        </div>}
+        {dosActores && l.observacion_revision && l.revisada_base!=null && <p className="om-nota"><strong>Diferencia en revisión:</strong> {l.observacion_revision}</p>}
+        {editor?.lineaId === l.pedido_linea_id && editor.intencion!=='cantidad_rapida' ? <EditorLinea dosActores={dosActores} key={`${l.pedido_linea_id}:${editor.tipo}:${editor.intencion || ''}:${editor.codigo || ''}`} linea={l} editor={editor} ocupado={ocupado} onCancel={() => setEditor(null)} onGuardar={payload => accion(editor.tipo === 'preparacion' ? 'guardar_preparacion' : 'guardar_revision', payload)} /> : <>
+          {dosActores && (puedePreparar || puedeRevisar && s.preparable) && <CantidadPedido key={`${l.pedido_linea_id}:${tarea.version}`} linea={l} revision={puedeRevisar} ocupado={ocupado} bloqueada={Boolean(editor && editor.lineaId!==l.pedido_linea_id)}
+            onEditar={()=>setEditor({lineaId:l.pedido_linea_id,tipo:puedePreparar?'preparacion':'revision',intencion:'cantidad_rapida'})} onCancelar={()=>setEditor(null)} onGuardar={payload=>accion(puedePreparar?'guardar_preparacion':'guardar_revision',payload)} />}
+          <div className="om-linea-actions">
+            {!dosActores && puedePreparar && <>{!l.confirmada && s.preparable && <button className="om-complete" disabled={ocupado || Boolean(editor)} onClick={() => accion('guardar_preparacion', { linea_id: l.pedido_linea_id, cantidad_base: Number(s.pendiente_base), observacion: l.observacion || '' })}><Check size={18} /> Completo</button>}<button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'preparacion', intencion: l.confirmada ? 'editar' : 'parcial' })}>{l.confirmada ? 'Editar preparación' : 'Registrar faltante'}</button>{!l.confirmada && <button className="om-not-picked" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'preparacion', intencion: 'ninguno' })}><MinusCircle size={16} /> No se alistó</button>}</>}
+            {puedeRevisar && Number(l.preparada_base) > 0 && <><button className="om-primary" disabled={ocupado || Boolean(editor)} onClick={() => abrirScanner({ tipo: 'revision', lineaId: l.pedido_linea_id })}><ScanLine size={18} /> Escanear y contar</button>{!dosActores && <button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'revision', metodo: 'visual', codigo: '' })}>Comprobar visualmente</button>}<button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'revision', metodo: 'escaneo', codigo: '' })}>Ingresar código</button></>}
+          </div>
+        </>}
       </article>;
     })}</div>
   </section>;
 }
 
-function EditorLinea({ linea, editor, ocupado, onCancel, onGuardar }) {
+function EditorLinea({ linea, editor, ocupado, onCancel, onGuardar, dosActores = false }) {
   const s = linea.snapshot;
   const preparacion = editor.tipo === 'preparacion';
   const ninguno = editor.intencion === 'ninguno';
   const parcial = editor.intencion === 'parcial';
-  const cantidadInicial = ninguno ? 0 : Number(linea.confirmada ? linea.preparada_base : s.preparable ? s.pendiente_base : 0);
+  const cantidadInicial = ninguno ? 0 : dosActores && !preparacion ? Number(linea.revisada_base ?? linea.preparada_base) : Number(linea.confirmada ? linea.preparada_base : s.preparable ? s.pendiente_base : 0);
   const iniciarEnBase = Math.abs(Math.round(cantidadInicial / factor(s) * 1e6) / 1e6 * factor(s) - cantidadInicial) > Number.EPSILON * Math.max(1, cantidadInicial) * 8;
   const [enBase, setEnBase] = useState(iniciarEnBase);
-  const [valor, setValor] = useState(preparacion ? parcial ? '' : String(cantidadInicial / (iniciarEnBase ? 1 : factor(s))) : '');
-  const [observacion, setObservacion] = useState(linea.observacion || '');
+  const [valor, setValor] = useState(dosActores ? String(cantidadInicial / (iniciarEnBase ? 1 : factor(s))) : preparacion ? parcial ? '' : String(cantidadInicial / (iniciarEnBase ? 1 : factor(s))) : '');
+  const [observacion, setObservacion] = useState(!preparacion && dosActores ? linea.observacion_revision || '' : linea.observacion || '');
   const [codigo, setCodigo] = useState(editor.codigo || '');
   const [error, setError] = useState('');
   const ingresado = Number(String(valor).replace(',', '.')) * (enBase ? 1 : factor(s));
@@ -77,9 +83,10 @@ function EditorLinea({ linea, editor, ocupado, onCancel, onGuardar }) {
       if (Math.abs(base - n) > Number.EPSILON * Math.max(1, n) * 8) throw new Error('La conversión debe dar una cantidad con hasta 6 decimales en unidades base.');
       if (preparacion && base > Number(s.pendiente_base)) throw new Error('La cantidad supera lo pendiente del pedido.');
       if (preparacion && base < Number(s.pendiente_base) && !observacion.trim()) throw new Error('Indica el motivo de la cantidad que queda pendiente.');
-      if (!preparacion && base !== Number(linea.preparada_base)) throw new Error('La cantidad contada no coincide con la preparada. Reabre la preparación para corregirla.');
+      if (!preparacion && !dosActores && base !== Number(linea.preparada_base)) throw new Error('La cantidad contada no coincide con la preparada. Reabre la preparación para corregirla.');
+      if (!preparacion && dosActores && (base>Number(s.pendiente_base) || base!==Number(linea.preparada_base) && !observacion.trim())) throw new Error('Comprueba la cantidad solicitada e indica el motivo de la diferencia.');
       if (!preparacion && editor.metodo === 'escaneo' && !codigo.trim()) throw new Error('Ingresa o escanea el código de este producto.');
-      const guardado = await onGuardar({ linea_id: linea.pedido_linea_id, cantidad_base: base, ...(preparacion ? { observacion: observacion.trim() } : { metodo: editor.metodo, codigo: codigo.trim() }) });
+      const guardado = await onGuardar({ linea_id: linea.pedido_linea_id, cantidad_base: base, ...(preparacion ? { observacion: observacion.trim() } : { metodo: editor.metodo, codigo: codigo.trim(), ...(dosActores?{observacion:observacion.trim()}:{}) }) });
       if (guardado === false) setError('No se guardó la línea. Conservamos tus datos para que puedas reintentar.');
     } catch (e) { setError(e.message); }
   }
@@ -91,6 +98,7 @@ function EditorLinea({ linea, editor, ocupado, onCancel, onGuardar }) {
     {preparacion && valor !== '' && Number.isFinite(ingresado) && ingresado >= 0 && ingresado <= Number(s.pendiente_base) && !ninguno && <p className="om-editor-missing">Quedarán pendientes: <strong>{cantidad(Math.max(0, Number(s.pendiente_base) - ingresado), s)}</strong></p>}
     {preparacion && <><label>Observación o motivo del faltante<textarea autoFocus={ninguno} maxLength={1000} value={observacion} onChange={e => setObservacion(e.target.value)} disabled={ocupado} placeholder="Explica qué quedó pendiente…" /></label><div className="om-reason-options" aria-label="Motivos frecuentes">{['Stock insuficiente', 'No se encontró', 'Pendiente de compra', 'No se alistó a tiempo'].map(m => <button type="button" disabled={ocupado} key={m} aria-pressed={observacion === m} onClick={() => setObservacion(m)}>{m}</button>)}</div></>}
     {!preparacion && <p className="om-muted">Escanear identifica el producto. Confirma también su empaque y la cantidad que tienes delante.</p>}
+    {!preparacion && dosActores && ingresado!==Number(linea.preparada_base) && <label>Motivo de la diferencia<input maxLength={1000} value={observacion} onChange={e=>setObservacion(e.target.value)} disabled={ocupado} required /></label>}
     {error && <p className="om-error-text" role="alert">{error}</p>}
     <div className="om-input-row"><button className="om-primary" disabled={ocupado}>{ocupado ? 'Guardando…' : preparacion ? 'Guardar preparación' : 'Guardar comprobación'}</button><button type="button" className="om-secondary" disabled={ocupado} onClick={onCancel}>Cancelar</button></div>
   </form>;

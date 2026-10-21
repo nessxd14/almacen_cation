@@ -1,5 +1,7 @@
 # Pedidos y Traslados QR: responsables y evidencia
 
+La ampliación de Pedidos a dos responsables se documenta en [Pedidos: alistador y verificador que retira](pedidos-dos-responsables.md). Este documento conserva la descripción del circuito anterior para las entregas e históricos que siguen utilizándolo.
+
 Los destinos indicados pertenecen al mismo grupo de Telegram (`-1003058173908`), en temas distintos:
 
 | Operación | Tema | Cuándo se publican las fotos |

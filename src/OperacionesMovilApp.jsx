@@ -23,6 +23,8 @@ const eventos = { CARRITO_CREADO: 'Comenzó el carrito', AGREGAR: 'Añadió un p
 
 eventos.RESTO_PREPARACION_CONFIRMADO = 'Confirmó las líneas completas restantes';
 eventos.RETIRO_TRANSPORTE = 'Retiró el pedido para transporte';
+eventos.RESTO_REVISION_CONFIRMADO = 'Confirmó que el resto coincide';
+eventos.REVISION_Y_RETIRO = 'Verificó y retiró el material';
 
 export default function OperacionesMovilApp({ tipoDocumento = 'pedido' }) {
   const { id } = useParams();
@@ -112,6 +114,20 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
     if (bloqueado.current) return false;
     bloqueado.current = true; setOcupado(true); setError(''); setAviso('');
     try {
+      if (dosActores && ['preparado','confirmar_retiro'].includes(nombre)) {
+        if (!evidenciaInfo?.activo) throw new Error('Actualiza las fotos antes de confirmar esta etapa.');
+        if (loteEvidencia.current?.rpcIntentado) {
+          const actual=await operarDocumentoMovil(supabase,{tipo,documentoId:pedidoId,sucursalId:sucursalDocumento,tareaId:datos.tarea.id,accion:'consultar'});
+          const evidencia=await operarEvidenciaOperacion(supabase,{tipo,documentoId:pedidoId,entregaId:datos.tarea.id});
+          if (evidencia.envios.some(e=>e.id===loteEvidencia.current.id)) {
+            setDatos(actual);setFotos([]);loteEvidencia.current=null;setEvidenciaPendiente(false);setEvidenciaInfo(evidencia);setRevisionEvidencia(n=>n+1);setAviso('La confirmación ya estaba guardada. Recuperamos esta entrega.');return true;
+          }
+        }
+        if (!loteEvidencia.current || loteEvidencia.current.version!==datos.tarea.version) loteEvidencia.current={id:crypto.randomUUID(),version:datos.tarea.version};
+        const evidenciaId=await subirEvidenciaOperacion(supabase,{tipo,documentoId:pedidoId,entregaId:datos.tarea.id,version:datos.tarea.version,loteId:loteEvidencia.current.id,fotos});
+        payload=loteEvidencia.current.payload || {...payload,evidencia_id:evidenciaId};
+        loteEvidencia.current.payload=payload;loteEvidencia.current.rpcIntentado=true;setEvidenciaPendiente(true);
+      }
       if (nombre === 'autorizar' && tipo === 'traslado_virtual') {
         if (evidenciaInfo === null) throw new Error('Actualiza la evidencia antes de autorizar el traslado.');
         if (loteEvidencia.current?.rpcIntentado) {
@@ -125,13 +141,16 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
           setEvidenciaPendiente(true);
         }
       }
-      const d = await operarDocumentoMovil(supabase, { tipo, documentoId: pedidoId, sucursalId: sucursalDocumento, tareaId: datos?.tarea?.id, accion: nombre, version: datos?.tarea?.version, datos: payload });
+      const d = await operarDocumentoMovil(supabase, { tipo, documentoId: pedidoId, sucursalId: sucursalDocumento, tareaId: datos?.tarea?.id, accion: nombre, version: datos?.tarea?.version, datos: payload, dosActores });
       if (!vigente.current) return;
       setDatos(d); setEditor(null); setGestion(''); setMotivo('');
-      if (nombre === 'autorizar' || d.tarea?.id !== datos?.tarea?.id) { setFotos([]); loteEvidencia.current=null; setEvidenciaPendiente(false); setEvidenciaInfo(null); setDestinoRetiro(''); setRevisionEvidencia(n=>n+1); }
-      setAviso(nombre === 'confirmar_resto' ? (d.confirmacion_preparacion?.confirmadas || 0) + ' líneas completas confirmadas. Se conservaron los faltantes guardados.' : nombre === 'verificado' ? 'Verificación guardada. La entrega está lista para autorizar su salida.' : 'Avance guardado en el almacén.');
+      if (nombre === 'autorizar' || dosActores && ['preparado','confirmar_retiro'].includes(nombre) || d.tarea?.id !== datos?.tarea?.id) { setFotos([]); loteEvidencia.current=null; setEvidenciaPendiente(false); setEvidenciaInfo(null); setDestinoRetiro(''); setRevisionEvidencia(n=>n+1); }
+      setAviso(dosActores && nombre==='preparado' ? 'Alistado enviado a verificación. El aviso y las fotos quedaron pendientes de envío a Telegram.' : nombre==='confirmar_retiro' ? 'Revisión y retiro confirmados. La salida ya está registrada.' : nombre==='confirmar_resto_revision' ? 'El resto quedó verificado. Se conservaron las diferencias que registraste.' : nombre === 'confirmar_resto' ? (d.confirmacion_preparacion?.confirmadas || 0) + ' líneas completas confirmadas. Se conservaron los faltantes guardados.' : nombre === 'verificado' ? 'Verificación guardada. La entrega está lista para autorizar su salida.' : 'Avance guardado en el almacén.');
       return true;
-    } catch (e) { if (vigente.current) setError(e.message); return false; }
+    } catch (e) {
+      if (dosActores && ['P0001','40001','42501'].includes(e.code)) { if(loteEvidencia.current){loteEvidencia.current.rpcIntentado=false;delete loteEvidencia.current.payload;}setEvidenciaPendiente(false); }
+      if (vigente.current) setError(e.message); return false;
+    }
     finally { bloqueado.current = false; if (vigente.current) setOcupado(false); }
   }
   async function retirarPedido() {
@@ -184,12 +203,14 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
     setScanner(null);
     if (scanner?.tipo === 'revision') setEditor({ lineaId: scanner.lineaId, tipo: 'revision', metodo: 'escaneo', codigo: texto });
     else abrirCodigo(texto);
-  }, [scanner, abrirCodigo]);
+  }, [scanner, abrirCodigo, setScanner, setEditor]);
 
   const tarea = datos?.tarea;
+  const dosActores = tipo==='pedido' && datos?.pedido_dos_actores===true;
   const retiro = datos?.retiro || (evidenciaInfo?.retiro && evidenciaInfo.retiro.preparacion_id === tarea?.id ? evidenciaInfo.retiro : null);
+  const retiroPrevio = dosActores && tarea?.salida_previa && tarea.estado==='DESPACHADO' && !retiro;
   const lineas = (datos?.lineas || []).filter(l => l.vigente);
-  const resumen = resumenOperacion(lineas);
+  const resumen = resumenOperacion(lineas, dosActores);
   const cambios = (datos?.cambios || []).length > 0;
   const cerrado = tarea && ['ANULADO', 'DESPACHADO', 'EN_TRANSITO', 'RECIBIDO'].includes(tarea.estado);
   const pedidoCerrado = datos?.pedido?.estado !== 'ABIERTO';
@@ -225,33 +246,40 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
       {tarea?.estado === 'REVISANDO' && !soyRevisor && <p className="om-aviso">{tarea.revisor_nombre} tiene a cargo la verificación.</p>}
       {tarea?.observacion && <p className="om-aviso">{tarea.observacion}</p>}
       <EtapasEntrega estado={tarea?.estado} entregada={datos.entregada} />
-      <PreparacionChecklist lineas={lineas} tipo={tipo} tarea={tarea} puedePreparar={puedePreparar} puedeRevisar={puedeRevisar} ocupado={ocupado} editor={editor} setEditor={setEditor} accion={accion} abrirScanner={abrirScanner} ubicaciones={ubicaciones} ubicacionesListas={ubicacionesClave === idsProductos} errorUbicaciones={errorUbicaciones} sucursalId={sucursalDocumento} esAlmacen={esAlmacen} />
-      {puedePreparar && <ConfirmarRestoPreparacion lineas={lineas} ocupado={ocupado || Boolean(editor)} onConfirmar={() => accion('confirmar_resto')} />}
+      <PreparacionChecklist lineas={lineas} tipo={tipo} tarea={tarea} puedePreparar={puedePreparar} puedeRevisar={puedeRevisar} ocupado={ocupado || evidenciaPendiente} editor={editor} setEditor={setEditor} accion={accion} abrirScanner={abrirScanner} ubicaciones={ubicaciones} ubicacionesListas={ubicacionesClave === idsProductos} errorUbicaciones={errorUbicaciones} sucursalId={sucursalDocumento} esAlmacen={esAlmacen} dosActores={dosActores} />
+      {puedePreparar && <ConfirmarRestoPreparacion lineas={lineas} ocupado={ocupado || evidenciaPendiente || Boolean(editor)} onConfirmar={() => accion('confirmar_resto')} dosActores={dosActores} />}
+      {dosActores && puedeRevisar && resumen.revisadas<resumen.revisar && <section className="om-preparacion-rapida"><button className="om-primary om-wide" disabled={ocupado||evidenciaPendiente||Boolean(editor)} onClick={()=>accion('confirmar_resto_revision')}>Todo lo demás coincide</button><p>Confirma las líneas pendientes con las cantidades alistadas. Se conservan los ajustes que ya registraste.</p></section>}
       {tarea && !cerrado && !pedidoCerrado && !cambios && <div className="om-finalizar" aria-label="Siguiente paso de la entrega">
         {puedePreparar && resumen.preparadas !== resumen.total && <p className="om-muted">Registra las {resumen.total - resumen.preparadas} líneas sin alistar para poder terminar. Si no se prepararon, indica el motivo.</p>}
         {puedePreparar && resumen.preparadas === resumen.total && !resumen.revisar && <p className="om-muted">No hay cantidades alistadas para entregar. Puedes corregir la preparación o gestionarla más abajo.</p>}
-        {puedePreparar && <button className="om-primary om-wide" disabled={ocupado || Boolean(editor) || resumen.preparadas !== resumen.total || !resumen.revisar || (tipo === 'vtd' && resumen.parcial)} onClick={() => accion('preparado')}>Terminar preparación</button>}
+        {puedePreparar && !dosActores && <button className="om-primary om-wide" disabled={ocupado || Boolean(editor) || resumen.preparadas !== resumen.total || !resumen.revisar || (tipo === 'vtd' && resumen.parcial)} onClick={() => accion('preparado')}>Terminar preparación</button>}
         {tarea.estado === 'PREPARADO' && esAlmacen && <button className="om-primary om-wide" disabled={ocupado || soyPreparador} onClick={() => accion('tomar_revision')}>Tomar revisión</button>}
-        {puedeRevisar && <button className="om-primary om-wide" disabled={ocupado || Boolean(editor) || resumen.revisadas !== resumen.revisar || !resumen.revisar} onClick={() => accion('verificado')}>Confirmar revisión de esta entrega</button>}
-        {tarea.estado === 'VERIFICADO' && <p className="om-aviso om-exito"><CheckCircle2 size={20} /><span>Esta entrega está verificada{resumen.parcial ? '. Quedan cantidades pendientes en el pedido' : ''}.{tipo === 'pedido' && !datos.entregada && ' Falta registrar la salida en «Abrir pedido y despacho». Al despachar todas las cantidades preparadas, este checklist se cerrará automáticamente.'}</span></p>}
+        {puedeRevisar && !dosActores && <button className="om-primary om-wide" disabled={ocupado || Boolean(editor) || resumen.revisadas !== resumen.revisar || !resumen.revisar} onClick={() => accion('verificado')}>Confirmar revisión de esta entrega</button>}
+        {tarea.estado === 'VERIFICADO' && !dosActores && <p className="om-aviso om-exito"><CheckCircle2 size={20} /><span>Esta entrega está verificada{resumen.parcial ? '. Quedan cantidades pendientes en el pedido' : ''}.{tipo === 'pedido' && !datos.entregada && ' Falta registrar la salida en «Abrir pedido y despacho». Al despachar todas las cantidades preparadas, este checklist se cerrará automáticamente.'}</span></p>}
         {tipo === 'pedido' && tarea.estado === 'VERIFICADO' && datos.entregada && !tareaSolicitada && <button className="om-secondary om-wide" disabled={ocupado} onClick={() => accion('crear')}>Preparar otra entrega pendiente</button>}
       </div>}
       {tipo === 'vtd' && resumen.parcial && !cerrado && <p className="om-aviso">La VTD debe coincidir con el ticket completo. Si falta material, Caja debe corregir el ticket; después actualiza la preparación.</p>}
       {tipo === 'pedido' && tarea?.estado === 'DESPACHADO' && (evidenciaInfo?.activo || retiro) && <>
         {retiro ? <section className="om-pedido"><h3>En transporte</h3><p>Transporta: <strong>{retiro.transportista_nombre}</strong></p><p>Destino: {retiro.destino}</p><small>Retirado: {fecha(retiro.retirado_en)}</small><p className="om-muted">El retiro conserva la salida de stock ya registrada. La recepción en destino queda por confirmar.</p></section>
-          : <section className="om-pedido"><h3>Retiro para transporte</h3><p>Una tercera persona distinta de quien preparó y revisó confirma el retiro con su propia cuenta.</p>
+          : !dosActores && <section className="om-pedido"><h3>Retiro para transporte</h3><p>Una tercera persona distinta de quien preparó y revisó confirma el retiro con su propia cuenta.</p>
             {evidenciaInfo?.activo && evidenciaInfo.contexto?.puede_capturar && <><p>Transporta: <strong>{usuario.nombre}</strong></p><label>Destino de la entrega<input maxLength={300} value={destinoRetiro} disabled={ocupado || evidenciaPendiente} onChange={e=>setDestinoRetiro(e.target.value)} placeholder="Lugar designado para este pedido" /></label></>}
           </section>}
       </>}
-      {((tipo === 'pedido' && tarea?.estado === 'DESPACHADO') || (tipo === 'traslado_virtual' && ['VERIFICADO','EN_TRANSITO','RECIBIDO'].includes(tarea?.estado))) && <EvidenciaOperacion
-        key={`${tipo}:${tarea.id}`} tipo={tipo} documentoId={pedidoId} entregaId={tarea.id} version={tarea.version} revision={revisionEvidencia}
+      {dosActores && soyRevisor && (['REVISANDO','VERIFICADO'].includes(tarea?.estado)||retiroPrevio) && <section className="om-pedido om-retiro-pedido"><h3>Revisar y retirar</h3><p>Revisa: <strong>{usuario.nombre}</strong> · esta misma persona retira el material.</p>
+        <label>Destino de la entrega<input maxLength={300} value={destinoRetiro} disabled={ocupado||evidenciaPendiente} onChange={e=>setDestinoRetiro(e.target.value)} placeholder="Lugar designado para el pedido" /></label>
+        <h4>{retiroPrevio?'Salida ya registrada':'Ubicaciones de salida'}</h4>{retiroPrevio?<p>Este material ya se despachó. Confirmar el retiro no volverá a descontar stock.</p>:datos.plan_salida?.length ? <ul>{datos.plan_salida.map(p=><li key={p.linea_id}><strong>{lineas.find(l=>l.pedido_linea_id===p.linea_id)?.snapshot.nombre}</strong>{p.error?<p role="alert" className="om-error-text">{p.error}</p>:p.asignaciones.length?p.asignaciones.map(a=><span key={a.ubicacion_id}>{a.nombre} · {cantidadTexto(a.cantidad_base)} en unidades base</span>):<span>Material personalizado · sin movimiento de stock</span>}</li>)}</ul>:<p className="om-muted">Confirma las cantidades para ver de dónde saldrá el material.</p>}
+      </section>}
+      {((tipo === 'pedido' && (tarea?.estado === 'DESPACHADO' || dosActores && ['PREPARANDO','PREPARADO','REVISANDO','VERIFICADO'].includes(tarea?.estado))) || (tipo === 'traslado_virtual' && ['VERIFICADO','EN_TRANSITO','RECIBIDO'].includes(tarea?.estado))) && <EvidenciaOperacion
+        key={`${tipo}:${tarea.id}:${dosActores?tarea.estado:''}`} tipo={tipo} documentoId={pedidoId} entregaId={tarea.id} version={tarea.version} revision={revisionEvidencia}
         fotos={fotos} onFotos={next=>{setFotos(next);loteEvidencia.current=null;setEvidenciaPendiente(false);}} onDatos={setEvidenciaInfo} busy={ocupado || evidenciaPendiente} />}
-      {tipo === 'pedido' && tarea?.estado === 'DESPACHADO' && !retiro && evidenciaInfo?.activo && evidenciaInfo.contexto?.puede_capturar && <button className="om-primary om-wide"
+      {dosActores && puedePreparar && <button className="om-primary om-wide" disabled={ocupado||Boolean(editor)||resumen.preparadas!==resumen.total||!lineas.some(l=>Number(l.preparada_base)>0)||!fotos.length||!evidenciaInfo?.activo} onClick={()=>accion('preparado')}>{ocupado?'Enviando alistado…':'Enviar a verificación'}</button>}
+      {dosActores && soyRevisor && (['REVISANDO','VERIFICADO'].includes(tarea?.estado)||retiroPrevio) && <button className="om-primary om-wide" disabled={ocupado||Boolean(editor)||resumen.revisadas!==resumen.revisar||!fotos.length||destinoRetiro.trim().length<3||!evidenciaInfo?.activo||!datos.plan_salida?.length||datos.plan_salida.some(p=>p.error)} onClick={()=>accion('confirmar_retiro',{destino:destinoRetiro.trim(),plan:datos.plan_salida})}>{ocupado?'Confirmando salida…':'Confirmar revisión y retirar'}</button>}
+      {!dosActores && tipo === 'pedido' && tarea?.estado === 'DESPACHADO' && !retiro && evidenciaInfo?.activo && evidenciaInfo.contexto?.puede_capturar && <button className="om-primary om-wide"
         disabled={ocupado || !fotos.length || destinoRetiro.trim().length<3} onClick={retirarPedido}>{ocupado ? 'Registrando retiro…' : 'Confirmar retiro para transporte'}</button>}
       {tipo !== 'pedido' && tarea?.estado === 'VERIFICADO' && !datos.entregada && soyRevisor && !soyPreparador && esAlmacen && <button className="om-primary om-wide" disabled={ocupado || cambios || Boolean(editor) || (tipo === 'traslado_virtual' && (evidenciaInfo === null || (evidenciaInfo.activo && !fotos.length)))} onClick={() => accion('autorizar')}>{ocupado ? 'Registrando salida…' : tipo === 'vtd' ? 'Autorizar salida y entregar VTD' : 'Autorizar salida hacia Tienda'}</button>}
       {tipo === 'traslado_virtual' && datos.documento?.traslado_id && <p className="om-aviso om-exito">Traslado #{datos.documento.traslado_id} · {datos.documento.traslado_estado}</p>}
       {tipo === 'traslado_virtual' && tarea?.estado === 'EN_TRANSITO' && (usuario.sucursalId == null && encargado || String(usuario.sucursalId) === String(tarea.sucursal_destino_id)) && <RecepcionTrasladoVirtual lineas={datos.recepcion || []} ocupado={ocupado} onRecibir={payload => accion('recibir', payload)} />}
-      <p className="om-stock-info">Preparar y revisar guardan el checklist. El stock se actualiza al confirmar el despacho.</p>{tipo === 'pedido' && <Link className="om-secondary om-wide" to={`/pedidos/${pedidoId}${tarea ? `?preparacion=${tarea.id}&sucursal=${sucursalDocumento}` : ''}`}>Abrir pedido y despacho</Link>}
+      <p className="om-stock-info">{dosActores?'El alistado no mueve stock. La salida se registra al confirmar revisión y retiro.':'Preparar y revisar guardan el checklist. El stock se actualiza al confirmar el despacho.'}</p>{tipo === 'pedido' && <Link className="om-secondary om-wide" to={`/pedidos/${pedidoId}${tarea ? `?preparacion=${tarea.id}&sucursal=${sucursalDocumento}` : ''}`}>{dosActores?'Ver pedido completo':'Abrir pedido y despacho'}</Link>}
       {tarea && !cerrado && (soyPreparador || encargado || (soyRevisor && ['REVISANDO','VERIFICADO'].includes(tarea.estado))) && <details className="om-gestion"><summary>Corregir o gestionar preparación</summary><div className="om-input-row"><select aria-label="Acción de gestión" value={gestion} onChange={e => setGestion(e.target.value)}><option value="">Elegir acción</option>{(soyPreparador || encargado) && !pedidoCerrado && <option value="reabrir">Reabrir y corregir</option>}{tipo === 'pedido' && encargado && !pedidoCerrado && <option value="reasignar">Tomar a mi cargo y reabrir</option>}{(soyPreparador || encargado) && <option value="anular">Anular esta preparación</option>}{soyRevisor && ['REVISANDO','VERIFICADO'].includes(tarea.estado) && <option value="devolver">Devolver para corregir</option>}</select></div><label>Motivo<textarea maxLength={1000} value={motivo} onChange={e => setMotivo(e.target.value)} /></label><button className="om-secondary" disabled={ocupado || Boolean(editor) || !gestion || !motivo.trim()} onClick={() => accion(gestion, { observacion: motivo.trim() })}>Guardar acción</button><p className="om-muted">Reabrir o reasignar elimina la revisión anterior. El motivo y el responsable quedan en el historial.</p></details>}
       {datos.eventos?.length > 0 && <details className="om-historial"><summary>Historial de esta preparación ({datos.eventos.length})</summary><ol>{datos.eventos.map(e => <li key={e.id}><strong>{eventos[e.accion] || e.accion}</strong><span>{e.actor_nombre} · {fecha(e.creado_en)}</span>{e.detalle?.linea_id && <small>Línea #{e.detalle.linea_id}{e.detalle.cantidad_base != null ? ` · ${cantidadTexto(e.detalle.cantidad_base)} en unidades base` : ''}{e.detalle.metodo ? ` · ${e.detalle.metodo}` : ''}</small>}{e.detalle?.observacion && <p>{e.detalle.observacion}</p>}</li>)}</ol></details>}
     </> : <button className="om-secondary" onClick={cargar}>Reintentar consulta</button>}
