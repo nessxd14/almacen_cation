@@ -6,8 +6,8 @@ import { useSucursal } from './lib/useSucursal';
 import { useAuth } from './lib/useAuth';
 import { cargarDatosEtiqueta, enlaceFicha, textoUbicacion, sucursalDeFicha } from './lib/fichaProducto';
 import { listarUbicacionesEtiqueta, enlaceFichaUbicacion } from './lib/fichaUbicacion';
-import { presentacionesActivas, resolverPresentacion, textoPresentacion, codigosDePresentacion } from './lib/presentacionEtiqueta';
-import { FORMATO_INICIAL, normalizarFormato, validarFormato, distribucionEtiquetas } from './lib/formatosEtiqueta';
+import { presentacionesActivas, resolverPresentacion, textoPresentacion, codigosDePresentacion, tieneContenidoRegistrado } from './lib/presentacionEtiqueta';
+import { FORMATO_INICIAL, normalizarFormato, validarFormato, distribucionEtiquetas, esEtiquetaDeEmpaque } from './lib/formatosEtiqueta';
 import { CSS_ETIQUETA, imprimirEtiquetas } from './lib/impresionEtiquetas';
 import ConfiguracionEtiquetas from './ConfiguracionEtiquetas';
 import TypeaheadProducto from './TypeaheadProducto';
@@ -126,7 +126,7 @@ export default function FichasEtiquetasApp({ productoId, sucursalId: inicialSucu
     const error = fila.presentacionId && !presentacion ? 'La presentación elegida ya no está disponible. Selecciona una presentación actual.'
       : fila.ubicacionId && !ubicacion ? 'La ubicación elegida ya no está disponible. Selecciona otra ubicación.'
         : formato.barras && fila.codigoId && !codigoBarras ? 'El código elegido ya no pertenece a esta presentación. Selecciona otro código.'
-          : formato.diseno === 'caja_bulto' && (!presentacion || !Number.isFinite(Number(presentacion.factor_unidad_base)) || !(Number(presentacion.factor_unidad_base) > 0)) ? 'Selecciona una presentación con equivalencia registrada para etiquetar la caja o bulto.' : null;
+          : esEtiquetaDeEmpaque(formato.diseno) && !tieneContenidoRegistrado(presentacion, data.producto.unidad_base) ? 'Selecciona una presentación con nombre, equivalencia y unidad base registrados para etiquetar el empaque.' : null;
     return { fila, data, nombre: data.producto.nombre, presentaciones, presentacion, codigos, codigoBarras, ubicacion,
       enlace: urlOrigin ? enlaceFicha(fila.id, sucursalId, urlOrigin, presentacion?.id) : null,
       destino: enlaceFicha(fila.id, sucursalId, window.location.origin, presentacion?.id), error };

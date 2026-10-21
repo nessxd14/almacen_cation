@@ -87,4 +87,18 @@ describe('selección de presentaciones e impresión', () => {
     await cambiar(seleccion('Formato'), 'estandar');
     expect(vistas()[0].dataset.presentacion).toBe('12');
   });
+  it.each(['caja_grande', 'lectura_distancia'])('%s conserva la presentación en el QR y bloquea la impresión si falta la equivalencia', async diseno => {
+    await montar({ presentacionId: 12 });
+    await cambiar(seleccion('Formato'), diseno);
+    expect(vistas()[0].dataset.enlace).toContain('presentacion=12');
+    expect(boton('Imprimir etiquetas').disabled).toBe(false);
+    const opcionPresentacion = [...contenedor.querySelectorAll('input[type="checkbox"]')].find(e => e.parentElement.textContent === 'Presentación y equivalencia');
+    expect(opcionPresentacion.disabled).toBe(true);
+    expect(opcionPresentacion.checked).toBe(true);
+    simulado.datos = { ...simulado.datos, presentaciones: simulado.datos.presentaciones.map(p => p.id === 12 ? { ...p, factor_unidad_base: null } : p) };
+    await pulsar('Actualizar datos');
+    expect(contenedor.textContent).toContain('equivalencia y unidad base registrados');
+    expect(boton('Imprimir etiquetas').disabled).toBe(true);
+    expect(vistas()).toHaveLength(0);
+  });
 });

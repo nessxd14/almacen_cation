@@ -60,6 +60,24 @@ export const CSS_ETIQUETA = `
 .warehouse-label.label-design-estanteria .label-header,.warehouse-label.label-design-ubicacion .label-header { background:var(--label-accent); }
 .warehouse-label.label-design-estanteria .label-location-value { font-size:1.25em; }
 .warehouse-label.label-design-caja_bulto .label-presentation-value { font-size:1.02em; }
+.warehouse-label:is(.label-design-caja_grande,.label-design-lectura_distancia) { --label-gap:2mm; border:.7mm solid var(--label-ink); border-radius:3.5mm; }
+.warehouse-label:is(.label-design-caja_grande,.label-design-lectura_distancia) .label-header { background:#fff; color:var(--label-ink); border:0; border-bottom:.4mm solid var(--label-ink); padding:0 0 2mm; font-size:.8em; letter-spacing:.05em; }
+.warehouse-label:is(.label-design-caja_grande,.label-design-lectura_distancia) .label-name { font-size:2.4em; line-height:1.25; padding-bottom:1mm; font-weight:900; text-transform:uppercase; }
+.warehouse-label.label-design-caja_grande .label-name { color:var(--label-accent); }
+.warehouse-label .label-pack-code { font-size:3.4em; line-height:1.25; padding-bottom:2mm; font-weight:900; }
+.warehouse-label .label-pack-code > span { font-size:.5em; }
+.warehouse-label.label-design-lectura_distancia .label-pack-code { background:var(--label-ink); color:#fff; font-size:2.5em; padding:1.6mm 2mm; border-radius:1.5mm; }
+.warehouse-label:is(.label-design-caja_grande,.label-design-lectura_distancia) .label-row { gap:4mm; align-items:center; }
+.warehouse-label .label-pack-specs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.5mm; }
+.warehouse-label .label-pack-specs .label-meta { padding:2mm; gap:1mm; }
+.warehouse-label .label-pack-specs .label-meta-title { color:var(--label-ink); font-size:.75em; }
+.warehouse-label .label-pack-specs strong { font-size:1.3em; line-height:1.1; }
+.warehouse-label .label-pack-content { display:flex; flex-direction:column; gap:1mm; border-top:.4mm solid var(--label-ink); padding-top:2mm; margin-top:1mm; }
+.warehouse-label .label-pack-title { font-size:.75em; text-transform:uppercase; font-weight:700; }
+.warehouse-label .label-pack-content > strong { font-size:1.85em; line-height:1.1; font-weight:900; }
+.warehouse-label .label-pack-presentation { font-size:.9em; }
+.warehouse-label .label-pack-brand { font-size:.8em; }
+.warehouse-label .label-pack-footer { margin-top:auto; border-top:.2mm solid var(--label-rule); padding-top:1.5mm; font-size:.7em; }
 .warehouse-label.label-design-ubicacion .label-location { font-size:1.05em; }
 .warehouse-label.label-design-qr_rapido { align-items:center; --label-gap:.5mm; }
 .warehouse-label.label-design-qr_rapido .label-header { width:100%; justify-content:center; font-size:.85em; padding:.6mm 1mm; }

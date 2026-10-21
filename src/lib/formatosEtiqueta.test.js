@@ -5,7 +5,7 @@ import { documentoImpresion } from './impresionEtiquetas';
 describe('formatos e impresión de etiquetas', () => {
   const capacidadesKit = [
     ['compacto', 10, false], ['estandar', 4, true], ['ficha_grande', 4, true], ['a6', 2, true], ['mini', 25, true],
-    ['estanteria', 12, false], ['caja_bulto', 10, false], ['ubicacion', 6, true], ['qr_rapido', 24, false], ['control_lote', 12, false],
+    ['estanteria', 12, false], ['caja_bulto', 10, false], ['caja_grande', 2, false], ['lectura_distancia', 2, false], ['ubicacion', 6, true], ['qr_rapido', 24, false], ['control_lote', 12, false],
   ];
   it.each(capacidadesKit)('%s conserva la capacidad del kit en A4 con margen de 10 mm y separación de 3 mm', (id, porPagina, girada) => {
     const formato = { ...FORMATO_INICIAL, ...FORMATOS_ETIQUETA.find(f => f.id === id) };

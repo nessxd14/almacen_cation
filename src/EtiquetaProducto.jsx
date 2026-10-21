@@ -2,11 +2,12 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import { textoUbicacion } from './lib/fichaProducto';
-import { textoPresentacion } from './lib/presentacionEtiqueta';
+import { textoPresentacion, textoContenidoPresentacion, tieneContenidoRegistrado } from './lib/presentacionEtiqueta';
+import { FORMATOS_ETIQUETA, esEtiquetaDeEmpaque } from './lib/formatosEtiqueta';
 import { resolverSimbologia, tieneDesbordeEtiqueta } from './lib/codigoEtiqueta';
 import { codigoUbicacion as codigoCorto, nombreMueble } from './lib/ubicacionTexto';
 
-const DISENOS = new Set(['compacto', 'estandar', 'ficha_grande', 'a6', 'mini', 'estanteria', 'caja_bulto', 'ubicacion', 'qr_rapido', 'control_lote']);
+const DISENOS = new Set(FORMATOS_ETIQUETA.map(formato => formato.id));
 
 function Campo({ titulo, children }) {
   return <div className="label-meta" data-label-field><span className="label-meta-title">{titulo}</span><strong>{children}</strong></div>;
@@ -59,7 +60,7 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
       let error = falloQr ? 'No se pudo generar el QR.'
         : desborde ? 'El contenido no cabe completo. Amplía el formato, reduce la fuente o desactiva campos.'
           : moduloPequeno ? `Aumenta el QR a por lo menos ${Math.ceil(size * 0.3)} mm para que este enlace se pueda escanear.` : null;
-      if (diseno === 'caja_bulto' && !presentacion) error = 'Selecciona la presentación de esta caja o bulto.';
+      if (esEtiquetaDeEmpaque(diseno) && !tieneContenidoRegistrado(presentacion, producto.unidad_base)) error = 'Selecciona una presentación con nombre, equivalencia y unidad base registrados para etiquetar el empaque.';
       if (imprimeBarras && codigoBarras && !barcode.current?.hasChildNodes()) error = 'El código de barras no se pudo generar.';
       if (barcodeError.current) error = barcodeError.current;
       if (imprimeBarras && barcode.current?.viewBox.baseVal.width > 0) {
@@ -77,7 +78,7 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
     const imagenes = [...label.querySelectorAll('img')];
     imagenes.forEach(img => { img.addEventListener('load', medir); img.addEventListener('error', medir); });
     return () => { activo = false; observer.disconnect(); imagenes.forEach(img => { img.removeEventListener('load', medir); img.removeEventListener('error', medir); }); };
-  }, [formato, datos, ubicacion, codigoBarras, onEstado, identidad, falloQr, size, imprimeBarras, diseno, presentacion, lote, fechaIngreso]);
+  }, [formato, datos, ubicacion, codigoBarras, onEstado, identidad, falloQr, size, imprimeBarras, diseno, presentacion, lote, fechaIngreso, producto.unidad_base]);
 
   const nombre = <h3 className="label-name" data-label-field>{producto.nombre}</h3>;
   const sku = producto.sku_interno || `Producto ${producto.id}`;
@@ -85,7 +86,7 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
   const atributos = formato.atributos && datos.atributos?.length > 0 && <div className="label-attributes">
     {datos.atributos.map((a, i) => <p className="label-detail" data-label-field key={a.id ?? i}>{a.atributo_valor?.atributo?.nombre}: {a.atributo_valor?.valor}</p>)}
   </div>;
-  const presentacionImprimir = (formato.presentacion || diseno === 'caja_bulto') && !esUbicacion && <div className="label-presentation" data-label-field>
+  const presentacionImprimir = (formato.presentacion || esEtiquetaDeEmpaque(diseno)) && !esUbicacion && <div className="label-presentation" data-label-field>
     <span className="label-presentation-title">Presentación</span>
     <strong className="label-presentation-value">{textoPresentacion(presentacion, producto.unidad_base)}</strong>
   </div>;
@@ -135,6 +136,27 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
     case 'caja_bulto':
       contenido = <>{cabecera('Caja / bulto')}{fila(<>{nombre}{identidadProducto}{foto}{atributos}</>, false)}{presentacionImprimir}{ubicacionImprimir}{barras}</>;
       break;
+    case 'caja_grande':
+    case 'lectura_distancia': {
+      // Las casillas proceden del catálogo, sin inferir características del nombre
+      // ni convertir el contenido fijo del empaque en existencias actuales.
+      const caracteristicas = formato.atributos ? (datos.atributos || []).filter(a =>
+        String(a.atributo_valor?.atributo?.nombre ?? '').trim() && String(a.atributo_valor?.valor ?? '').trim()) : [];
+      const skuRegistrado = String(producto.sku_interno ?? '').trim();
+      const codigo = formato.codigo && <div className="label-pack-code" data-label-field><span>{skuRegistrado ? 'SKU' : 'ID'}</span> {skuRegistrado || producto.id}</div>;
+      contenido = <>{cabecera('Identificación de empaque', sucursalNombre)}
+        {diseno === 'lectura_distancia' ? <>{nombre}{codigo}</> : <>{codigo}{nombre}</>}
+        {fila(<>{foto}{caracteristicas.length > 0 && <div className="label-pack-specs">{caracteristicas.map((a, i) =>
+          <Campo key={a.id ?? i} titulo={a.atributo_valor.atributo.nombre}>{a.atributo_valor.valor}</Campo>)}</div>}
+          <div className="label-pack-content" data-label-field><span className="label-pack-title">Contenido por presentación</span>
+            <strong>{textoContenidoPresentacion(presentacion, producto.unidad_base)}</strong>
+            <span className="label-pack-presentation">Presentación: {presentacion?.nombre || 'Sin seleccionar'}</span>
+          </div></>)}
+        {formato.marca && producto.marca && <div className="label-pack-brand" data-label-field>Marca: {producto.marca}</div>}
+        {formato.unidad && <div className="label-detail" data-label-field>Unidad base: {producto.unidad_base || 'Sin registrar'}</div>}
+        {ubicacionImprimir}{barras}<div className="label-pack-footer" data-label-field>Existencias actuales en la ficha digital</div></>;
+      break;
+    }
     case 'ubicacion': {
       // En la casilla se imprime el código corto en grande (PB-EA-3) y abajo el desglose.
       const codigoUbicacion = ubicacion ? codigoCorto(ubicacion) : '';
