@@ -45,10 +45,10 @@ export function cantidadOperacion(valor) {
 }
 export const nombresEstadoOperacion = { SOLICITADO: 'Pendiente de verificar', EN_CAJA: 'Enviado a Caja', RETORNO_PENDIENTE: 'Material en retorno', RETORNADO: 'Retorno recibido', CANCELADO: 'Cancelado', BORRADOR: 'Armando carrito', PREPARANDO: 'En preparación', PREPARADO: 'Listo para verificar', REVISANDO: 'En verificación', VERIFICADO: 'Entrega verificada', DESPACHADO: 'Despachado', EN_TRANSITO: 'En tránsito', RECIBIDO: 'Recibido en Tienda', ANULADO: 'Preparación anulada' };
 export const cantidadTexto = valor => Number(valor ?? 0).toLocaleString('es-BO', { maximumFractionDigits: 6 });
-export function resumenOperacion(lineas = []) {
+export function resumenOperacion(lineas = [], ajustable = false) {
   const vigentes = lineas.filter(l => l.vigente);
-  const conCantidad = vigentes.filter(l => Number(l.preparada_base) > 0);
-  return { total: vigentes.length, preparadas: vigentes.filter(l => l.confirmada).length, revisar: conCantidad.length, revisadas: conCantidad.filter(l => l.revisada_base != null && Number(l.revisada_base) === Number(l.preparada_base)).length, parcial: vigentes.some(l => l.confirmada && Number(l.preparada_base) < Number(l.snapshot.pendiente_base)) };
+  const conCantidad = vigentes.filter(l => Number(l.preparada_base) > 0 || ajustable && l.snapshot?.preparable);
+  return { total: vigentes.length, preparadas: vigentes.filter(l => l.confirmada).length, revisar: conCantidad.length, revisadas: conCantidad.filter(l => l.revisada_base != null && (ajustable || Number(l.revisada_base) === Number(l.preparada_base))).length, parcial: vigentes.some(l => l.confirmada && Number(l.preparada_base) < Number(l.snapshot.pendiente_base)) };
 }
 export function planPreparacionCompleta(lineas = []) {
   const vigentes = lineas.filter(l => l.vigente);
@@ -64,7 +64,7 @@ export function planPreparacionCompleta(lineas = []) {
 }
 export async function operarPedidoMovil(cliente, { pedidoId, sucursalId, tareaId = null, accion = 'consultar', version = null, datos = {} }) {
   const { data, error } = await cliente.rpc('operar_preparacion_pedido', { p_pedido_id: pedidoId, p_sucursal_id: sucursalId, p_tarea_id: tareaId, p_accion: accion, p_version: version, p_datos: datos });
-  if (error) throw new Error(error.message || 'No se pudo guardar la operación.');
+  if (error) { const fallo=new Error(error.message || 'No se pudo guardar la operación.');fallo.code=error.code;throw fallo; }
   if (!data) throw new Error('No se recibió una respuesta del almacén.');
   return data;
 }
@@ -93,8 +93,8 @@ export function adaptarDocumentoMovil(data) {
   if (!data.documento) return data;
   return { ...data, pedido: data.documento, otras_sucursales: 0, lineas: (data.lineas || []).map(l => ({ ...l, pedido_linea_id: l.id })) };
 }
-export async function operarDocumentoMovil(cliente, { tipo = 'pedido', documentoId, sucursalId, tareaId = null, accion = 'consultar', version = null, datos = {} }) {
-  if (accion === 'confirmar_resto') {
+export async function operarDocumentoMovil(cliente, { tipo = 'pedido', documentoId, sucursalId, tareaId = null, accion = 'consultar', version = null, datos = {}, dosActores = false }) {
+  if (accion === 'confirmar_resto' && !(tipo === 'pedido' && dosActores)) {
     const { data, error } = await cliente.rpc('confirmar_resto_preparacion', {
       p_tipo: tipo.toUpperCase(), p_documento_id: documentoId, p_sucursal_id: sucursalId,
       p_tarea_id: tareaId, p_version: version,
