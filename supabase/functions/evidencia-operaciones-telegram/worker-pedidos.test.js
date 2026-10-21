@@ -52,3 +52,12 @@ it('el worker no expone el token ni envía nada cuando falla su autorización',a
   const r=await manejarPedidosWorker(new Request('https://qa.invalid',{method:'POST',body:'{}'}),{admin,fetchImpl,token:'TOKEN_QA'});
   expect(r.status).toBe(401);expect(await r.text()).not.toContain('TOKEN_QA');expect(fetchImpl).not.toHaveBeenCalled();
 });
+it('publica el traslado TRA en su tema, con recibos parciales y texto de recepción',async()=>{
+ lote={...lote,tipo:'TRASLADO',etapa:'SALIDA'};
+ const destino={...config,tema_id:17226};
+ fetchImpl.mockImplementation(async url=>url.endsWith('/sendPhoto')?ok({...photo,message_thread_id:17226}):ok({...mensaje(2),message_thread_id:17226}));
+ expect(await enviarPedido({admin,fetchImpl,token:'TOKEN_QA',config:destino,lote})).toBe('enviado');
+ expect(fetchImpl.mock.calls.every(([,r])=>r.body.get('message_thread_id')==='17226')).toBe(true);
+ expect(fetchImpl.mock.calls[1][1].body.get('text')).toContain('Entrega y recepción');
+ expect(call.mock.calls.at(-1)[1].p_accion).toBe('confirmar');
+});

@@ -38,9 +38,9 @@ export default function EvidenciaOperacion({ tipo, documentoId, entregaId, versi
   }
   if (datos && !datos.activo && !datos.envios.length && !error) return null;
   return <section className="om-pedido om-evidencia">
-    <h3>{tipo === 'pedido' ? datos?.contexto?.dos_actores && !datos.contexto.puede_capturar?'Evidencias de esta entrega':datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos del retiro del pedido' : 'Fotos del traslado'}</h3>
+    <h3>{tipo==='traslado'?(datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos de la entrega y recepción'):tipo === 'pedido' ? datos?.contexto?.dos_actores && !datos.contexto.puede_capturar?'Evidencias de esta entrega':datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos del retiro del pedido' : 'Fotos del traslado'}</h3>
     {datos?.activo && datos.contexto.puede_capturar && <>
-      <p>Adjunta entre 1 y 10 fotos del material. Se enviarán al tema {tipo === 'pedido' ? datos.contexto.etapa==='PREPARACION'?'Pedidos al enviar a verificación':'Pedidos al confirmar el retiro' : 'Traslados al autorizar la salida'}.</p>
+      <p>Adjunta entre 1 y 10 fotos del material. Se enviarán al tema {tipo==='traslado'?(datos.contexto.etapa==='PREPARACION'?'Traslados al terminar el alistado':'Traslados al confirmar la entrega y recepción'):tipo === 'pedido' ? datos.contexto.etapa==='PREPARACION'?'Pedidos al enviar a verificación':'Pedidos al confirmar el retiro' : 'Traslados al autorizar la salida'}.</p>
       <label>Tomar foto<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
       <label>Elegir fotos<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label>
       <p aria-live="polite">{fotos.length} de 10 fotos seleccionadas</p>

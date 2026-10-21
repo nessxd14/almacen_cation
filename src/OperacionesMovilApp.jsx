@@ -176,8 +176,8 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
     setError('');
     try {
       const c = interpretarCodigoOperacion(texto);
-      if (['pedido', 'vtd', 'traslado_virtual'].includes(c.tipo)) {
-        if (c.tipo !== 'traslado_virtual' && !esAlmacen) throw new Error('Este documento se prepara y verifica desde Almacén.');
+      if (['pedido', 'vtd', 'traslado', 'traslado_virtual'].includes(c.tipo)) {
+        if (!['traslado','traslado_virtual'].includes(c.tipo) && !esAlmacen) throw new Error('Este documento se prepara y verifica desde Almacén.');
         let documentoId = c.id;
         if (c.tipo === 'vtd' && c.numero) {
           const resuelto = await solicitarDocumentoMovil(supabase, { tipo: 'vtd', accion: 'resolver_vtd', datos: { numero: c.numero } });

@@ -15,6 +15,7 @@ import PromocionHuerfanos from "./PromocionHuerfanos";
 import RevisionCapturas   from "./RevisionCapturas";
 import OperacionesApp     from "./OperacionesApp";
 import OperacionesMovilApp from "./OperacionesMovilApp";
+import TrasladoQrApp from "./TrasladoQrApp";
 import CatalogoApp        from "./CatalogoApp";
 import InventarioApp      from "./InventarioApp";
 import HistorialApp       from "./HistorialApp";
@@ -149,6 +150,7 @@ export default function App() {
       <Route path="/pedidos/:id" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> : <PedidoDetallePage />} />
       <Route path="/operaciones" element={<OperacionesMovilApp />} />
       <Route path="/operaciones/pedidos/:id" element={<OperacionesMovilApp />} />
+      <Route path="/operaciones/traslados/:id" element={<TrasladoQrApp />} />
       <Route path="/operaciones/vtd/:id" element={<OperacionesMovilApp tipoDocumento="vtd" />} />
       <Route path="/operaciones/traslados-virtuales/:id" element={<OperacionesMovilApp tipoDocumento="traslado_virtual" />} />
       <Route path="/operaciones/carrito" element={<OperacionesMovilApp tipoDocumento="carrito" />} />
