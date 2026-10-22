@@ -1,5 +1,9 @@
 # React + Vite
 
+## Operaciones directas de inventario
+
+**Movimientos → Operaciones** permite registrar entradas, traslados y ajustes con conversión visible por presentación y revisión del saldo antes de guardar. La sucursal activa delimita las ubicaciones de origen; el diseño se adapta a escritorio y celular. Consulta [la guía de Operaciones](docs/operaciones-directas.md) para los controles y la validación local.
+
 ## Reportes de almacén y entrega de turnos
 
 En **Existencias → Reportes de turno** se genera la hoja de conteo ciego, se imprime o guarda como PDF, se transcriben las cantidades y se comparan antes de entregar. Incluye recepción por otra persona, movimientos diarios y programación cíclica. Consulta [la guía de reportes](docs/reportes-turno-almacen.md) y ejecuta `npm run test:reportes` para validar el motor sin datos del negocio.

@@ -68,7 +68,7 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
     // antes devolvía buscarProductos: {id, nombre, sku_interno, marca, unidad_base}.
     const { data } = await supabase
       .from("producto")
-      .select("id, nombre, sku_interno, marca, unidad_base")
+      .select("id, nombre, sku_interno, marca, unidad_base, imagen_url")
       .eq("id", v.producto_id)
       .single();
     if (data) onSeleccionar(data);
@@ -100,7 +100,7 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
     if (productosDistintos.length !== 1) return false; // código ambiguo: dejar que el usuario elija a mano
     const { data: prod, error: errorProd } = await supabase
       .from("producto")
-      .select("id, nombre, sku_interno, marca, unidad_base")
+      .select("id, nombre, sku_interno, marca, unidad_base, imagen_url")
       .eq("id", productosDistintos[0])
       .single();
     if (errorProd) { console.error("producto:", errorProd); setErrorResolver("No se pudo resolver el código"); return false; }
@@ -108,7 +108,7 @@ export default function TypeaheadProducto({ value, onChange, onSeleccionar, plac
     setGrupos([]);
     setActiveIndex(-1);
     onChange("");
-    onSeleccionar(prod, { presentacionIdPreferida: rows.length === 1 ? Number(rows[0].presentacion_id) : null });
+    onSeleccionar(prod, { presentacionIdPreferida: rows.length === 1 ? Number(rows[0].presentacion_id) : null, presentacionAmbigua: rows.length > 1 });
     return true;
   }
 
