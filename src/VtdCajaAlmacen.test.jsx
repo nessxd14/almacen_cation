@@ -63,3 +63,26 @@ it('recupera una salida confirmada cuya respuesta se perdió sin volver a subir 
   expect(evidenciaQa.subir).toHaveBeenCalledTimes(1);expect(qa.rpc.mock.calls.map(c=>c[1].p_accion)).toEqual(['enviar','consultar_vtd']);
   expect(changed).toHaveBeenCalledWith(registro('EN_CAJA'));
 });
+
+const textoBoton = t => [...node.querySelectorAll('button')].find(b => b.textContent.includes(t));
+it('reporta el faltante con las cantidades disponibles y el motivo',async()=>{
+  const next=registro();next.vtds[0].faltante=[{linea_id:10,cantidad_presentacion_disponible:1}];qa.rpc.mockResolvedValue({data:next,error:null});const changed=await mount(registro());
+  await act(async()=>textoBoton('Reportar faltante').click());
+  expect(textoBoton('Enviar reporte a Caja').disabled).toBe(true);
+  await input('input[aria-label="Disponible de Bolígrafos de prueba"]','3');expect(textoBoton('Enviar reporte a Caja').disabled).toBe(true);
+  await input('input[aria-label="Disponible de Bolígrafos de prueba"]','1');await input('textarea','Solo queda 1 caja');expect(textoBoton('Enviar reporte a Caja').disabled).toBe(false);
+  await act(async()=>textoBoton('Enviar reporte a Caja').click());
+  expect(qa.rpc).toHaveBeenCalledWith('operar_caja_almacen',{p_accion:'reportar_faltante',p_operacion_id:null,p_sesion_id:null,p_datos:{venta_id:7,version:2,motivo:'Solo queda 1 caja',disponibles:[{linea_id:10,cantidad_presentacion:1}]}});
+  expect(changed).toHaveBeenCalledWith(next);
+});
+it('con faltante reportado bloquea Enviar hasta que Caja ajuste y permite actualizar',async()=>{
+  const reportado=registro();reportado.vtds[0].faltante=[{linea_id:10,cantidad_presentacion_disponible:1}];
+  qa.rpc.mockResolvedValue({data:registro(),error:null});const changed=await mount(reportado);
+  expect(node.textContent).toContain('Faltante reportado — esperando ajuste de Caja');expect(node.textContent).toContain('Bolígrafos de prueba: 1 de 2');
+  await input('input','24');expect(button().disabled).toBe(true);expect(textoBoton('Reportar faltante')).toBeUndefined();
+  await act(async()=>textoBoton('Actualizar').click());
+  expect(qa.rpc).toHaveBeenCalledWith('operar_caja_almacen',expect.objectContaining({p_accion:'consultar_vtd'}));expect(changed).toHaveBeenCalled();
+});
+it('tras el ajuste de Caja (sin faltante) Enviar vuelve a funcionar',async()=>{
+  await mount(registro());await input('input','24');expect(button().disabled).toBe(false);
+});
