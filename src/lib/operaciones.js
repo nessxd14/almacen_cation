@@ -255,7 +255,7 @@ export async function stockEn({ productoId, ubicacionId }) {
  */
 export async function ejecutarOperacion({
   modo, productoId, presentacionId, ubicacionId, ubicacionDestinoId,
-  cantidad, cantidadObjetivo, motivo, referencia, usuario, permitirSobregiro,
+  cantidad, cantidadObjetivo, motivo, referencia, usuario, permitirSobregiro, idempotencia,
 }) {
   const fecha = hoy();
   let resultado;
@@ -268,7 +268,7 @@ export async function ejecutarOperacion({
       p_referencia: referencia || "Sin referencia",
       p_usuario: usuario,
       p_fecha: fecha,
-      p_idempotencia: uuid(),
+      p_idempotencia: idempotencia || uuid(),
     });
   } else if (modo === "SALIDA") {
     resultado = await supabase.rpc("registrar_salida", {
@@ -311,28 +311,31 @@ export async function ejecutarOperacion({
 /* ── asegura la asignación producto-ubicación (idempotente) ───────────
  * es_principal = true si es la primera ubicación asignada al producto.
  */
-export async function asegurarAsignacion(productoId, ubicacionId) {
+export async function asegurarAsignacion(productoId, ubicacionId, { estricto = false } = {}) {
   const pid = Number(productoId);
   const uid = Number(ubicacionId);
 
-  const { data: existente } = await supabase
+  const { data: existente, error: errorExistente } = await supabase
     .from("producto_ubicacion")
     .select("id")
     .eq("producto_id", pid)
     .eq("ubicacion_id", uid)
     .maybeSingle();
+  if (estricto && errorExistente) throw errorExistente;
   if (existente) return;
 
-  const { count } = await supabase
+  const { count, error: errorConteo } = await supabase
     .from("producto_ubicacion")
     .select("id", { count: "exact", head: true })
     .eq("producto_id", pid);
+  if (estricto && errorConteo) throw errorConteo;
 
-  await supabase.from("producto_ubicacion").insert({
+  const { error: errorAsignacion } = await supabase.from("producto_ubicacion").insert({
     producto_id: pid,
     ubicacion_id: uid,
     es_principal: (count || 0) === 0,
   });
+  if (estricto && errorAsignacion) throw errorAsignacion;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
