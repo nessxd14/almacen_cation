@@ -26,3 +26,34 @@
 .conteo-workspace details summary{cursor:pointer;min-height:30px;font-weight:600}.conteo-events{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:14px}.conteo-evidence{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:14px 0;border-top:1px solid #e2e8f0}.conteo-pending ul{padding-left:20px}.conteo-pending li{margin:8px 0}.conteo-apply{border-color:#a7c7fa}
 @media(max-width:600px){.conteo-workspace{padding:18px 10px 90px;gap:14px}.conteo-card{padding:16px;border-radius:14px}.conteo-heading h1{font-size:1.4rem}.conteo-session{flex-wrap:wrap}.conteo-checklist li{flex-direction:column;gap:6px}.conteo-quantities{grid-template-columns:repeat(2,minmax(0,1fr))}.conteo-workspace .conteo-primary{width:100%}.conteo-rounds>div{min-width:0;flex-basis:100%}.conteo-matches>button{width:100%}}
 @media(prefers-reduced-transparency:reduce){.conteo-card{background:#fff}}
+
+/* Captura por producto: lista de pendientes, empaques y unidades en una ficha. */
+.conteo-workspace.is-counting{max-width:760px;gap:12px}
+.is-counting .conteo-heading h1{font-size:1.3rem;margin:0}.is-counting .conteo-eyebrow{font-size:10px}
+.conteo-session-compact{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 0;border-top:1px solid #dce5f1;color:#526279;font-size:13px}
+.conteo-session-compact strong{color:#172b43}.conteo-session-compact span{display:flex;align-items:center;gap:6px}
+.conteo-captura-rapida{display:grid;gap:12px;min-width:0}
+.conteo-progress{display:grid;gap:8px;font-size:13px}.conteo-progress>div{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}.conteo-progress span{color:#526279}
+.conteo-progress progress{appearance:none;display:block;width:100%;height:6px;border:0;border-radius:4px;background:#e1e9f5;overflow:hidden}.conteo-progress progress::-webkit-progress-bar{background:#e1e9f5}.conteo-progress progress::-webkit-progress-value{background:#2563eb}.conteo-progress progress::-moz-progress-bar{background:#2563eb}
+.conteo-capture-tools{display:flex;gap:10px}.conteo-capture-tools>button{flex:1}
+.conteo-workspace .conteo-filters{display:flex;gap:8px;margin:14px 0}.conteo-filters>button{flex:1;padding:8px;font-size:12px}
+.conteo-workspace button[aria-pressed=true]{border-color:#2563eb;background:#edf4ff;color:#2159a5}
+.conteo-search-label{display:grid;gap:7px;font-size:13px;font-weight:600}
+.conteo-quick-list{list-style:none;padding:0;margin:0;display:grid;gap:8px}.conteo-quick-list li{min-width:0}
+.conteo-quick-list li>button{width:100%;justify-content:space-between;gap:12px;text-align:left;padding:14px;min-height:66px}
+.conteo-quick-list strong{display:block;font-size:14px}.conteo-quick-list small{display:block;font-size:11px;color:#526279;margin-top:4px}.conteo-quick-list button>span:last-child{display:flex;align-items:center;gap:5px;font-size:12px;color:#2159a5;flex-shrink:0}
+.conteo-workspace button.conteo-back{display:flex;padding:0;border:0;background:transparent;color:#2563eb;justify-content:flex-start;font-size:12px;margin-bottom:6px}
+.conteo-product-entry h2{margin:6px 0 0}.conteo-product-entry .conteo-form{gap:14px}.conteo-workspace .conteo-help{font-size:12px;line-height:1.55;color:#526279;margin:4px 0}
+.conteo-package-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}.conteo-package-fields label{font-size:13px}.conteo-package-fields small{font-weight:400;font-size:11px;color:#526279}
+.conteo-workspace .conteo-package-fields input{min-height:58px;font-size:24px;font-weight:650;text-align:center;background:#f5f8fc;font-variant-numeric:tabular-nums}
+.conteo-entry-total{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 0;border-top:1px solid #dce5f1;font-size:14px}.conteo-entry-total strong{color:#2563eb;font-size:24px;font-variant-numeric:tabular-nums}.conteo-entry-total small{font-size:12px;font-weight:500}
+.conteo-workspace label.conteo-evidence-input{display:grid;gap:8px;position:relative;cursor:pointer;border:1px dashed #a9bfdc;background:#f5f8fc;border-radius:10px;padding:14px;min-height:70px}
+.conteo-evidence-input>span{display:flex;gap:9px;align-items:center;font-size:14px}.conteo-evidence-input>small{font-size:11px;font-weight:400;color:#526279;overflow-wrap:anywhere}
+.conteo-workspace .conteo-evidence-input input{position:absolute;inset:0;opacity:0;cursor:pointer}.conteo-evidence-input:focus-within{outline:3px solid #93b9fa;outline-offset:3px}
+.conteo-workspace label.conteo-evidence-input.has-photo{background:#eaf7f0;border:1px solid #c0e3d2;color:#16704f}
+.conteo-workspace button.conteo-zero{border:0;background:transparent;color:#526279;text-decoration:underline;font-size:12px;padding:4px}
+.conteo-save-status{display:flex;align-items:center;justify-content:center;gap:7px;color:#526279;font-size:11px;text-align:center}.conteo-product-entry .conteo-primary{width:100%;min-height:50px}
+.conteo-start-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.conteo-start-options>button{display:grid;gap:7px;text-align:left;align-content:start;padding:16px}.conteo-start-options small{font-size:12px;font-weight:400;color:#526279}
+.conteo-completion-reasons{padding-left:20px;font-size:13px;color:#795211;line-height:1.6}
+.conteo-review-table{overflow-x:auto;max-width:100%;margin:12px 0}.conteo-review-table table{border-collapse:collapse;width:100%;font-size:13px}.conteo-review-table caption{text-align:left;padding-bottom:10px}.conteo-review-table th,.conteo-review-table td{padding:10px;text-align:left;border-bottom:1px solid #dce5f1}.conteo-review-table td{font-variant-numeric:tabular-nums}.conteo-review-table thead th{color:#526279;font-size:12px;white-space:nowrap}.conteo-review-table td:last-child button{min-width:90px;font-size:12px}
+@media(max-width:600px){.conteo-workspace.is-counting{padding:14px 12px 60px}.conteo-start-options{grid-template-columns:1fr}.conteo-package-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.conteo-package-fields label{min-width:0}.conteo-capture-tools>button{font-size:12px;padding:8px}.conteo-quick-list li>button{flex-wrap:wrap}.is-counting .conteo-card{padding:16px}.is-counting .conteo-session-compact{font-size:12px}.conteo-entry-total{flex-wrap:wrap}}
