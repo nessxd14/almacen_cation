@@ -52,3 +52,17 @@ it('mantiene el pedido y enlaces a cada entrega en su historial',async()=>{
 it('el ajuste rápido conserva el conducto del faltante además de su motivo',async()=>{
   await mount(<CantidadPedido linea={props.linea} abastecimiento onEditar={()=>{}} onCancelar={()=>{}} onGuardar={props.onGuardar}/>);await change(input('Cantidad alistada de Papel Bond Millenium'),'9');await change(node.querySelector('input[maxlength="1000"]'),'Una se compra');await click('Guardar ajuste');expect(props.onGuardar).not.toHaveBeenCalled();await change(input('Situación pendiente de Papel Bond Millenium'),'COMPRA_GESTIONADA');await click('Guardar ajuste');expect(props.onGuardar).toHaveBeenCalledWith(expect.objectContaining({cantidad_base:9,pendiente_tipo:'COMPRA_GESTIONADA'}));
 });
+
+it('el cero posterga la línea sin obligar a declarar una compra u origen',async()=>{
+  props.linea.snapshot.preparable=true;
+  await mount(<CantidadPedido linea={props.linea} abastecimiento onEditar={()=>{}} onCancelar={()=>{}} onGuardar={props.onGuardar}/>);
+  await click('Dejar para otra entrega');expect(input('Cantidad alistada de Papel Bond Millenium').value).toBe('0');expect(node.textContent).toContain('No sale en esta entrega');
+  await click('Se enviará después');await click('Guardar ajuste');
+  expect(props.onGuardar).toHaveBeenCalledWith(expect.objectContaining({cantidad_base:0,pendiente_tipo:'POR_COMPLETAR',observacion:'Se enviará después'}));
+});
+
+it('reutiliza la recepción aunque antes se haya elegido existencia personalizada',async()=>{
+  props.linea.snapshot.es_personalizado=true;props.linea.confirmada=true;props.linea.preparada_base=10;props.linea.origenes_preparacion=[{tipo:'EXISTENCIA_PERSONALIZADA',cantidad_base:10}];props.linea.recepciones=[{id:'rec-3',tipo:'COMPRA_RAPIDA',referencia:'Tercero',saldo:10}];
+  await mount();expect(input('Cantidad de Almacén').value).toBe('0');expect(input('Cantidad de Tercero').value).toBe('10');await click('Guardar alistado');
+  expect(props.onGuardar).toHaveBeenCalledWith('guardar_preparacion',expect.objectContaining({origenes:[{tipo:'COMPRA_RAPIDA',recepcion_id:'rec-3',cantidad_base:10}]}));
+});

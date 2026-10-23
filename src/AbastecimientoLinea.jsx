@@ -3,8 +3,8 @@ import {Link} from 'react-router-dom';
 import {Boxes, Store, ShoppingBag, Truck, Clock3, X, Check, Layers} from 'lucide-react';
 import {cantidadOperacion, cantidadTexto} from './lib/operacionesMovil';
 
-const origenTexto={ALMACEN:'Almacén',EXISTENCIA_PERSONALIZADA:'Existencia personalizada',TIENDA:'Traído de Tienda',COMPRA_RAPIDA:'Compra rápida para este pedido'};
-const pendientesTexto={TIENDA:'Por traer de Tienda',COMPRA_RAPIDA:'Pendiente de compra rápida',COMPRA_GESTIONADA:'Compra gestionada'};
+const origenTexto={ALMACEN:'Almacén',EXISTENCIA_PERSONALIZADA:'Almacén · personalizado',TIENDA:'Traído de Tienda',COMPRA_RAPIDA:'Compra rápida para este pedido'};
+const pendientesTexto={POR_COMPLETAR:'Se enviará después · mismo pedido y QR',TIENDA:'Por traer de Tienda',COMPRA_RAPIDA:'Pendiente de compra rápida',COMPRA_GESTIONADA:'Compra gestionada'};
 const acciones=[['origenes','Alistar por origen',Boxes],['tienda','Traído de Tienda',Store],['rapida','Compra rápida para este pedido',ShoppingBag],['formal','Compra gestionada',Truck],['pendiente','Declarar faltante pendiente',Clock3]];
 const factor=s=>Number(s.factor)>0?Number(s.factor):1;
 
@@ -39,7 +39,7 @@ export default function AbastecimientoLinea({linea,revision,puedeEditar,ocupado,
   const [cantidades,setCantidades]=useState(()=>{
     const mapa={ALMACEN:String(stockDeclarado/f)};
     for(const r of recibidas)mapa[r.id]=String(Number(originales.find(o=>o.recepcion_id===r.id)?.cantidad_base||0)/f);
-    if(!originales.length){let resto=Number(linea.confirmada?linea.preparada_base:s.pendiente_base);for(const r of recibidas){const q=Math.min(resto,Number(r.saldo));mapa[r.id]=String(q/f);resto-=q;}mapa.ALMACEN=String(resto/f);}
+    if(!revision||!originales.length){let resto=Number(linea.confirmada?linea.preparada_base:s.pendiente_base);for(const r of recibidas){const q=Math.min(resto,Number(r.saldo));mapa[r.id]=String(q/f);resto-=q;}mapa.ALMACEN=String(resto/f);}
     return mapa;
   });
   const [error,setError]=useState('');const intento=useRef(crypto.randomUUID());
@@ -56,9 +56,9 @@ export default function AbastecimientoLinea({linea,revision,puedeEditar,ocupado,
         if(almacen>0)origenes.push({tipo:personal?'EXISTENCIA_PERSONALIZADA':'ALMACEN',cantidad_base:almacen});
         const q=origenes.reduce((n,o)=>n+o.cantidad_base,0);
         if(q>Number(s.pendiente_base))throw new Error('La cantidad supera lo pendiente del pedido.');
-        if(!revision&&q<Number(s.pendiente_base)&&(!pendiente||!nota.trim()))throw new Error('Declara qué se hará con el faltante y su motivo.');
+        if(!revision&&q<Number(s.pendiente_base)&&(!(pendiente||q===0)||!nota.trim()))throw new Error('Declara qué se hará con el faltante y su motivo.');
         if(revision&&q!==Number(linea.preparada_base)&&!nota.trim())throw new Error('Indica el motivo de la diferencia.');
-        accion=revision?'guardar_revision':'guardar_preparacion';payload={linea_id:linea.pedido_linea_id,cantidad_base:q,origenes,observacion:nota.trim(),...(revision?{metodo:'visual'}:{pendiente_tipo:pendiente||null})};
+        accion=revision?'guardar_revision':'guardar_preparacion';payload={linea_id:linea.pedido_linea_id,cantidad_base:q,origenes,observacion:nota.trim(),...(revision?{metodo:'visual'}:{pendiente_tipo:pendiente||(q===0?'POR_COMPLETAR':null)})};
       }else if(modo==='pendiente'){
         accion='declarar_pendiente';payload={linea_id:linea.pedido_linea_id,pendiente_tipo:pendiente,observacion:nota.trim()};
       }else if(modo==='formal'){
@@ -73,13 +73,14 @@ export default function AbastecimientoLinea({linea,revision,puedeEditar,ocupado,
   }
   return <div className="om-abastecimiento">
     <OrigenesMaterial origenes={originales} snapshot={s}/>
+    {personal&&!linea.confirmada&&!saldoRecibido&&<p className="om-muted">Declara dónde está el material. Ser personalizado no implica una compra.</p>}
     {linea.pendiente_tipo&&<p className="om-muted">{pendientesTexto[linea.pendiente_tipo]}</p>}
     {linea.compras?.filter(c=>c.estado!=='CANCELADA').map(c=><p className="om-compra-vinculada" key={c.id}>Compra gestionada · {c.estado==='RECIBIDA'?'Recibida':c.estado==='COMPRADA'?'En curso':'Solicitada'} · {cantidadTexto(Number(c.cantidad_recibida)/f)} de {cantidadTexto(Number(c.cantidad_base)/f)} {s.presentacion||s.unidad_base} <Link to="/compras">Consultar compra</Link></p>)}
-    {recibidas.some(r=>Number(r.saldo)>0)&&<p className="om-muted">Asignado a este pedido, aún sin retirar: {cantidadTexto(saldoRecibido/f)} {s.presentacion||s.unidad_base}</p>}
+    {recibidas.some(r=>Number(r.saldo)>0)&&<p className="om-muted">Recepción del pedido · se reutiliza al alistar: {cantidadTexto(saldoRecibido/f)} {s.presentacion||s.unidad_base}</p>}
     {puedeEditar&&!abierta&&<button className="om-secondary om-icon-action" aria-label={revision?'Comprobar cantidades por origen':'Origen / resolver faltante'} title={revision?'Comprobar cantidades por origen':'Origen / resolver faltante'} disabled={disabled} onClick={onAbrir}><Layers size={20} aria-hidden="true"/></button>}
     {abierta&&<form className="om-editor" aria-label={`Abastecimiento de ${s.nombre}`} onSubmit={guardar}>
       {!revision&&<><div className="om-abastecimiento-actions" role="group" aria-label="Acción de abastecimiento">{acciones.map(([id,nombre,Icon])=><button key={id} type="button" className="om-icon-action" aria-label={nombre} title={nombre} aria-pressed={modo===id} disabled={disabled} onClick={()=>{setModo(id);setError('');intento.current=crypto.randomUUID();}}><Icon size={20} aria-hidden="true"/></button>)}</div><strong className="om-abastecimiento-heading">{acciones.find(([id])=>id===modo)?.[1]}</strong></>}
-      {modo==='origenes'?<><label>{personal?'Existencia personalizada':'Almacén'} · {s.presentacion||s.unidad_base}<input aria-label="Cantidad de Almacén" inputMode="decimal" value={cantidades.ALMACEN} disabled={disabled} onChange={e=>setCantidades({...cantidades,ALMACEN:e.target.value})}/></label>{recibidas.map(r=><label key={r.id}>{origenTexto[r.tipo]} · {r.referencia} · saldo {cantidadTexto(Number(r.saldo)/f)}<input aria-label={`Cantidad de ${r.referencia}`} inputMode="decimal" value={cantidades[r.id]||'0'} disabled={disabled} onChange={e=>setCantidades({...cantidades,[r.id]:e.target.value})}/></label>)}<p>Esta entrega: <strong>{cantidadTexto(total/f)} {s.presentacion||s.unidad_base}</strong> · quedan {cantidadTexto(Math.max(0,Number(s.pendiente_base)-total)/f)} pendientes.</p></>:modo!=='pendiente'&&<label>Cantidad · {s.presentacion||s.unidad_base}<input aria-label="Cantidad de abastecimiento" inputMode="decimal" value={cantidad} disabled={disabled} onFocus={e=>e.target.select()} onChange={e=>setCantidad(e.target.value)} required/></label>}
+      {modo==='origenes'?<><label>{personal?'Almacén · personalizado':'Almacén'} · {s.presentacion||s.unidad_base}<input aria-label="Cantidad de Almacén" inputMode="decimal" value={cantidades.ALMACEN} disabled={disabled} onChange={e=>setCantidades({...cantidades,ALMACEN:e.target.value})}/></label>{recibidas.map(r=><label key={r.id}>{origenTexto[r.tipo]} · {r.referencia} · saldo {cantidadTexto(Number(r.saldo)/f)}<input aria-label={`Cantidad de ${r.referencia}`} inputMode="decimal" value={cantidades[r.id]||'0'} disabled={disabled} onChange={e=>setCantidades({...cantidades,[r.id]:e.target.value})}/></label>)}<p>Esta entrega: <strong>{cantidadTexto(total/f)} {s.presentacion||s.unidad_base}</strong> · quedan {cantidadTexto(Math.max(0,Number(s.pendiente_base)-total)/f)} pendientes.</p></>:modo!=='pendiente'&&<label>Cantidad · {s.presentacion||s.unidad_base}<input aria-label="Cantidad de abastecimiento" inputMode="decimal" value={cantidad} disabled={disabled} onFocus={e=>e.target.select()} onChange={e=>setCantidad(e.target.value)} required/></label>}
       {modo==='tienda'&&<><label>Tienda de origen<select value={tienda} disabled={disabled} required onChange={e=>setTienda(e.target.value)}><option value="">Seleccionar Tienda</option>{tiendas.map(t=><option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label><p className="om-muted">Declara material que ya trajiste a Almacén. No pide aprobación ni modifica el stock de Tienda.</p></>}
       {modo==='rapida'&&<><label>Marca / proveedor<input aria-label="Marca o proveedor" maxLength={200} value={referencia} disabled={disabled} onChange={e=>setReferencia(e.target.value)}/></label><div className="om-reason-options">{s.marca&&<button type="button" disabled={disabled} onClick={()=>setReferencia(s.marca)}>{s.marca}</button>}<button type="button" disabled={disabled} onClick={()=>setReferencia('Tercero')}>Tercero</button></div><details><summary>Costo y comprobante (opcionales)</summary><label>Costo<input inputMode="decimal" value={costo} disabled={disabled} onChange={e=>setCosto(e.target.value)}/></label><label>Foto del comprobante<input aria-label="Comprobante de compra rápida" type="file" accept="image/jpeg,image/png,image/webp" disabled={disabled} onChange={e=>setComprobante(e.target.files?.[0]||null)}/></label><p className="om-muted">El comprobante se incluye entre las fotos del alistado.</p></details><p className="om-muted">Recibido exclusivamente para este pedido. Quedará pendiente de verificación y retiro.</p></>}
       {((modo==='origenes'&&!revision&&total<Number(s.pendiente_base))||modo==='pendiente')&&<label>Qué se hará con el faltante<select aria-label="Situación del faltante" value={pendiente} disabled={disabled} required onChange={e=>setPendiente(e.target.value)}><option value="">Elegir situación</option>{Object.entries(pendientesTexto).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>}

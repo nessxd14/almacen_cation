@@ -24,6 +24,9 @@ export async function testAbastecimiento(db,{login,uid}) {
     update evidencia_operacion.configuracion set pedidos_dos_actores=true;`);
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261023171501_abastecimiento_entregas_parciales.sql',import.meta.url),'utf8'));
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261023172049_reservas_abastecimiento_acceso.sql',import.meta.url),'utf8'));
+  // El motor de conteo tiene su propia suite; aquí se inspecciona su bloqueo de ubicación.
+  await db.exec('create schema if not exists inventario_control;create table if not exists inventario_control.sesion(id bigint,ubicacion_id bigint,sucursal_id bigint,estado text);');
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261023214916_resolver_bloqueos_despacho.sql',import.meta.url),'utf8'));
   await db.exec("update evidencia_operacion.configuracion set abastecimiento_pedidos=true;select setval(pg_get_serial_sequence('public.pedido_linea','id'),(select max(id)+100 from public.pedido_linea));");
   assert.equal((await db.query('select count(*) n from almacen_preparacion where modo_abastecimiento')).rows[0].n,0,'Las preparaciones previas conservan su contrato');
   const stock=async ubic=>Number((await db.query('select coalesce(sum(cantidad_base),0) n from stock_actual where producto_id=22 and ubicacion_id=$1',[ubic])).rows[0].n);
@@ -37,6 +40,7 @@ export async function testAbastecimiento(db,{login,uid}) {
   const preparar=async()=>{const datos={evidencia_id:await foto()},v=r.tarea.version;r=await op('preparado',datos);await op('preparado',datos,v);await login(2);r=await op('escanear');r=await op('confirmar_resto_revision');};
   const retirar=async()=>{const datos={destino:'Obra QA',evidencia_id:await foto(),plan:r.plan_salida},v=r.tarea.version;r=await op('confirmar_retiro',datos);await op('confirmar_retiro',datos,v);return r;};
   await login(1);await db.exec('set role authenticated');r=await op('escanear');assert.equal(r.abastecimiento,true);
+  assert.ok(r.bloqueos_despacho.some(b=>b.codigo==='CANTIDAD'));
   await assert.rejects(()=>db.query("select comprar_directo(9221,'Proveedor',1,'QA')"),/miniapp/);
   await assert.rejects(()=>op('registrar_abastecimiento',{id:randomUUID(),linea_id:9211,tipo:'COMPRA_RAPIDA',cantidad_base:1,referencia:'Tercero'}),/no pertenece/);
   const tienda={id:randomUUID(),linea_id:9201,tipo:'TIENDA',cantidad_base:3,referencia:'Tienda QA',sucursal_tienda_id:2};
@@ -111,5 +115,41 @@ export async function testAbastecimiento(db,{login,uid}) {
   const corregir=()=>db.query('select corregir_salida_documental($1,$2,$3)',[evento,correccion.motivo,correccion.id]);await corregir();await corregir();
   pedido=922;r=await op('consultar');assert.equal(r.resumen_pedido.estado,'PARCIAL');assert.equal(await stock(22),0);assert.equal(await stock(23),100);assert.equal(r.lineas[0].recepciones[0].saldo,4,'Corrección documental devuelve la asignación sin Kardex');
   await db.exec('reset role');
+  // Nuevos personalizados no nacen como compras. El origen se declara explícitamente.
+  await db.exec("insert into pedido(id,categoria,numero) values(925,'TIENDA','QA-ORIGEN-EXPLICITO');insert into pedido_linea(id,pedido_id,es_personalizado,descripcion,unidad_medida,cantidad_base,estado,sucursal_origen_id) values(9251,925,true,'Personalizado disponible','unidad',10,'ESPECIAL',1);insert into pedido_linea(id,pedido_id,producto_id,presentacion_id,cantidad_base,cantidad_presentacion,precio_unitario,sucursal_origen_id) values(9252,925,22,22,144,144,1,1);");
+  assert.equal((await db.query('select count(*) n from compra_solicitud where pedido_linea_id=9251')).rows[0].n,0);
+  pedido=925;await login(1);await db.exec('set role authenticated');r=await op('escanear');
+  await assert.rejects(()=>op('guardar_preparacion',{linea_id:9251,cantidad_base:10}),/Declara el origen/);
+  await assert.rejects(()=>op('confirmar_resto'),/Declara el origen/);
+  r=await op('guardar_preparacion',{linea_id:9251,cantidad_base:10,origenes:[{tipo:'EXISTENCIA_PERSONALIZADA',cantidad_base:10}]});
+  r=await op('guardar_preparacion',{linea_id:9251,cantidad_base:6,observacion:'Cuatro después',pendiente_tipo:'POR_COMPLETAR'});
+  assert.equal(Number(r.lineas.find(l=>l.pedido_linea_id===9251).origenes_preparacion[0].cantidad_base),6,'Conserva el origen ya declarado al reducir cantidades');
+  r=await op('guardar_preparacion',{linea_id:9251,cantidad_base:10,origenes:[{tipo:'EXISTENCIA_PERSONALIZADA',cantidad_base:10}]});
+  r=await op('guardar_preparacion',{linea_id:9252,cantidad_base:144});
+  assert.equal(r.bloqueos_despacho.find(b=>b.linea_id===9252).codigo,'STOCK','Stock insuficiente visible antes de revisión');
+  assert.equal(r.lineas.find(l=>l.pedido_linea_id===9252).stock_almacen[0].cantidad_base,0);
+  r=await op('guardar_preparacion',{linea_id:9252,cantidad_base:0,observacion:'Se enviará después'});
+  assert.equal(r.lineas.find(l=>l.pedido_linea_id===9252).pendiente_tipo,'POR_COMPLETAR');
+  assert.ok(!r.bloqueos_despacho.some(b=>b.linea_id===9252),'El cero no exige stock ni origen de esta entrega');
+  r=await op('registrar_abastecimiento',{id:randomUUID(),linea_id:9251,tipo:'COMPRA_RAPIDA',cantidad_base:10,referencia:'Tercero'});
+  await assert.rejects(()=>op('guardar_preparacion',{linea_id:9251,cantidad_base:10,origenes:[{tipo:'EXISTENCIA_PERSONALIZADA',cantidad_base:10}]}),/Reutiliza primero/);
+  r=await op('guardar_preparacion',{linea_id:9251,cantidad_base:10});
+  assert.equal(r.lineas.find(l=>l.pedido_linea_id===9251).origenes_preparacion[0].tipo,'COMPRA_RAPIDA');
+  await preparar();
+  await db.exec(`reset role;update almacen_preparacion_linea set origenes_preparacion='[{"tipo":"EXISTENCIA_PERSONALIZADA","cantidad_base":10}]',origenes_revision='[{"tipo":"EXISTENCIA_PERSONALIZADA","cantidad_base":10}]' where preparacion_id=${r.tarea.id} and pedido_linea_id=9251;set role authenticated;`);
+  r=await op('consultar');assert.equal(r.bloqueos_despacho.find(b=>b.linea_id===9251).codigo,'RECEPCION');assert.match(r.plan_salida[0].error,/Reutiliza primero/);
+  await assert.rejects(async()=>op('confirmar_retiro',{destino:'Obra QA',evidencia_id:await foto(),plan:r.plan_salida}),/resuelve|Corrige|stock|origen|Reutiliza/i);
+  await db.exec(`reset role;update almacen_preparacion_linea set origenes_preparacion=jsonb_build_array(jsonb_build_object('tipo','COMPRA_RAPIDA','recepcion_id',(select id from almacen_operaciones.recepcion_pedido where pedido_linea_id=9251),'cantidad_base',10)),origenes_revision=jsonb_build_array(jsonb_build_object('tipo','COMPRA_RAPIDA','recepcion_id',(select id from almacen_operaciones.recepcion_pedido where pedido_linea_id=9251),'cantidad_base',10)) where preparacion_id=${r.tarea.id} and pedido_linea_id=9251;set role authenticated;`);
+  r=await op('consultar');await retirar();assert.equal(r.resumen_pedido.estado,'PARCIAL');
+  await login(1);r=await op('escanear');assert.equal(r.lineas.filter(l=>l.vigente).length,1);
+  await db.exec('reset role');
+  await db.exec("insert into pedido(id,categoria,numero) values(926,'TIENDA','QA-COMPRA-RECIBIDA-CUSTOM');insert into pedido_linea(id,pedido_id,es_personalizado,descripcion,unidad_medida,cantidad_base,estado,sucursal_origen_id) values(9261,926,true,'Material personalizado comprado','unidad',6,'ESPECIAL',1);");
+  pedido=926;await login(1);await db.exec('set role authenticated');r=await op('escanear');r=await op('gestionar_compra',{linea_id:9261,cantidad_base:6,observacion:'Compra explícita'});
+  const solicitudPersonal=(await db.query('select id from compra_solicitud where pedido_linea_id=9261')).rows[0].id;
+  await db.query('select recibir_compra($1,null,6,$2)',[solicitudPersonal,'Prepara QA']);
+  r=await op('consultar');if(r.cambios.length)r=await op('sincronizar');assert.equal(r.lineas[0].compra_recibida_base,6);
+  r=await op('guardar_preparacion',{linea_id:9261,cantidad_base:6});assert.equal(r.lineas[0].origenes_preparacion[0].tipo,'EXISTENCIA_PERSONALIZADA');
+  await assert.rejects(()=>op('registrar_abastecimiento',{id:randomUUID(),linea_id:9261,tipo:'COMPRA_RAPIDA',cantidad_base:6,referencia:'Tercero'}),/compra recibida/);
+  await preparar();await retirar();assert.equal(r.pedido.estado,'COMPLETADO');assert.equal(r.lineas[0].compra_recibida_base,0);await db.exec('reset role');
   console.log('OK: abastecimiento 4+3+2+1, mismo QR y dos entregas, Tienda sin stock, compras sin duplicar, personalizados 6+4 y saldo rápido 4+2');
 }

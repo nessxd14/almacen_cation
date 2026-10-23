@@ -32,9 +32,10 @@ beforeEach(()=>{
     if(n==='operar_evidencia_operacion')return {data:p.p_accion==='crear'?{id:p.p_datos.id,rutas:['qa/1.jpg'],subidas:[]}:{activo:true,contexto:{etapa:qa.doc.tarea.estado==='PREPARANDO'?'PREPARACION':'SALIDA',puede_capturar:true},envios:structuredClone(qa.envios),retiro:qa.doc.retiro||null},error:null};
     const accion=p.p_accion;
     if(accion==='confirmar_resto')qa.doc.lineas.forEach(l=>{if(!l.confirmada){l.preparada_base=l.snapshot.pendiente_base;l.confirmada=true;}});
-    if(accion==='guardar_preparacion'){const l=qa.doc.lineas.find(l=>l.pedido_linea_id===p.p_datos.linea_id);Object.assign(l,{preparada_base:p.p_datos.cantidad_base,observacion:p.p_datos.observacion,confirmada:true});}
+    if(accion==='guardar_preparacion'){const l=qa.doc.lineas.find(l=>l.pedido_linea_id===p.p_datos.linea_id);Object.assign(l,{preparada_base:p.p_datos.cantidad_base,observacion:p.p_datos.observacion,confirmada:true,origenes_preparacion:p.p_datos.origenes||l.origenes_preparacion});}
     if(accion==='guardar_revision'){const l=qa.doc.lineas.find(l=>l.pedido_linea_id===p.p_datos.linea_id);Object.assign(l,{revisada_base:p.p_datos.cantidad_base,observacion_revision:p.p_datos.observacion});}
     if(accion==='confirmar_resto_revision')qa.doc.lineas.forEach(l=>{if(l.revisada_base==null)l.revisada_base=l.preparada_base;});
+    if(qa.doc.abastecimiento&&['guardar_revision','guardar_preparacion'].includes(accion))qa.doc.bloqueos_despacho=(qa.doc.bloqueos_despacho||[]).filter(b=>b.linea_id!==p.p_datos.linea_id);
     if(['guardar_revision','confirmar_resto_revision'].includes(accion))qa.doc.plan_salida=qa.doc.lineas.filter(l=>l.revisada_base>0).map(l=>({linea_id:l.pedido_linea_id,cantidad_base:l.revisada_base,asignaciones:[{ubicacion_id:l.pedido_linea_id,nombre:`A · 0${l.pedido_linea_id}`,cantidad_base:l.revisada_base}],error:null}));
     if(accion==='preparado'){qa.doc.tarea.estado='PREPARADO';qa.envios.push({id:p.p_datos.evidencia_id,estado:'PENDIENTE',cantidad:1,etapa:'PREPARACION'});}
     if(accion==='confirmar_retiro'){qa.doc.tarea.estado='DESPACHADO';qa.doc.retiro={preparacion_id:10,transportista_nombre:'Luis QA',destino:p.p_datos.destino,evidencia_id:p.p_datos.evidencia_id};qa.doc.entregada=true;qa.envios.push({id:p.p_datos.evidencia_id,estado:'PENDIENTE',cantidad:1,etapa:'SALIDA'});}
@@ -45,6 +46,25 @@ beforeEach(()=>{
   node=document.createElement('div');document.body.append(node);root=createRoot(node);
 });
 afterEach(async()=>{await act(async()=>root.unmount());node.remove();vi.unstubAllGlobals();});
+
+it('abre Resolver primero y permite dejar en cero la línea bloqueada sin cerrar el pedido',async()=>{
+  qa.id='revisa';qa.doc.abastecimiento=true;qa.doc.tarea.estado='REVISANDO';qa.doc.lineas.forEach(l=>{l.confirmada=true;l.preparada_base=24;l.revisada_base=24;l.origenes_preparacion=[{tipo:'ALMACEN',cantidad_base:24}];});
+  qa.doc.lineas[0].stock_almacen=[{ubicacion_id:12,nombre:'Planta baja · A1',cantidad_base:-158}];
+  qa.doc.bloqueos_despacho=[{linea_id:1,codigo:'STOCK',detalle:'El stock registrado en Almacén no alcanza.',cantidad_base:24,almacen_base:24,disponible_base:0}];
+  await mount();expect(node.querySelector('.om-resolver-tabs button[aria-pressed=true]').textContent).toContain('Bloqueos');expect(node.textContent).toContain('Stock de Almacén por resolver');expect(node.textContent).toContain('con su propia cuenta');expect(node.querySelector('input[inputmode]')).toBeNull();capture('resolver-bloqueo');
+  await click('Ajustar cantidad / dejar para otra entrega');await act(async()=>node.querySelector('[aria-label="Dejar para otra entrega"]').click());await click('Se enviará después');await click('Guardar ajuste');
+  expect(calls('guardar_revision')[0][1].p_datos).toMatchObject({linea_id:1,cantidad_base:0,observacion:'Se enviará después'});expect(node.textContent).not.toContain('Stock de Almacén por resolver');expect(node.textContent).toContain('Falta la foto');
+  expect(boton('Confirmar revisión y retirar').disabled).toBe(true);await change(input('Destino de esta entrega'),'Destino QA');await fotos();capture('resolver-parcial');expect(boton('Confirmar revisión y retirar').disabled).toBe(false);
+});
+
+it('devuelve al alistador la recepción con origen incorrecto sin cambiarla durante la revisión',async()=>{
+  qa.id='revisa';qa.doc.abastecimiento=true;qa.doc.tarea.estado='REVISANDO';qa.doc.lineas.forEach(l=>{l.confirmada=true;l.preparada_base=24;l.revisada_base=24;});
+  qa.doc.bloqueos_despacho=[{linea_id:1,codigo:'RECEPCION',detalle:'Reutiliza primero las recepciones de este pedido.'}];await mount();expect(node.textContent).toContain('Recepción del pedido por reutilizar');expect(node.querySelector('[aria-label="Cantidad de Almacén"]')).toBeNull();await click('Devolver al alistador');expect(calls('devolver')[0][1].p_datos.observacion).toContain('recepción asignada');
+});
+
+it('todos los ceros explican la salida vacía y conservan el mismo QR',async()=>{
+  qa.doc.abastecimiento=true;qa.doc.lineas.forEach(l=>{l.confirmada=true;l.preparada_base=0;});await mount();expect(node.textContent).toContain('No hay material para retirar');expect(boton('Enviar a verificación').disabled).toBe(true);expect(calls('preparado')).toHaveLength(0);
+});
 
 it('precarga lo solicitado con teclado decimal y conserva ajustes antes del preparado rápido',async()=>{
   await mount();const qty=input('Cantidad alistada de Producto 1');expect(qty.value).toBe('2');expect(qty.inputMode).toBe('decimal');expect(qty.type).toBe('text');

@@ -37,3 +37,21 @@ body:has(.om-app){background:#f6f7f3}
 .om-resumen-entregas .om-section-title{align-items:flex-start;gap:10px}
 .om-resumen-entregas .om-section-title h3{margin:0}
 .om-resumen-entregas .om-task{gap:10px;overflow-wrap:anywhere}
+.om-resolver{border:1px solid #d4dfd8;border-radius:18px;background:#fff;margin:16px 0;overflow:hidden;min-width:0}
+.om-resolver-tabs{display:flex;border-bottom:1px solid #d4dfd8;background:#f3f6f2;padding:6px;gap:6px}
+.om-resolver-tabs button{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:11px;background:transparent;min-height:46px;color:#506258;font:inherit;font-weight:650;padding:8px;min-width:0}
+.om-resolver-tabs button[aria-pressed=true]{background:#245d45;color:#fff;box-shadow:0 2px 6px #163b2515}
+.om-resolver-tabs strong{border-radius:15px;padding:2px 7px;background:#ffffff26;font-size:12px}
+.om-resolver-heading,.om-bloqueo,.om-requisitos-entrega{padding:16px}
+.om-resolver h2{font-size:21px;margin:5px 0}.om-resolver h3{font-size:16px;margin:6px 0}.om-resolver p{line-height:1.5}
+.om-bloqueo{margin:0 12px 14px;border:1px solid #dfc79c;background:#fffcf5;border-radius:14px;overflow-wrap:anywhere;min-width:0}
+.om-bloqueo-heading{display:flex;gap:10px;align-items:flex-start;color:#77521c}.om-bloqueo-heading>svg{flex-shrink:0;margin-top:3px}
+.om-bloqueo-heading h3{color:#20382c}.om-bloqueo-cantidades{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.om-bloqueo-cantidades span{padding:10px;border:1px solid #ecdfc8;border-radius:10px;font-size:12px}.om-bloqueo-cantidades strong{display:block;font-size:17px;margin-top:6px;color:#293b30}
+.om-bloqueos-selector{display:flex;gap:7px;padding:0 12px 12px;overflow:auto}.om-bloqueos-selector button{min-width:150px;max-width:220px;flex-shrink:0;border:1px solid #dfd7c7;background:#fff;border-radius:10px;text-align:left;padding:10px;min-height:44px;font:inherit;font-size:12px;overflow-wrap:anywhere}.om-bloqueos-selector button[aria-pressed=true]{border-color:#a67d39;background:#fff7e7}.om-bloqueos-selector span{display:block;color:#7d6845;font-size:11px;margin-top:4px}
+.om-requisitos-entrega{border-top:1px solid #e1e7e1;background:#fafbf8}.om-requisitos-entrega>.om-evidencia{border:0;padding:0;margin:14px 0 0;background:transparent;box-shadow:none}
+.om-resolver>.om-muted,.om-resolver>.om-aviso,.om-material-listo{margin:12px 16px}.om-material-listo{display:flex;gap:9px;align-items:center;color:#245d45}
+.om-checklist-compacta>.om-checklist-heading,.om-checklist-compacta>.om-checklist-tools,.om-checklist-compacta>.om-checklist-progress,.om-checklist-compacta>.om-results{display:none}.om-checklist-compacta .om-linea{margin:10px 0 0;border:0;padding:10px 0;background:transparent;box-shadow:none}.om-checklist-compacta .om-linea-title{display:none}
+.om-resolver-stock{margin:10px 0;display:grid;gap:10px}.om-resolver-stock form{display:grid;gap:10px}.om-resolver-stock .om-checkbox{display:flex;align-items:flex-start;gap:8px}.om-resolver-stock .om-checkbox input{width:20px;min-width:20px;min-height:20px;margin:2px 0}
+.om-pendiente-entrega{background:#fff2d6;border:1px solid #e5ce9c;color:#755321;padding:10px;border-radius:10px;font-size:12px}
+.om-resumen-previsto{padding:12px 16px;margin:0;background:#eef3ec;font-size:12px;color:#426148}.om-evidencia-iconos{display:flex;align-items:center;gap:10px}.om-app .om-foto-icon{position:relative;display:flex;align-items:center;justify-content:center;width:46px;height:46px;min-height:46px;border:1px solid #cbd7cd;border-radius:11px;background:#fff;color:#345744;cursor:pointer}.om-foto-icon:focus-within{outline:3px solid #35785c;outline-offset:3px}.om-evidencia-compacta .om-evidencia-fotos{grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px}.om-evidencia-compacta .om-evidencia-fotos img{height:90px}.om-evidencia-compacta .om-evidencia-fotos button{width:44px;min-height:44px;float:right}.om-evidencia-compacta p{font-size:12px}
+@media(max-width:360px){.om-resolver-heading,.om-bloqueo,.om-requisitos-entrega{padding:12px}.om-bloqueo{margin-left:8px;margin-right:8px}.om-resolver-tabs button{font-size:13px;gap:5px}.om-bloqueo-cantidades strong{font-size:14px}}
