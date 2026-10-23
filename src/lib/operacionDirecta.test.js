@@ -79,4 +79,15 @@ describe('cantidades del resumen y envío', () => {
     const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ error: new Error('Sin permiso') }) }; api.from.mockReturnValue(q);
     await expect(asegurarAsignacion(8, 11, { estricto: true })).rejects.toThrow('Sin permiso');
   });
+  it('la salida calcula el saldo descontando las cajas y bloquea un exceso', () => {
+    expect(resumenOperacion({ modo: 'SALIDA', cantidad: '2', factor: 12, stockOrigen: 120 })).toMatchObject({ error: '', cantidadBase: 24, delta: -24, origenFinal: 96, destinoFinal: null });
+    expect(resumenOperacion({ modo: 'SALIDA', cantidad: '11', factor: 12, stockOrigen: 120 }).error).toContain('supera el stock');
+    expect(resumenOperacion({ modo: 'SALIDA', cantidad: '120', factor: 1, stockOrigen: 120 }).origenFinal).toBe(0);
+  });
+  it('envía la salida al procedimiento existente sin sobregiro y reutiliza su clave al reintentar', async () => {
+    const payload = { modo: 'SALIDA', presentacionId: 2, ubicacionId: 11, cantidad: '2', referencia: 'Retiro QA', usuario: 'QA', idempotencia: 'salida-qa' };
+    await ejecutarOperacion(payload); await ejecutarOperacion(payload);
+    expect(api.rpc).toHaveBeenCalledWith('registrar_salida', expect.objectContaining({ p_presentacion_id: 2, p_ubicacion_id: 11, p_cantidad_pres: 2, p_permitir_sobregiro: false, p_idempotencia: 'salida-qa' }));
+    expect(api.rpc.mock.calls.every(c => c[1].p_idempotencia === 'salida-qa')).toBe(true);
+  });
 });

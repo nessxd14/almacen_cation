@@ -11,6 +11,7 @@
 .operaciones-modos button[aria-pressed="true"] strong { color: inherit; }
 .operaciones-modos button[data-modo="ENTRADA"][aria-pressed="true"] { color: #217250; background: #edf8f1; border-color: #7baa92; }
 .operaciones-modos button[data-modo="AJUSTE"][aria-pressed="true"] { color: #8b5b13; background: #fff6e5; border-color: #c6a26b; }
+.operaciones-modos button[data-modo="SALIDA"][aria-pressed="true"] { color: #9a404c; background: #fff1f3; border-color: #d59ba4; }
 .operaciones-app button:disabled { opacity: .55; cursor: not-allowed; }
 .operaciones-form-panel { border: 1px solid #dce6f1; border-radius: 18px; background: #fff; padding: 24px; box-shadow: 0 5px 24px #163b6509; }
 .operaciones-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
@@ -37,6 +38,9 @@
 .operaciones-field label small { color: #5b728b; font-weight: 400; font-size: 12px; }
 .operaciones-field :is(input,select,textarea) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid #c8daeb; border-radius: 10px; font-size: 14px; color: #17375c; background: #fff; }
 .operaciones-field textarea { min-height: 76px; resize: vertical; }
+.operaciones-field .operaciones-location-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 7px 0 0; color: #456889; font-size: 12px; font-weight: 400; }
+.operaciones-field .operaciones-location-toggle input { flex: none; width: 18px; height: 18px; min-height: 18px; padding: 0; accent-color: #2467ae; }
+.operaciones-salida-note { margin: -6px 0 16px; }
 .operaciones-note { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: #5b728b; font-size: 12px; margin: 7px 0 0; }
 .operaciones-note.is-warning { color: #8b5b13; }
 .operaciones-quantity { display: flex; align-items: center; min-width: 0; border: 1px solid #c8daeb; border-radius: 10px; overflow: hidden; background: #fff; }
@@ -63,6 +67,7 @@
 .operaciones-final strong { font-size: 29px; font-weight: 750; letter-spacing: -.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .operaciones-summary[data-modo="TRASLADO"] .operaciones-final { background: #e7f1ff; color: #285b91; }
 .operaciones-summary[data-modo="AJUSTE"] .operaciones-final { background: #fff3dc; color: #80520f; }
+.operaciones-summary[data-modo="SALIDA"] .operaciones-final { background: #fff1f3; color: #9a404c; }
 .operaciones-primary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; padding: 12px; margin-top: 15px; border: 0; border-radius: 11px; background: #2467ae; color: #fff; font-size: 14px; font-weight: 700; }
 .operaciones-primary:hover:not(:disabled) { background: #1d5896; }
 .operaciones-summary-footer { margin: 10px 0 0; text-align: center; font-size: 11px; color: #5b728b; }
@@ -88,12 +93,14 @@
 .operaciones-event-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #edf4fb; color: #4d739b; }
 .operaciones-event-icon[data-modo="ENTRADA"] { color: #217250; background: #edf8f1; }
 .operaciones-event-icon[data-modo="AJUSTE"] { color: #8b5b13; background: #fff6e5; }
+.operaciones-event-icon[data-modo="SALIDA"] { color: #9a404c; background: #fff1f3; }
 .operaciones-event-value { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width:760px) {
   .operaciones-heading { flex-direction: column; gap: 10px; margin-bottom: 16px; }
   .operaciones-heading h2 { font-size: 20px; }
   .operaciones-heading p { font-size: 13px; }
   .operaciones-modos { grid-template-columns: repeat(auto-fit,minmax(80px,1fr)); gap: 7px; margin-bottom: 16px; }
+  .operaciones-modos[data-cantidad="4"] { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .operaciones-modos button { flex-direction: column; justify-content: center; gap: 6px; padding: 11px 5px; text-align: center; }
   .operaciones-modos button strong { font-size: 13px; }
   .operaciones-modos button small { display: none; }

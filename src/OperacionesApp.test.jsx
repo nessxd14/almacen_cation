@@ -154,4 +154,64 @@ describe('Operaciones con revisión inferior', () => {
     expect(node.querySelector('.operaciones-final strong').textContent).toBe('38');
     await act(async () => resolver(999)); expect(node.querySelector('.operaciones-final strong').textContent).toBe('38');
   });
+  it.each(['Entrada', 'Salida', 'Traslado', 'Ajuste'])('en %s muestra por defecto sólo ubicaciones del producto con stock actual', async modo => {
+    qa.load.mockResolvedValue({ ...datos, ubicaciones: [...datos.ubicaciones,
+      { id: 13, label: 'Almacén Central · Vacía', sucursal_id: 1, stock: 0, asignada: true },
+      { id: 14, label: 'Almacén Central · Sin movimientos', sucursal_id: 1, stock: 0, asignada: false },
+    ] });
+    await open(modo);
+    expect([...node.querySelector('#operacion-ubicacion').options].map(o => o.value)).toEqual(['', '11', '12']);
+    expect(node.querySelector('#operacion-ubicacion').textContent).toContain('120 unidad');
+  });
+  it('permite recibir en una ubicación sin stock sólo al incluirla explícitamente y descarta la selección al ocultarla', async () => {
+    qa.load.mockResolvedValue({ ...datos, ubicaciones: [...datos.ubicaciones, { id: 13, label: 'Almacén Central · Nueva', sucursal_id: 1, stock: 0, asignada: false }] });
+    qa.stock.mockImplementation(async ({ ubicacionId }) => ubicacionId === '13' ? 0 : 120);
+    await open();
+    await act(async () => node.querySelector('.operaciones-location-toggle input').click());
+    await change('#operacion-ubicacion', '13'); await change('#operacion-cantidad', '2');
+    expect(node.querySelector('.operaciones-final strong').textContent).toBe('2');
+    expect(button('Registrar entrada').disabled).toBe(false);
+    await act(async () => node.querySelector('.operaciones-location-toggle input').click());
+    expect(node.querySelector('#operacion-ubicacion').value).toBe('');
+    expect(button('Registrar entrada').disabled).toBe(true); await submit(); expect(qa.ejecutar).not.toHaveBeenCalled();
+  });
+  it('un producto sin stock no despliega todas las ubicaciones automáticamente', async () => {
+    qa.load.mockResolvedValue({ ...datos, ubicaciones: datos.ubicaciones.map(u => ({ ...u, stock: 0 })) });
+    await open(); expect(node.querySelector('#operacion-ubicacion').options.length).toBe(1);
+    expect(node.textContent).toContain('no tiene ubicaciones con stock actual');
+    await act(async () => node.querySelector('.operaciones-location-toggle input').click());
+    expect([...node.querySelector('#operacion-ubicacion').options].map(o => o.value)).toEqual(['', '11', '12']);
+  });
+  it('filtra el destino del traslado y permite incluir una ubicación vacía para recibirlo', async () => {
+    qa.load.mockResolvedValue({ ...datos, ubicaciones: [...datos.ubicaciones, { id: 23, label: 'Tienda · Nueva', sucursal_id: 2, stock: 0, asignada: false }] });
+    qa.stock.mockImplementation(async ({ ubicacionId }) => ubicacionId === '23' ? 0 : 120);
+    await open('Traslado'); await change('#operacion-ubicacion', '11');
+    expect([...node.querySelector('#operacion-destino').options].map(o => o.value)).toEqual(['', '12', '22']);
+    await act(async () => node.querySelector('.operaciones-location-toggle input').click());
+    await change('#operacion-destino', '23'); await change('#operacion-cantidad', '2');
+    expect(node.querySelector('.operaciones-final strong').textContent).toBe('2');
+    await submit(); expect(qa.ejecutar).toHaveBeenCalledWith(expect.objectContaining({ modo: 'TRASLADO', ubicacionDestinoId: '23' }));
+  });
+  it('restaura Salida con presentación visible, saldo final y registro negativo en el historial', async () => {
+    await open('Salida'); await change('#operacion-ubicacion', '11'); await change('#operacion-presentacion', '2'); await change('#operacion-cantidad', '2');
+    await change('#operacion-referencia', 'Retiro de material para exposición');
+    expect(node.querySelector('.operaciones-summary-title').textContent).toBe('−24 unidad');
+    expect(node.querySelector('.operaciones-final strong').textContent).toBe('96'); snapshot('salida');
+    await submit(); expect(qa.ejecutar).toHaveBeenCalledWith(expect.objectContaining({ modo: 'SALIDA', presentacionId: '2', cantidad: '2', ubicacionId: '11', referencia: 'Retiro de material para exposición' }));
+    expect(qa.asignar).not.toHaveBeenCalled(); expect(node.textContent).toContain('Salida registrada');
+    expect(node.querySelector('.operaciones-history-list').textContent).toContain('−24 unidad');
+  });
+  it('una salida no permite exceso convertido ni habilita ubicaciones sin stock', async () => {
+    await open('Salida'); expect(node.querySelector('.operaciones-location-toggle')).toBeNull();
+    await change('#operacion-ubicacion', '11'); await change('#operacion-presentacion', '2'); await change('#operacion-cantidad', '11');
+    expect(button('Registrar salida').disabled).toBe(true); expect(node.textContent).toContain('supera el stock');
+    await submit(); expect(qa.ejecutar).not.toHaveBeenCalled();
+  });
+  it('conserva los datos y la clave de una salida cuando debe reintentarse', async () => {
+    await open('Salida'); await change('#operacion-ubicacion', '11'); await change('#operacion-cantidad', '2');
+    qa.ejecutar.mockResolvedValueOnce({ error: new Error('Respuesta perdida') });
+    await submit(); const clave = qa.ejecutar.mock.calls[0][0].idempotencia;
+    expect(node.querySelector('#operacion-cantidad').value).toBe('2'); await submit();
+    expect(qa.ejecutar.mock.calls[1][0].idempotencia).toBe(clave);
+  });
 });
