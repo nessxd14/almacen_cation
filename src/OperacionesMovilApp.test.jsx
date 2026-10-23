@@ -48,6 +48,11 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); nodo.remove(); });
 
 describe('preparación y revisión en el celular', () => {
+  it('cierra una revisión del contrato anterior desde QR con su plan conservado',async()=>{
+    qa.datos.tarea={...qa.datos.tarea,estado:'VERIFICADO',preparador_id:'otra-persona',revisor_id:'operario-qa'};qa.datos.salida_qr_legada=true;
+    qa.datos.plan_salida=[{linea_id:31,cantidad_base:24,asignaciones:[{ubicacion_id:1,nombre:'A · 01',cantidad_base:24}],error:null}];
+    await montar();expect(nodo.textContent).not.toContain('Falta registrar la salida en');await pulsar('Confirmar salida por QR');expect(ultimo()).toMatchObject({p_accion:'confirmar_salida_legada',p_datos:{plan:qa.datos.plan_salida}});
+  });
   it('resume antes de confirmar el resto y conserva las líneas con faltantes', async () => {
     const completa = structuredClone(qa.datos.lineas[0]);
     const parcial = { ...completa, pedido_linea_id: 32, confirmada: true, preparada_base: 12, observacion: 'Falta una caja' };

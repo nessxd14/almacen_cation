@@ -5,6 +5,7 @@ import { cantidadOperacion, cantidadTexto } from './lib/operacionesMovil';
 import { coincideLineaPreparacion, estadoPreparacion, resumenChecklist, revisionCompleta } from './lib/preparacionUI';
 import { etiquetaUbicacion } from './lib/ubicacionTexto';
 import CantidadPedido from './CantidadPedido';
+import AbastecimientoLinea from './AbastecimientoLinea';
 
 const unidad = s => s.presentacion || s.unidad_base;
 const factor = s => Number(s.factor) > 0 ? Number(s.factor) : 1;
@@ -16,7 +17,7 @@ export function EtapasEntrega({ estado, entregada }) {
   return <ol className="om-etapas" aria-label="Etapas de la entrega">{['Alistar', 'Verificar', 'Despachar'].map((nombre, i) => <li key={nombre} className={i < paso ? 'is-done' : i === paso ? 'is-current' : ''} aria-current={i === paso ? 'step' : undefined}><span>{i < paso ? <Check size={14} /> : i + 1}</span>{nombre}</li>)}</ol>;
 }
 
-export default function PreparacionChecklist({ lineas, tipo, tarea, puedePreparar, puedeRevisar, ocupado, editor, setEditor, accion, abrirScanner, ubicaciones, ubicacionesListas, errorUbicaciones, sucursalId, esAlmacen, dosActores = false }) {
+export default function PreparacionChecklist({ lineas, tipo, tarea, puedePreparar, puedeRevisar, ocupado, editor, setEditor, accion, abrirScanner, ubicaciones, ubicacionesListas, errorUbicaciones, sucursalId, esAlmacen, dosActores = false, abastecimiento = false, sucursales = [], onComprobante, fotosCantidad = 0 }) {
   const [filtro, setFiltro] = useState('todas');
   const [busqueda, setBusqueda] = useState('');
   const r = resumenChecklist(lineas, dosActores);
@@ -42,6 +43,7 @@ export default function PreparacionChecklist({ lineas, tipo, tarea, puedePrepara
         <div className="om-linea-title"><span className="om-item-number">{String(index + 1).padStart(2, '0')}</span><div><h3>{s.nombre}</h3><small>{s.sku || (s.es_personalizado ? 'Producto personalizado' : 'Sin SKU')}{s.presentacion ? ` · ${s.presentacion}` : ''}</small></div><span className={`om-item-state om-state-${revisada ? 'revisado' : estado}`}>{revisada ? <CheckCircle2 size={14} /> : estado === 'faltante' ? <AlertTriangle size={14} /> : estado === 'no_alistado' ? <MinusCircle size={14} /> : null}{revisada ? 'Verificado' : etiquetas[estado]}</span></div>
         {s.presentacion && factor(s) !== 1 && <p className="om-equivalencia">1 {s.presentacion} = {cantidadTexto(factor(s))} {s.unidad_base}</p>}
         {s.nota && <p className="om-nota"><strong>Nota del pedido:</strong> {s.nota}</p>}
+        {abastecimiento && <p className="om-acumulado">Solicitado en la línea: {cantidad(s.cantidad_base,s)} · Entregado antes: {cantidad(s.cantidad_despachada||0,s)}</p>}
         {s.es_personalizado && <p className="om-nota">Alista este personalizado y verifica su descripción y cantidad. No requiere código de barras; se incluyen fotos en ambas etapas de la entrega.</p>}
         <div className="om-cantidades"><div><small>{tipo === 'traslado_virtual' ? 'Declarado' : 'Por entregar'}</small><strong>{cantidad(s.pendiente_base, s)}</strong></div><div><small>Alistado</small><strong>{l.confirmada ? cantidad(l.preparada_base, s) : 'Sin confirmar'}</strong></div><div className={faltante > 0 ? 'om-quantity-missing' : ''}><small>Queda pendiente</small><strong>{faltante == null ? '—' : cantidad(faltante, s)}</strong></div></div>
         {s.ubicacion && <p className="om-origen"><strong>Retirado de:</strong> {s.ubicacion}</p>}
@@ -50,8 +52,9 @@ export default function PreparacionChecklist({ lineas, tipo, tarea, puedePrepara
         {l.observacion && <p className="om-nota"><strong>Motivo / observación:</strong> {l.observacion}</p>}
         {revisada && <p className="om-muted">{l.revisor_nombre || 'Revisor'} comprobó por {l.metodo_revision === 'escaneo' ? 'escaneo' : 'revisión visual'}</p>}
         {dosActores && l.observacion_revision && l.revisada_base!=null && <p className="om-nota"><strong>Diferencia en revisión:</strong> {l.observacion_revision}</p>}
-        {editor?.lineaId === l.pedido_linea_id && editor.intencion!=='cantidad_rapida' ? <EditorLinea dosActores={dosActores} key={`${l.pedido_linea_id}:${editor.tipo}:${editor.intencion || ''}:${editor.codigo || ''}`} linea={l} editor={editor} ocupado={ocupado} onCancel={() => setEditor(null)} onGuardar={payload => accion(editor.tipo === 'preparacion' ? 'guardar_preparacion' : 'guardar_revision', payload)} /> : <>
-          {dosActores && (puedePreparar || puedeRevisar && s.preparable) && <CantidadPedido key={`${l.pedido_linea_id}:${tarea.version}`} linea={l} revision={puedeRevisar} ocupado={ocupado} bloqueada={Boolean(editor && editor.lineaId!==l.pedido_linea_id)}
+        {abastecimiento && <AbastecimientoLinea key={`origen:${l.pedido_linea_id}:${tarea?.version}`} linea={l} revision={revision} puedeEditar={puedePreparar||puedeRevisar} ocupado={ocupado} bloqueada={Boolean(editor&&(editor.lineaId!==l.pedido_linea_id||editor.intencion!=='abastecimiento'))} abierta={editor?.lineaId===l.pedido_linea_id&&editor.intencion==='abastecimiento'} onAbrir={()=>setEditor({lineaId:l.pedido_linea_id,tipo:puedePreparar?'preparacion':'revision',intencion:'abastecimiento'})} onCerrar={()=>setEditor(null)} onGuardar={accion} sucursales={sucursales} sucursalId={sucursalId} onComprobante={onComprobante} fotosCantidad={fotosCantidad}/>}
+        {editor?.lineaId === l.pedido_linea_id && !['cantidad_rapida','abastecimiento'].includes(editor.intencion) ? <EditorLinea dosActores={dosActores} key={`${l.pedido_linea_id}:${editor.tipo}:${editor.intencion || ''}:${editor.codigo || ''}`} linea={l} editor={editor} ocupado={ocupado} onCancel={() => setEditor(null)} onGuardar={payload => accion(editor.tipo === 'preparacion' ? 'guardar_preparacion' : 'guardar_revision', payload)} /> : <>
+          {dosActores && (puedePreparar || puedeRevisar && s.preparable) && <CantidadPedido key={`${l.pedido_linea_id}:${tarea.version}`} linea={l} revision={puedeRevisar} abastecimiento={abastecimiento} ocupado={ocupado||editor?.intencion==='abastecimiento'} bloqueada={Boolean(editor && editor.lineaId!==l.pedido_linea_id)}
             onEditar={()=>setEditor({lineaId:l.pedido_linea_id,tipo:puedePreparar?'preparacion':'revision',intencion:'cantidad_rapida'})} onCancelar={()=>setEditor(null)} onGuardar={payload=>accion(puedePreparar?'guardar_preparacion':'guardar_revision',payload)} />}
           <div className="om-linea-actions">
             {!dosActores && puedePreparar && <>{!l.confirmada && s.preparable && <button className="om-complete" disabled={ocupado || Boolean(editor)} onClick={() => accion('guardar_preparacion', { linea_id: l.pedido_linea_id, cantidad_base: Number(s.pendiente_base), observacion: l.observacion || '' })}><Check size={18} /> Completo</button>}<button className="om-secondary" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'preparacion', intencion: l.confirmada ? 'editar' : 'parcial' })}>{l.confirmada ? 'Editar preparación' : 'Registrar faltante'}</button>{!l.confirmada && <button className="om-not-picked" disabled={ocupado || Boolean(editor)} onClick={() => setEditor({ lineaId: l.pedido_linea_id, tipo: 'preparacion', intencion: 'ninguno' })}><MinusCircle size={16} /> No se alistó</button>}</>}

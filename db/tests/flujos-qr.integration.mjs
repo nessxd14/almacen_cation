@@ -8,6 +8,7 @@ import { testEvidenciaVtd } from './evidencia-vtd.integration.mjs';
 import { testEvidenciaOperaciones } from './evidencia-operaciones.integration.mjs';
 import { testPedidosDosActores } from './pedidos-dos-actores.integration.mjs';
 import { testPersonalizadosQr } from './personalizados-qr.integration.mjs';
+import { testAbastecimiento } from './abastecimiento.integration.mjs';
 import { testTrasladosQr } from './traslados-qr.integration.mjs';
 import { testCajaCobroLiberado } from './caja-cobro-liberado.integration.mjs';
 
@@ -184,9 +185,10 @@ try {
   await testPersonalizadosQr(db, { login, stock, count, uid });
   await testTrasladosQr(db, { login, stock, count, uid });
   await testCajaCobroLiberado(db, { login, stock, count });
+  await testAbastecimiento(db, { login, uid });
   await db.query("select set_config('request.jwt.claim.sub','',false)");await assert.rejects(() => call('TRASLADO_VIRTUAL',cid), /perfil no tiene acceso|Inicia sesión/);
   console.log('OK: pedidos, asignación al escanear, verificador separado, devolución, RLS y sin stock durante checklist');
 } catch (error) {
-  console.error(error.message, error.where || '', error.query?.slice(0,500) || '', error.stack?.split('\n').filter(l => l.includes('flujos-qr.integration')).join('\n') || '');
+  console.error(error.message, error.where || '', error.query?.slice(0,500) || '', error.stack?.split('\n').filter(l => l.includes('.integration.mjs')).join('\n') || '');
   process.exitCode = 1;
 } finally { await db.close(); }
