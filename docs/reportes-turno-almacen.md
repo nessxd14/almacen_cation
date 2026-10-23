@@ -2,6 +2,44 @@
 
 Implementado el 21 de octubre de 2026. Migración aplicada en `supabase_db_almacen_roari`: `20261021155549_reportes_turno_almacen`. El archivo se creó con la CLI y su versión se alineó con el historial remoto. La interfaz está en el repositorio local; este trabajo no publica el sitio.
 
+## Captura rápida para operarios · 22 de octubre de 2026
+
+Durante el horario del turno, el reporte abre **Conteo rápido**: muestra un producto por ubicación, campos grandes para empaques y sueltas y **Guardar y siguiente**. La hora física se toma al confirmar cada producto. Si solo se escribe uno de los dos campos, el complementario equivale a cero; ambos vacíos nunca declaran cero. **No hay · Guardar cero** confirma y guarda cero en una acción; si había una cantidad positiva escrita, primero pide confirmar su reemplazo. Una observación es opcional; **No puedo contar** permite elegir un motivo frecuente o escribir otro y conserva cantidades y hora nulas.
+
+Cada guardado envía únicamente su renglón al motor existente, con la versión actual del reporte. Al confirmar el servidor, actualiza el avance y continúa con pendientes de la misma ubicación y después de la misma zona; al terminar la ubicación base muestra el resumen y espera a que el operario continúe a la siguiente. Los demás borradores permanecen en pantalla y un fallo conserva lo escrito sin avanzar. No hay guardado automático ni persistencia sin conexión: se debe esperar la confirmación antes de salir. Los cambios sin guardar impiden comparar, cambiar a papel o actualizar el alcance, y mantienen la advertencia al salir/recargar.
+
+**Corregir último conteo** recupera la cantidad guardada, conserva la hora física original y vuelve al producto que el operario estaba contando, con su borrador intacto. Al abrir un producto contado se muestra primero su declaración; **Corregir cantidad** conserva la hora y **Volver a contar ahora** inicia una captura vacía con una hora nueva. Ambas siguen la auditoría del motor existente. Enter en empaques avanza a sueltas sin guardar una captura parcial.
+
+El avance distingue contados, pendientes con motivo y productos por recorrer. El resumen final permite revisar los pendientes antes de **Confirmar captura y comparar**. Esa acción actualiza el alcance automáticamente: si aparecen renglones sin contar, regresa al recorrido; si está completo, compara usando la nueva versión. Durante el recorrido no se presenta una acción de comparación prematura.
+
+**Ver recorrido** permite filtrar por ubicación, buscar por nombre/SKU y volver a productos contados. **Escanear QR** identifica productos o ubicaciones del alcance, rechaza una sucursal distinta y exige elegir ubicación si el producto está en varias. La etiqueta no cambia la equivalencia congelada del renglón. Los códigos de barras se pueden buscar por su SKU cuando corresponda; el lector de esta pantalla admite los QR de fichas del almacén.
+
+Fuera del horario del turno se conserva **Transcribir papel**, con la hora real anotada. El modo en vivo rechaza asignar la hora actual a una fecha o turno anterior. En móvil se priorizan cantidad y avance; impresión y actualización del alcance están en **Opciones del reporte**.
+
+**Movimientos diarios → Ver movimientos** abre el desglose del producto/ubicación al mismo corte del resumen. Muestra hora de Bolivia, tipo, cantidad con signo, referencia, motivo y autor (UUID o correo). Permite filtrar mañana/tarde/fuera de horario y tipo. Calcula los saldos antes de filtrar, de modo que un filtro no altera la historia. Solo muestra saldos por movimiento cuando el detalle completo coincide con el resumen; si no coincide pide actualizar. La consulta conserva RLS y filtra además la sucursal. Un máximo de 1000 movimientos y el conteo total advierten consultas incompletas, incluso si el servidor impone un límite menor.
+
+El respaldo del reporte usa el mismo desglose y abre por defecto **Durante el turno**; separa **Después del turno** y marca la actividad posterior al conteo físico. Mantiene la advertencia de límite de la consulta existente. Estas mejoras no requieren una migración nueva y no publican el sitio.
+
+## Formulario por ubicación base · 23 de octubre de 2026
+
+La captura rápida usa la presentación compacta aprobada. En escritorio, **Tu recorrido** está a la izquierda; en móvil pasa arriba, con botones táctiles y el formulario en una columna. El diseño se adapta al ancho disponible del módulo, incluso si la pantalla es grande pero hay una barra lateral abierta. Los campos de cantidades admiten teclado numérico/decimal y la acción principal incluye el espacio seguro inferior del dispositivo.
+
+Las bases provienen del primer componente de la ubicación conservada en el reporte (`codigo_zona / mueble / compartimiento`). **Planta Baja**, **Hueco** y **Garaje** aparecen primero, seguidas de otras zonas del documento. Dentro de cada base se ordenan naturalmente mueble y compartimiento (2 antes de 10). No se crean zonas ficticias ni se suman las declaraciones de un producto en lugares diferentes. Los números originales de renglón y las equivalencias se conservan.
+
+Se muestran botones de ubicación con su avance, un producto a la vez y **Empaques completos / Unidades sueltas**, calculando el total en unidad base. Si el factor es uno, se captura una cantidad única, incluidos materiales por peso con hasta cuatro decimales. Cuando se declaran empaques positivos es obligatorio confirmar **Verifiqué los empaques completos y su presentación**. La constancia se guarda en la observación auditada del mismo renglón con el prefijo `[Empaques verificados]`; no es una aprobación de existencias ni un ajuste. Cambiar la cantidad de empaques exige confirmar nuevamente. Las correcciones reemplazan esa constancia sin duplicarla y conservan la hora física original.
+
+El guardado avanza primero dentro de la misma ubicación y luego por las demás ubicaciones de la base. Al terminar una base, presenta las cantidades declaradas y los pendientes con motivo antes de **Continuar en…**. Se puede elegir otra base o ubicación sin perder borradores. La captura sigue siendo ciega: la comparación real con el saldo a la hora física se realiza al confirmar el recorrido completo mediante el motor existente. No se muestran coincidencias estimadas durante la captura.
+
+No se requieren migraciones ni cambios de permisos para este formulario. La verificación de escritorio y móvil usa datos sintéticos; las capturas están en `.reportes-qa.local/conteo-bases-*.png`.
+
+## Presentación del detalle diario · 23 de octubre de 2026
+
+**Movimientos diarios** ofrece el selector **Ver detalle en** en la cabecera: **Página**, **Panel lateral** y **Ventana**. Página es la opción inicial y muestra el detalle en una vista propia dentro del módulo, con **Volver a movimientos diarios**. Panel lateral mantiene la lista y el detalle en paralelo cuando hay ancho suficiente; en celular o en un contenedor estrecho muestra únicamente el detalle. Ventana abre un diálogo nativo con cierre, Escape, control de foco y bloqueo del fondo.
+
+El selector también está disponible con el detalle abierto. Cambiar de presentación conserva producto, periodo y tipo de movimiento, y reutiliza la consulta que ya está cargada. Al cerrar se recuperan la búsqueda, la posición de la lista y el foco en el producto que se abrió. El panel permite seleccionar otro producto sin cerrar primero el anterior. La preferencia se guarda en este navegador por usuario; si el almacenamiento está bloqueado, sigue funcionando durante la consulta.
+
+La búsqueda filtra nombre, SKU y ubicación. El resumen usa verde para entradas, rojo para salidas y ámbar para ajustes. En el detalle, etiqueta, icono y cantidad identifican el tipo: entrada verde, salida roja, ajuste ámbar, traslado azul e inventario inicial violeta. El signo de la cantidad se conserva: un ajuste negativo sigue siendo ámbar. Se mantienen las comprobaciones de corte, límites y coincidencia del saldo del desglose. La actividad fuera de horario queda en un apartado desplegable de la lista. No hay cambios en la base de datos ni publicación del sitio.
+
 ## Recorrido operativo
 
 1. Abrir **Existencias → Reportes de turno** y seleccionar fecha y sucursal. Los horarios se interpretan en `America/La_Paz`: mañana 07:30-12:30 y tarde 14:30-21:30. No se generan turnos futuros.

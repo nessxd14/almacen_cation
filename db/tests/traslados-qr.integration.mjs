@@ -11,7 +11,7 @@ export async function testTrasladosQr(db,{login,stock,count,uid}) {
  const vtd=(await db.query("select pg_get_functiondef('public.operar_caja_almacen(text,uuid,bigint,jsonb)'::regprocedure) f")).rows[0].f;
  const pedido=(await db.query("select pg_get_functiondef('public.operar_preparacion_pedido(bigint,bigint,bigint,text,integer,jsonb)'::regprocedure) f")).rows[0].f;
  const fixture=JSON.parse(await fs.readFile(new URL('./traslados-qr.fixture.json',import.meta.url),'utf8'));await db.exec(fixture.cerrar);
- await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261021195840_traslados_qr_entrega_dos_personas.sql',import.meta.url),'utf8'));
+ await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261021220732_traslados_qr_entrega_dos_personas.sql',import.meta.url),'utf8'));
  assert.equal((await db.query("select pg_get_functiondef('public.operar_caja_almacen(text,uuid,bigint,jsonb)'::regprocedure) f")).rows[0].f,vtd);
  assert.equal((await db.query("select pg_get_functiondef('public.operar_preparacion_pedido(bigint,bigint,bigint,text,integer,jsonb)'::regprocedure) f")).rows[0].f,pedido);
  await login(3);await db.exec('set role authenticated');

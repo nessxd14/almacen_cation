@@ -214,7 +214,11 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     setCargando(false);
   }, [producto.id, puedePrecios]);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  useEffect(() => {
+    // Consulta externa inicial; el indicador también se usa al recargar el editor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void cargar();
+  }, [cargar]);
 
   // ── Guardar datos básicos + precios ──
   async function guardarDatos() {

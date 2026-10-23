@@ -35,6 +35,29 @@ export function formularioLinea(linea, verificacion = false) {
   return { empaques: linea[`${prefix}empaques`] ?? '', sueltas: linea[`${prefix}sueltas`] ?? '', contado_en: horaFormulario(linea[verificacion ? 'ver_en' : 'contado_en']), observacion: linea[verificacion ? 'ver_nota' : 'observacion'] || '' };
 }
 
+export function turnoEnCurso(reporte, ahora = new Date()) {
+  const turno = TURNOS_ALMACEN[reporte.turno];
+  const instante = new Date(ahora).getTime();
+  return !!turno && instante >= new Date(`${reporte.fecha}T${turno.inicio}:00-04:00`).getTime()
+    && instante <= new Date(`${reporte.fecha}T${turno.fin}:00-04:00`).getTime();
+}
+
+export function capturaRapidaTurno(valor, linea, reporte, ahora = new Date()) {
+  if (!turnoEnCurso(reporte, ahora)) throw new Error('El conteo en vivo solo está disponible durante este turno. Para cantidades anotadas antes, usa «Transcribir papel» e indica su hora real.');
+  if (String(valor.empaques ?? '').trim() === '' && String(valor.sueltas ?? '').trim() === '') {
+    throw new Error('Escribe una cantidad o pulsa «Confirmar existencia cero».');
+  }
+  const cantidad = convertirConteo({ empaques: valor.empaques || '0', sueltas: valor.sueltas || '0', contado_en: horaFormulario(ahora) }, linea);
+  return { id: linea.id, empaques: cantidad.empaques, sueltas: cantidad.sueltas, contado_en: new Date(ahora).toISOString(), observacion: valor.observacion || '' };
+}
+
+export function corregirCapturaTurno(valor, linea, reporte) {
+  if (!linea.contado_en || !turnoEnCurso(reporte, linea.contado_en)) throw new Error('Este registro no tiene una hora válida para corregir. Vuelve a contar el producto.');
+  if (String(valor.empaques ?? '').trim() === '' && String(valor.sueltas ?? '').trim() === '') throw new Error('Escribe la cantidad corregida.');
+  const cantidad = convertirConteo({ empaques: valor.empaques || '0', sueltas: valor.sueltas || '0', contado_en: horaFormulario(linea.contado_en) }, linea);
+  return { id: linea.id, empaques: cantidad.empaques, sueltas: cantidad.sueltas, contado_en: linea.contado_en, observacion: valor.observacion || '' };
+}
+
 const escapar = s => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 export function documentoHojaConteo(detalle, { recepcion = false } = {}) {
   const { reporte, lineas } = detalle;

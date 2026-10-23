@@ -37,9 +37,9 @@ Las fotografías conservan la retención de 48 horas **después de confirmar el 
 
 ## Publicación coordinada
 
-La migración `20261021140607_pedidos_dos_responsables_evidencias.sql` incorpora `evidencia_operacion.configuracion.pedidos_dos_actores=false`. Aplicarla no activa el nuevo circuito ni convierte los retiros históricos.
+La migración `20261021192845_pedidos_dos_responsables_evidencias.sql` incorpora `evidencia_operacion.configuracion.pedidos_dos_actores=false`. Aplicarla no activa el nuevo circuito ni convierte los retiros históricos.
 
-1. Aplicar esta migración después de la ampliación anterior de evidencias de Pedidos/Traslados. En Cation, esa ampliación anterior está registrada como versión remota `20261020152719`, nombre `evidencias_pedidos_traslados_retiro`; su fuente Git es `20261020124326_...`. No reaplicarla por esa diferencia de versión ni reescribir el historial manualmente.
+1. En una base nueva, aplicar esta migración después de `20261020152719_evidencias_pedidos_traslados_retiro.sql`. En Cation ambas ya están registradas con los mismos nombres de versión que Git; se comprobó la coincidencia exacta de su SQL. No reaplicarlas ni reescribir el historial.
 2. Desplegar sólo `evidencia-operaciones-telegram`, incluyendo `worker-pedidos.js` y su dependencia relativa del worker VTD. No requiere desplegar ni editar `evidencia-vtd-telegram`.
 3. Ejecutar el diagnóstico administrativo de la función nueva: debe devolver HTTP 200 con `ok=true` y `pedidos_dos_actores=true`, bot/grupo correctos.
 4. Publicar/verificar el frontend y actualizar pestañas antiguas. La interfaz conserva el circuito previo cuando la respuesta del servidor no indica el modo nuevo.

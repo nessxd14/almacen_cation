@@ -4,7 +4,10 @@ import { useUsuarioActual } from './lib/useAuth';
 import { useSucursal } from './lib/useSucursal';
 import { useAppNav } from './lib/useAppNav';
 import { operarReporte } from './lib/reportesAlmacen';
-import { convertirConteo, equivalenciaReporte, fechaHoraReporte, fechaReporte, fmtReporte as fmt, formularioLinea, imprimirHojaConteo, TURNOS_ALMACEN } from './lib/reporteTurno';
+import ConteoRapidoTurno from './ConteoRapidoTurno';
+import { MovimientosReporte } from './MovimientosReporte';
+import MovimientosDiarios from './MovimientosDiarios';
+import { convertirConteo, equivalenciaReporte, fechaHoraReporte, fechaReporte, fmtReporte as fmt, formularioLinea, imprimirHojaConteo, turnoEnCurso, TURNOS_ALMACEN } from './lib/reporteTurno';
 import './reportes-almacen.css';
 
 const ESTADOS = { BORRADOR: 'En preparación', REVISION: 'Comparado · Por entregar', ENTREGADO: 'Por recibir', RECIBIDO: 'Recibido' };
@@ -70,7 +73,7 @@ function Workspace({ usuario, sucursalId, sucursal, fecha, setFecha }) {
     </header>
     {error && <div className="rp-alert is-error" role="alert">{error}</div>}
     {aviso && <p className="rp-alert" role="status">{aviso}</p>}
-    {detalle ? <Detalle key={`${detalle.reporte.id}:${detalle.reporte.version}`} detalle={detalle} usuario={usuario} busy={busy}
+    {detalle ? <Detalle key={detalle.reporte.id} detalle={detalle} usuario={usuario} busy={busy}
       onVolver={() => {setDetalle(null);setError('');setAviso('');}} onAccion={(accion, datos) => ejecutar(accion, detalle.reporte.id, { version: detalle.reporte.version, ...datos })}
       onAbrir={id => ejecutar('detalle', id)} onImprimir={recepcion => imprimir(detalle, recepcion)} /> : <>
       <nav className="rp-tabs" aria-label="Vistas de reportes">{Object.entries(VISTAS).map(([id, label]) => <button key={id} type="button" aria-current={vista === id ? 'page' : undefined} disabled={busy} onClick={() => {setVista(id);setError('');}}>{label}</button>)}</nav>
@@ -80,11 +83,11 @@ function Workspace({ usuario, sucursalId, sucursal, fecha, setFecha }) {
           return <section className="rp-card" key={id}><div className="rp-section-heading"><h3>{turno.nombre}</h3><span className="rp-badge">{reporte ? ESTADOS[reporte.estado] : 'Sin hoja'}</span></div><p className="rp-shift-time">{turno.inicio} - {turno.fin}</p><p>{reporte ? `${reporte.responsable} · ${reporte.pendientes} pendiente(s)` : 'Movimientos del turno y hasta 10 ítems de rotación cíclica.'}</p>
             <button type="button" className="rp-primary" disabled={busy} onClick={() => reporte ? ejecutar('detalle', reporte.id) : crear(id)}><FileText size={16} />{reporte ? 'Abrir reporte / hoja' : 'Generar hoja de conteo'}</button></section>;
         })}</div>
-        <p className="rp-help">Genera la hoja, imprímela, recorre el almacén y transcribe las cantidades en el mismo folio. Antes de entregar, actualiza el alcance para incluir los nuevos ítems movidos.</p>
+        <p className="rp-help">Abre el reporte y cuenta desde el celular con «Guardar y siguiente». También puedes imprimir la hoja y transcribirla después. Antes de entregar, actualiza el alcance para incluir los nuevos ítems movidos.</p>
         <div className="rp-alert">Los reportes no modifican existencias. Las diferencias se revisan mediante el conteo controlado y su aprobación.</div>
       </> : vista === 'recepcion' ? <section><h3>Entregas y pendientes anteriores</h3><p className="rp-help">Verifica al recibir, antes de los nuevos movimientos. Recibir el reporte conserva abiertas sus diferencias.</p>
         <div className="rp-list">{reportes.filter(r => ['ENTREGADO','RECIBIDO'].includes(r.estado)).map(r => <button type="button" className="rp-report-row" key={r.id} disabled={busy} onClick={() => ejecutar('detalle', r.id)}><span><strong>{r.fecha} · {TURNOS_ALMACEN[r.turno].nombre}</strong><small>Entrega: {r.responsable}{r.receptor ? ` · Recibe: ${r.receptor}` : ''}</small></span><span>{ESTADOS[r.estado]} · {r.pendientes} pendiente(s)</span></button>)}{!reportes.some(r => ['ENTREGADO','RECIBIDO'].includes(r.estado)) && <p className="rp-empty">No hay reportes entregados ni pendientes para esta fecha.</p>}</div>
-      </section> : extra?.vista !== vista ? <p role="status">Cargando {VISTAS[vista].toLowerCase()}…</p> : vista === 'diario' ? <Diario data={extra.data} /> : <Plan data={extra.data} puedeProgramar={['admin','gerente'].includes(usuario.rol)} busy={busy} onProgramar={datos => ejecutar('programar', null, {...datosSucursal, ...datos})} />}
+      </section> : extra?.vista !== vista ? <p role="status">Cargando {VISTAS[vista].toLowerCase()}…</p> : vista === 'diario' ? <MovimientosDiarios key={extra.data.hasta} data={extra.data} fecha={fecha} sucursalId={sucursalId} preferenciaId={usuario.id} /> : <Plan data={extra.data} puedeProgramar={['admin','gerente'].includes(usuario.rol)} busy={busy} onProgramar={datos => ejecutar('programar', null, {...datosSucursal, ...datos})} />}
     </>}
   </div>;
 }
@@ -95,20 +98,31 @@ function Detalle({ detalle, usuario, busy, onVolver, onAccion, onImprimir, onAbr
   const [formularios, setFormularios] = useState(() => Object.fromEntries(lineas.map(l => [l.id, formularioLinea(l)])));
   const [observacion, setObservacion] = useState(r.observacion || ''), [recepcionNota, setRecepcionNota] = useState('');
   const [dirty, setDirty] = useState(false), [error, setError] = useState(''), [seleccion, setSeleccion] = useState(null);
+  const [quickDirty, setQuickDirty] = useState(false), [modo, setModo] = useState(() => turnoEnCurso(r) ? 'rapido' : 'papel');
+  const [base, setBase] = useState(detalle);
+  const [preparandoRevision, setPreparandoRevision] = useState(false), [avisoRevision, setAvisoRevision] = useState('');
+  const revisionLock = useRef(false);
+  const sinGuardar = dirty || quickDirty;
   const [verForm, setVerForm] = useState(null), [movimientos, setMovimientos] = useState(null);
   const [busqueda, setBusqueda] = useState(''), [resultados, setResultados] = useState([]), [buscando, setBuscando] = useState(false);
   const [resolver, setResolver] = useState(null), [sesion, setSesion] = useState(''), [resolucion, setResolucion] = useState('');
   const seq = useRef(0);
+  if (base !== detalle) {
+    setBase(detalle);
+    setFormularios(Object.fromEntries(lineas.map(l => [l.id, formularioLinea(l)])));
+    setObservacion(r.observacion || ''); setDirty(false);
+    setSeleccion(null); setVerForm(null); setResolver(null); setSesion(''); setResolucion(''); setRecepcionNota(''); setMovimientos(null);
+  }
   const pendientes = lineas.filter(l => l.pendiente);
   const puedeRecibir = r.estado === 'ENTREGADO' && r.creado_por !== usuario.id;
   const puedeResolver = ['ENTREGADO','RECIBIDO'].includes(r.estado) && ['admin','gerente'].includes(usuario.rol);
   const cambiar = (id, datos) => { setFormularios(v => ({ ...v, [id]: { ...v[id], ...datos } })); setDirty(true); };
-  const volver = () => { if (!dirty || window.confirm('Hay cantidades sin guardar. ¿Quieres descartarlas y volver al listado?')) onVolver(); };
+  const volver = () => { if (!sinGuardar || window.confirm('Hay cantidades sin guardar. ¿Quieres descartarlas y volver al listado?')) onVolver(); };
   useEffect(() => {
-    if (!dirty) return undefined;
+    if (!sinGuardar) return undefined;
     const avisar = e => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', avisar); return () => window.removeEventListener('beforeunload', avisar);
-  }, [dirty]);
+  }, [sinGuardar]);
   const guardar = async e => {
     e.preventDefault(); setError('');
     try {
@@ -137,23 +151,39 @@ function Detalle({ detalle, usuario, busy, onVolver, onAccion, onImprimir, onAbr
   };
   const abrirMovimientos = async l => {
     setError('');
-    try { const data = await operarReporte('movimientos', r.id, { linea_id: l.id }); setMovimientos({ nombre: l.nombre, items: data.movimientos }); }
+    const consulta = ++seq.current;
+    try { const data = await operarReporte('movimientos', r.id, { linea_id: l.id }); if (consulta === seq.current) setMovimientos({ linea: l, items: data.movimientos }); }
     catch (e) { setError(mensaje(e)); }
   };
-  return <section className="rp-detail">
+  const prepararRevision = async () => {
+    if (revisionLock.current || busy || sinGuardar) return;
+    revisionLock.current = true; setPreparandoRevision(true); setAvisoRevision('');
+    try {
+      const actualizado = await onAccion('actualizar_alcance', {});
+      if (!actualizado) return;
+      const faltantes = actualizado.lineas.filter(l => l.declarado == null && !l.observacion?.trim());
+      if (faltantes.length) {
+        setAvisoRevision(`Hay ${faltantes.length} producto(s) nuevos por contar. Continúa el recorrido antes de comparar.`);
+        return;
+      }
+      await onAccion('comparar', { version: actualizado.reporte.version });
+    } finally { revisionLock.current = false; setPreparandoRevision(false); }
+  };
+  return <section className={`rp-detail${r.editable && modo === 'rapido' ? ' is-quick' : ''}`}>
     <div className="rp-detail-top"><button type="button" disabled={busy} onClick={volver}><ArrowLeft size={16} />Volver</button><span className="rp-badge">{ESTADOS[r.estado]}</span></div>
-    <div className="rp-section-heading"><div><h3>{r.folio} · {TURNOS_ALMACEN[r.turno].nombre}</h3><p>{r.fecha} · {r.responsable} · {TURNOS_ALMACEN[r.turno].inicio} - {TURNOS_ALMACEN[r.turno].fin}</p></div><button type="button" disabled={busy} onClick={() => onImprimir(false)}><Printer size={16} />Imprimir / Guardar PDF</button></div>
-    {detalle.anterior && <div className="rp-alert"><div className="rp-section-heading"><span>Turno anterior: {detalle.anterior.fecha} · {TURNOS_ALMACEN[detalle.anterior.turno].nombre} · {detalle.anterior.responsable} · {ESTADOS[detalle.anterior.estado]}</span><button type="button" disabled={busy || dirty} onClick={() => onAbrir(detalle.anterior.id)}>Leer entrega anterior</button></div></div>}
+    <div className="rp-section-heading"><div><h3>{r.folio} · {TURNOS_ALMACEN[r.turno].nombre}</h3><p>{r.fecha} · {r.responsable} · {TURNOS_ALMACEN[r.turno].inicio} - {TURNOS_ALMACEN[r.turno].fin}</p></div>{(!r.editable || modo === 'papel') && <button type="button" disabled={busy} onClick={() => onImprimir(false)}><Printer size={16} />Imprimir / Guardar PDF</button>}</div>
+    {detalle.anterior && <div className="rp-alert"><div className="rp-section-heading"><span>Turno anterior: {detalle.anterior.fecha} · {TURNOS_ALMACEN[detalle.anterior.turno].nombre} · {detalle.anterior.responsable} · {ESTADOS[detalle.anterior.estado]}</span><button type="button" disabled={busy || sinGuardar} onClick={() => onAbrir(detalle.anterior.id)}>Leer entrega anterior</button></div></div>}
     {error && <p role="alert" className="rp-alert is-error">{error}</p>}
-    <div className="rp-stats"><span><strong>{lineas.length}</strong> renglones asignados</span><span><strong>{lineas.filter(l => l.declarado != null).length}</strong> contados</span><span><strong>{r.estado === 'BORRADOR' ? '—' : pendientes.length}</strong> pendientes de revisión</span></div>
+    {(!r.editable || modo === 'papel') && <div className="rp-stats"><span><strong>{lineas.length}</strong> renglones asignados</span><span><strong>{lineas.filter(l => l.declarado != null).length}</strong> contados</span><span><strong>{r.estado === 'BORRADOR' ? '—' : pendientes.length}</strong> pendientes de revisión</span></div>}
     {r.editable ? <>
-      <div className="rp-alert">Hoja de conteo ciego. Ingresa la hora física escrita en el papel; después de confirmar la captura podrás comparar y redactar la entrega. Si hubo movimientos mientras contabas, revisa su respaldo.</div>
-      <div className="rp-tools"><button type="button" disabled={busy || dirty} onClick={() => onAccion('actualizar_alcance', {})}>Actualizar alcance del turno</button><span className="rp-help">Añade ítems movidos después de generar la hoja. Conserva el número de los renglones existentes.</span></div>
-      <form onSubmit={guardar} className="rp-capture-form"><div className="rp-line-list">{lineas.map(l => <fieldset key={l.id} className="rp-capture"><legend>{l.numero}. {l.nombre}</legend><div className="rp-line-meta"><span>{l.ubicacion} · {l.sku || `Producto ${l.producto_id}`}</span><span>{ORIGENES[l.origen]} · 1 {l.empaque} = {fmt(l.factor)} {l.unidad}</span></div><CamposConteo linea={l} valor={formularios[l.id]} onChange={datos => cambiar(l.id, datos)} disabled={busy} id={`captura-${l.id}`} /></fieldset>)}</div>
+      <div className="rp-tools rp-capture-modes" role="group" aria-label="Forma de contar"><button type="button" aria-pressed={modo === 'rapido'} disabled={busy || sinGuardar} onClick={() => setModo('rapido')}>Conteo rápido</button><button type="button" aria-pressed={modo === 'papel'} disabled={busy || sinGuardar} onClick={() => setModo('papel')}>Transcribir papel</button></div>
+      {modo === 'papel' && <><div className="rp-alert">Ingresa las cantidades y la hora física escritas en el papel; después de confirmar la captura podrás comparar y redactar la entrega.</div><div className="rp-tools"><button type="button" disabled={busy || sinGuardar} onClick={() => onAccion('actualizar_alcance', {})}>Actualizar alcance del turno</button><span className="rp-help">Añade ítems movidos después de abrir el reporte. Conserva el número de los renglones existentes.</span></div></>}
+      {modo === 'rapido' ? <>{avisoRevision && <p className="rp-alert" role="status">{avisoRevision}</p>}<ConteoRapidoTurno reporte={r} lineas={lineas} busy={busy || preparandoRevision} onBorrador={setQuickDirty} onComparar={prepararRevision} onGuardar={linea => { setAvisoRevision(''); return onAccion('guardar', { lineas: [linea], observacion: r.observacion || '' }); }} /></> : <form onSubmit={guardar} className="rp-capture-form"><div className="rp-line-list">{lineas.map(l => <fieldset key={l.id} className="rp-capture"><legend>{l.numero}. {l.nombre}</legend><div className="rp-line-meta"><span>{l.ubicacion} · {l.sku || `Producto ${l.producto_id}`}</span><span>{ORIGENES[l.origen]} · 1 {l.empaque} = {fmt(l.factor)} {l.unidad}</span></div><CamposConteo linea={l} valor={formularios[l.id]} onChange={datos => cambiar(l.id, datos)} disabled={busy} id={`captura-${l.id}`} /></fieldset>)}</div>
         <label className="rp-note-label">Observación de entrega<textarea value={observacion} maxLength={4000} onChange={e => {setObservacion(e.target.value);setDirty(true);}} disabled={busy} placeholder="Qué debe verificar el siguiente almacenero y dónde está el respaldo." /></label>
         <div className="rp-tools"><button className="rp-primary" disabled={busy} type="submit">Guardar cantidades del papel</button><button type="button" disabled={busy || dirty} onClick={() => onAccion('comparar', {})}>Confirmar captura y comparar</button><span className="rp-help">{dirty ? 'Cambios sin guardar' : 'Compara las cantidades guardadas antes de preparar la entrega.'}</span></div>
-      </form>
-      <details className="rp-card"><summary>Agregar un producto al recorrido</summary><form className="rp-tools" onSubmit={buscar}><label>Producto o SKU<input value={busqueda} onChange={e => setBusqueda(e.target.value)} disabled={busy || buscando} maxLength={100} /></label><button type="submit" disabled={busy || buscando || !busqueda.trim()}>Buscar</button></form><div className="rp-list">{resultados.map(l => <div className="rp-search-row" key={`${l.producto_id}:${l.ubicacion_id}`}><span>{l.nombre}<small>{l.ubicacion}</small></span><button type="button" disabled={busy || dirty || lineas.some(x => x.producto_id === l.producto_id && x.ubicacion_id === l.ubicacion_id)} onClick={() => onAccion('agregar', { producto_id: l.producto_id, ubicacion_id: l.ubicacion_id })}>Agregar a hoja</button></div>)}</div></details>
+      </form>}
+      {modo === 'rapido' && <details className="rp-card rp-quick-options"><summary>Opciones del reporte</summary><p className="rp-help">Antes de entregar, actualiza el alcance para incluir productos movidos después de abrir el reporte. La cantidad del sistema se muestra después de confirmar la captura.</p><div className="rp-tools"><button type="button" disabled={busy || sinGuardar} onClick={() => onAccion('actualizar_alcance', {})}>Actualizar alcance del turno</button><button type="button" disabled={busy} onClick={() => onImprimir(false)}><Printer size={16} />Imprimir / Guardar PDF</button></div></details>}
+      <details className="rp-card"><summary>Agregar un producto al recorrido</summary><form className="rp-tools" onSubmit={buscar}><label>Producto o SKU<input value={busqueda} onChange={e => setBusqueda(e.target.value)} disabled={busy || buscando} maxLength={100} /></label><button type="submit" disabled={busy || buscando || !busqueda.trim()}>Buscar</button></form><div className="rp-list">{resultados.map(l => <div className="rp-search-row" key={`${l.producto_id}:${l.ubicacion_id}`}><span>{l.nombre}<small>{l.ubicacion}</small></span><button type="button" disabled={busy || sinGuardar || lineas.some(x => x.producto_id === l.producto_id && x.ubicacion_id === l.ubicacion_id)} onClick={() => onAccion('agregar', { producto_id: l.producto_id, ubicacion_id: l.ubicacion_id })}>Agregar a hoja</button></div>)}</div></details>
     </> : <>
       <p className="rp-help">Comparación por producto y ubicación a la hora física del conteo. El documento entregado conserva sus cantidades.</p>
       <div className="rp-table-wrap"><table><thead><tr><th>Ítem / ubicación</th><th>Sistema a hora del conteo</th><th>Declarado</th><th>Resultado</th><th>Verificación de recepción</th><th>Acciones</th></tr></thead><tbody>{lineas.map(l => <tr key={l.id}><td><strong>{l.numero}. {l.nombre}</strong><small>{l.ubicacion}</small><small>{fechaHoraReporte(l.contado_en)}</small><small>{l.observacion}</small></td><td>{fmt(l.esperado)} {l.unidad}<small>{l.esperado != null && equivalenciaReporte(l.esperado,l)}</small></td><td>{fmt(l.declarado)} {l.unidad}<small>{equivalenciaReporte(l.declarado,l)}</small></td><td><Resultado linea={l} /></td><td>{l.ver_en ? <><strong>{fmt(l.ver_declarado)} {l.unidad}</strong><small>{fechaHoraReporte(l.ver_en)}</small><small>Sistema: {fmt(l.ver_esperado)} · Diferencia: {fmt(diferencia(l.ver_declarado,l.ver_esperado))}</small><small>{l.movimientos_antes_verificar ? `${l.movimientos_antes_verificar} movimiento(s) desde el cierre; revisar antes de atribuir la diferencia.` : 'Sin movimientos desde el cierre.'}</small><small>{l.ver_nota}</small></> : 'Sin verificación'}</td><td><div className="rp-actions"><button type="button" disabled={busy} onClick={() => abrirMovimientos(l)}>Ver respaldo</button>{puedeRecibir && l.pendiente && <button type="button" disabled={busy} onClick={() => {setSeleccion(l);setVerForm(formularioLinea(l,true));}}>Verificar</button>}{l.pendiente && <button type="button" disabled={busy} onClick={() => {nav.irAConteo({productoId:l.producto_id,ubicacionId:l.ubicacion_id});}}>Abrir conteo controlado</button>}{puedeResolver && l.pendiente && <button type="button" disabled={busy} onClick={() => setResolver(l)}>Vincular resolución</button>}</div></td></tr>)}</tbody></table></div>
@@ -169,7 +199,7 @@ function Detalle({ detalle, usuario, busy, onVolver, onAccion, onImprimir, onAbr
       </>}
       {resolver && <form className="rp-card" onSubmit={e => {e.preventDefault();onAccion('resolver',{linea_id:resolver.id,sesion_id:Number(sesion),observacion:resolucion});}}><h4>Resolución de {resolver.nombre}</h4><p className="rp-help">Vincula un conteo controlado aplicado para este producto y ubicación, posterior a la entrega.</p><div className="rp-tools"><label>Número de sesión aplicada<input type="number" min="1" step="1" required value={sesion} onChange={e => setSesion(e.target.value)} disabled={busy} /></label><label>Motivo<input value={resolucion} onChange={e => setResolucion(e.target.value)} maxLength={2000} required disabled={busy} /></label><button type="submit" disabled={busy}>Registrar resolución</button></div></form>}
     </>}
-    {movimientos && <section className="rp-card"><div className="rp-section-heading"><h4>Respaldos · {movimientos.nombre}</h4><button type="button" onClick={() => setMovimientos(null)}>Cerrar respaldo</button></div><p className="rp-help">Movimientos desde el inicio del turno hasta la consulta o recepción. Máximo 1000 registros.</p><div className="rp-table-wrap"><table><thead><tr><th>Hora</th><th>Cantidad</th><th>Documento / motivo</th><th>Registrado por</th></tr></thead><tbody>{movimientos.items.map(m => <tr key={m.id}><td>{fechaHoraReporte(m.creado_en)}</td><td>{fmt(m.cantidad)}</td><td>{m.referencia}<small>{m.motivo}</small></td><td>{m.autor || m.creado_por || 'Sin autor registrado'}</td></tr>)}</tbody></table></div>{!movimientos.items.length && <p>No hay movimientos registrados en el periodo.</p>}</section>}
+    {movimientos && <MovimientosReporte key={movimientos.linea.id} linea={movimientos.linea} items={movimientos.items} reporte={r} onCerrar={() => { ++seq.current; setMovimientos(null); }} />}
     <details className="rp-card"><summary>Historial del reporte</summary><ul className="rp-events">{eventos.map(e => <li key={e.id}>{fechaHoraReporte(e.creado_en)} · {e.actor} · {e.accion}</li>)}</ul></details>
   </section>;
 }
@@ -191,12 +221,6 @@ function Resultado({ linea }) {
   if (linea.declarado == null) return <span className="rp-warning">Sin contar · pendiente</span>;
   const delta = diferencia(linea.declarado,linea.esperado);
   return <span className={delta === 0 ? 'rp-good' : 'rp-difference'}>{delta === 0 ? 'Cuadra' : `${delta>0?'+':''}${fmt(delta)} ${linea.unidad}`}<small>{delta !== 0 && 'Por revisar'}</small></span>;
-}
-
-function Diario({ data }) {
-  return <section><h3>Movimientos del día</h3><p className="rp-help">Hasta {fechaHoraReporte(data.hasta)} · Por producto y ubicación operativa. Los saldos finales de los turnos no se suman.</p><div className="rp-table-wrap"><table><thead><tr><th>Ítem / ubicación</th><th>Inicial</th><th>Entradas</th><th>Salidas</th><th>Ajustes</th><th>Sistema al corte</th><th>Fuera de turno</th></tr></thead><tbody>{data.items.map(l => <tr key={`${l.producto_id}:${l.ubicacion_id}`}><td><strong>{l.nombre}</strong><small>{l.ubicacion} · {l.unidad}</small></td><td>{fmt(l.inicial)}</td><td>+{fmt(l.entradas)}</td><td>−{fmt(l.salidas)}</td><td>{fmt(l.ajustes)}</td><td>{fmt(l.sistema)}<small>{equivalenciaReporte(l.sistema,l)}</small></td><td>{l.fuera_turno || '—'}</td></tr>)}</tbody></table></div>{!data.items.length && <p className="rp-empty">No hay movimientos registrados para esta fecha.</p>}
-    <h3>Actividad fuera de horario</h3><p className="rp-help">Antes de 07:30, entre 12:30 y 14:30 o desde 21:30. Se conserva la autoría; no se asigna automáticamente a un turno.</p><div className="rp-table-wrap"><table><thead><tr><th>Hora</th><th>Ítem</th><th>Cantidad</th><th>Referencia</th><th>Registrado por</th></tr></thead><tbody>{data.fuera_turno.map(m => <tr key={m.id}><td>{fechaHoraReporte(m.creado_en)}</td><td>{m.nombre}</td><td>{fmt(m.cantidad)}</td><td>{m.referencia}</td><td>{m.autor || m.creado_por || 'Sin autor registrado'}</td></tr>)}</tbody></table></div>{!data.fuera_turno.length && <p className="rp-empty">Sin movimientos fuera de horario.</p>}
-  </section>;
 }
 
 function Plan({ data, puedeProgramar, busy, onProgramar }) {
