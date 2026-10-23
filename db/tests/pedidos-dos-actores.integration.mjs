@@ -16,7 +16,7 @@ export async function testPedidosDosActores(db,{login,stock,count,uid}) {
   await login(2);legado=await operarLegado('escanear');legado=await operarLegado('guardar_revision',{linea_id:9041,cantidad_base:12,metodo:'visual'});legado=await operarLegado('verificado');
   await db.query("select _despachar_linea_nucleo(9041,'[{\"ubicacion_id\":1,\"cantidad_base\":12}]','QA',true)");
   const vtd=(await db.query("select pg_get_functiondef('public.operar_caja_almacen(text,uuid,bigint,jsonb)'::regprocedure) f")).rows[0].f;
-  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261021140607_pedidos_dos_responsables_evidencias.sql',import.meta.url),'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261021192845_pedidos_dos_responsables_evidencias.sql',import.meta.url),'utf8'));
   assert.equal((await db.query("select pg_get_functiondef('public.operar_caja_almacen(text,uuid,bigint,jsonb)'::regprocedure) f")).rows[0].f,vtd);
   await db.exec('update evidencia_operacion.configuracion set activo=true,pedidos_dos_actores=true');
   await db.exec('set role authenticated');legado=await operarLegado();assert.equal(legado.pedido_dos_actores,true);assert.equal(legado.tarea.salida_previa,true);

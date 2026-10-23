@@ -1,6 +1,6 @@
 # Correcciones de traslados
 
-Correcciones preparadas en Almacén y Seller el 20 de octubre de 2026. Migración aplicada a la base productiva como 20261020141453_fix_flujo_traslados.sql; publicación de las interfaces mediante las ramas y PRs de traslados.
+Correcciones publicadas en Almacén y Seller el 20 de octubre de 2026. Migración aplicada a la base productiva como `20261020141453_fix_flujo_traslados.sql`. Ambas interfaces están desplegadas y verificadas en sus direcciones habituales.
 
 ## Comportamiento
 
@@ -35,3 +35,14 @@ Se mantiene la contabilidad existente: el stock se mueve al despachar y la recep
 Las 42 cabeceras en tránsito no se cierran automáticamente. Las 50 líneas históricas identificadas en el diagnóstico quedan disponibles para recuperación explícita, sin asumir que el estado del sistema demuestra por sí solo lo ocurrido físicamente.
 
 El árbol de Almacén contiene trabajo previo ajeno a estos fixes. Al preparar una publicación o un commit, revisar el alcance para conservar ese trabajo y no incorporarlo accidentalmente.
+
+## Evidencia de publicación
+
+- [Almacén PR #101](https://github.com/nessxd14/almacen_cation/pull/101), integrado como `a4f0db33be40ecf714425fb426be88164cf50cc5`.
+- [Seller PR #129](https://github.com/nessxd14/seller/pull/129), integrado como `c8893b0ec68e8121a6784cc99c0e9d8f1606f523`.
+- Vercel confirmó éxito en ambos commits de producción.
+- [Almacén](https://almacen-cation.vercel.app): HTTP 200 y bundle `index-DfduqqyH.js` con recuperación de líneas y resultado real del despacho.
+- [Seller](https://seller-gilt.vercel.app): HTTP 200 y bundle `index-xpPNtUaZ.js` con recuperación, resultado real y confirmación de recepción física.
+- Verificación de SQL: cinco funciones como invocador, disponibles a `authenticated` y sin permiso a `anon`; límite de cantidad instalado. Consulta autenticada de autorización aprobada en transacción de sólo lectura.
+- Sin nuevos hallazgos de seguridad respecto del estado anterior. Los estados de negocio se mantienen en 18 solicitados, 42 en tránsito, 2 recibidos, 4 rechazados y 13 cancelados: la publicación no generó movimientos ni cerró documentos.
+- Las publicaciones se prepararon en copias aisladas de `main`, excluyendo el trabajo local previo de conteo y otras funcionalidades.

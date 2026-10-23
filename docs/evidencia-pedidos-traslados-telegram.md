@@ -38,7 +38,7 @@ Se conserva la política de VTD: reintentos con espera para rechazos explícitos
 
 ## Publicación coordinada
 
-1. Aplicar `supabase/migrations/20261020124326_evidencias_pedidos_traslados_retiro.sql` después de las migraciones VTD existentes. La nueva integración empieza con `activo=false`.
+1. En una base nueva, aplicar `supabase/migrations/20261020152719_evidencias_pedidos_traslados_retiro.sql` después de las migraciones VTD existentes. La nueva integración empieza con `activo=false`. En Cation ya está registrada con esta versión; se comprobó que su SQL coincide con el archivo. No reaplicarla.
 2. Desplegar `evidencia-operaciones-telegram` con `verify_jwt=false`. Reutiliza el secreto de proyecto `TELEGRAM_BOT_TOKEN`; nunca incorporarlo a Git ni al cliente.
 3. Configurar `evidencia_operacion.configuracion.worker_url` con la URL de esta nueva función. Desde una sesión administrativa ejecutar `select evidencia_operacion.invocar('diagnostico')` y consultar la respuesta de `pg_net`: comprueba identidad del bot y acceso al grupo sin publicar mensajes de prueba.
 4. Publicar el frontend que incluye esta interfaz. Los clientes anteriores no pueden saltar la exigencia de fotos del traslado una vez activada; deben actualizarse.

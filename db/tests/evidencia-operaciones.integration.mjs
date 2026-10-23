@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 export async function testEvidenciaOperaciones(db, { login, call, step, stock, count, uid }) {
   const cajaVtd=(await db.query("select pg_get_functiondef('public.operar_caja_almacen(text,uuid,bigint,jsonb)'::regprocedure) f")).rows[0].f;
   await login(2);await db.exec('set role authenticated');const vtdAntes=await call('VTD',1);await db.exec('reset role');
-  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261020124326_evidencias_pedidos_traslados_retiro.sql', import.meta.url), 'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261020152719_evidencias_pedidos_traslados_retiro.sql', import.meta.url), 'utf8'));
   await db.exec('set role authenticated');assert.deepEqual(await call('VTD',1),vtdAntes,'VTD mantiene la misma respuesta con el wrapper nuevo');await db.exec('reset role');
   assert.equal((await db.query("select pg_get_functiondef('public.operar_caja_almacen(text,uuid,bigint,jsonb)'::regprocedure) f")).rows[0].f,cajaVtd,'No se cambia el motor de Caja/VTD');
   await db.exec(`update evidencia_operacion.configuracion set activo=true,habilitado_desde='2000-01-01';

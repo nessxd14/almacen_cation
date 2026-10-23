@@ -6,7 +6,11 @@
 
 ## Reportes de almacén y entrega de turnos
 
-En **Existencias → Reportes de turno** se genera la hoja de conteo ciego, se imprime o guarda como PDF, se transcriben las cantidades y se comparan antes de entregar. Incluye recepción por otra persona, movimientos diarios y programación cíclica. Consulta [la guía de reportes](docs/reportes-turno-almacen.md) y ejecuta `npm run test:reportes` para validar el motor sin datos del negocio.
+En **Existencias → Reportes de turno** se cuenta desde el celular con **Guardar y siguiente**, recorriendo ubicaciones base como Planta Baja, Hueco y Garaje. El formulario convierte empaques y sueltas, conserva los pendientes con motivo y compara el saldo a la hora física del conteo. También permite imprimir o guardar la hoja como PDF y transcribirla después. Movimientos diarios ofrece el desglose en página, panel lateral o ventana, con horas, autores y colores por tipo. Incluye recepción por otra persona y programación cíclica. Consulta [la guía de reportes](docs/reportes-turno-almacen.md) y ejecuta `npm run test:reportes` para validar el motor sin datos del negocio.
+
+## Integración de pedidos, traslados y evidencias
+
+Los pedidos permiten alistar y verificar/retirar con dos responsables, destino y fotos por etapa. Los traslados pueden alistarse y recibirse por QR, conservando la operación de documentos anteriores. Consulta [pedidos](docs/pedidos-dos-responsables.md), [traslados QR](docs/traslados-qr-dos-responsables.md) y [la validación de la integración](docs/integracion-almacen-zip-32.md). Las migraciones y los workers se versionan; su publicación y activación son pasos separados del commit.
 
 ## Conteo físico y control de existencias
 
