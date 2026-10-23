@@ -1459,24 +1459,10 @@ function FilaLinea({
   );
 }
 
-/* ── Fila de ítem especial/personalizado — no pasa por FilaLinea (no hay
-   pick ni Kardex), pero ahora tiene las mismas acciones de fondo:
-   Rechazar, Cambiar (por catálogo o por otra descripción libre, vía el
-   mismo ModalCambiarLinea que FilaLinea) y cerrar la línea con nota +
-   costo (comprar_directo, no entregar_personalizado — unifica el cierre
-   con "Comprado directo" de FilaLinea en vez de un cierre sin rastro de
-   qué se compró).
-   Ya NO participa del despacho por lote (brief: sacarlos del lote es más
-   simple que pedir una nota común para todas las líneas de la tanda, que
-   perdería el detalle de qué se compró en cada una) — se cierran de a
-   uno, acá mismo, donde sí se pide la nota. */
+/* Los personalizados se alistan, verifican y retiran desde la miniapp QR. */
 function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
   const usuarioActual = useUsuarioActual();
   const [rechazando, setRechazando] = useState(false);
-  const [mostrarComprado, setMostrarComprado] = useState(false);
-  const [nota, setNota] = useState("");
-  const [costo, setCosto] = useState("");
-  const [guardandoCompra, setGuardandoCompra] = useState(false);
   const [flash, setFlash] = useState(null);
 
   const showFlash = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 3000); };
@@ -1490,16 +1476,6 @@ function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
     setRechazando(false);
     if (error) { showFlash("Error: " + error.message); return; }
     onLineaPatch(linea.id, { estado: "RECHAZADO" });
-  }
-
-  async function confirmarCompraDirecta() {
-    if (!nota.trim()) { showFlash("La nota es obligatoria"); return; }
-    setGuardandoCompra(true);
-    const { error } = await comprarDirecto({ lineaId: linea.id, nota: nota.trim(), costo: costo ? Number(costo) : null, usuario: usuarioActual.nombre });
-    setGuardandoCompra(false);
-    if (error) { showFlash("Error: " + error.message); return; }
-    setMostrarComprado(false);
-    onLineaPatch(linea.id, { estado: "COMPRADO_DIRECTO", compra_directa_nota: nota.trim(), compra_directa_costo: costo ? Number(costo) : null });
   }
 
   return (
@@ -1538,10 +1514,13 @@ function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
       {linea.estado === "ESPECIAL" && (
         <>
           <div className="flex flex-wrap gap-1.5">
-            <button onClick={() => setMostrarComprado(true)}
+            <Link to={`/operaciones/pedidos/${linea.pedido_id}${linea.sucursal_origen_id ? `?sucursal=${linea.sucursal_origen_id}` : ''}`}
               className="flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-500">
-              Marcar entregado
-            </button>
+              <ScanLine size={14} /> Alistar y entregar con QR
+            </Link>
+            <Link to="/compras" className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
+              <ShoppingCart size={12} /> Gestionar compra
+            </Link>
             <button onClick={() => onAbrirCambiar(linea)}
               className="flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50">
               <Repeat size={12} /> Cambiar
@@ -1552,25 +1531,7 @@ function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
             </button>
           </div>
 
-          {mostrarComprado && (
-            <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <input value={nota} onChange={(e) => setNota(e.target.value)}
-                placeholder="Nota (proveedor / variante / fabricante) *"
-                className="w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
-              <input type="number" min="0" step="any" value={costo} onChange={(e) => setCosto(e.target.value)}
-                placeholder="Costo (opcional)"
-                className="w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
-              <div className="flex gap-2">
-                <button onClick={confirmarCompraDirecta} disabled={guardandoCompra}
-                  className="flex-1 rounded-lg bg-amber-600 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50">
-                  {guardandoCompra ? "Guardando…" : "Confirmar"}
-                </button>
-                <button onClick={() => setMostrarComprado(false)} className="rounded-lg border px-3 py-1.5 text-sm text-slate-500">
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          )}
+          <p className="text-xs text-slate-500">Recibir la compra mantiene la entrega pendiente. Alista el material y presenta el QR a otra persona para verificarlo y retirarlo con fotos.</p>
         </>
       )}
     </div>

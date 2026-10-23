@@ -73,6 +73,26 @@ it('marca cero con No se alistó y exige guardar su motivo antes del atajo gener
   const motivo=[...node.querySelectorAll('label')].find(l=>l.textContent.startsWith('Motivo del faltante')).querySelector('input');await change(motivo,'No encontrado');await click('Guardar ajuste');
   expect(calls('guardar_preparacion')[0][1].p_datos).toMatchObject({cantidad_base:0,observacion:'No encontrado'});
 });
+it('alista un pedido de personalizados y exige fotos antes de enviarlo a otra persona',async()=>{
+  qa.doc.lineas=[{pedido_linea_id:1,vigente:true,confirmada:false,preparada_base:0,revisada_base:null,observacion:'',snapshot:{producto_id:null,es_personalizado:true,nombre:'Escoba especial',factor:1,unidad_base:'unidades',pendiente_base:6,preparable:true}}];
+  await mount();expect(input('Cantidad alistada de Escoba especial').value).toBe('6');
+  expect(node.textContent).toContain('No requiere código de barras');expect(node.textContent).not.toContain('Ver ficha');
+  await click('Confirmar cantidad');expect(calls('guardar_preparacion')[0][1].p_datos).toMatchObject({linea_id:1,cantidad_base:6});
+  expect(boton('Enviar a verificación').disabled).toBe(true);await fotos();await click('Enviar a verificación');
+  expect(calls('preparado')[0][1].p_datos.evidencia_id).toBeTruthy();expect(node.textContent).toContain('Presenta el QR a otra persona');
+});
+it('verifica un personalizado sin código dentro de un pedido mixto y retira con fotos',async()=>{
+  qa.id='revisa';qa.doc.tarea.estado='REVISANDO';qa.doc.lineas.forEach(l=>{l.confirmada=true;l.preparada_base=12;});
+  Object.assign(qa.doc.lineas[0],{preparada_base:6,snapshot:{producto_id:null,es_personalizado:true,nombre:'Escoba especial',factor:1,unidad_base:'unidades',pendiente_base:6,preparable:true}});
+  await mount();const personalizada=[...node.querySelectorAll('article.om-linea')].find(a=>a.textContent.includes('Escoba especial'));
+  expect(personalizada.textContent).toContain('Comprobar visualmente');expect(personalizada.textContent).not.toContain('Escanear y contar');expect(personalizada.textContent).not.toContain('Ingresar código');
+  expect(boton('Escanear y contar')).toBeTruthy();await click('Comprobar visualmente');
+  expect(node.querySelector('input[maxlength="2048"]')).toBeNull();await click('Guardar comprobación');
+  expect(calls('guardar_revision')[0][1].p_datos).toMatchObject({linea_id:1,cantidad_base:6,metodo:'visual',codigo:''});
+  await click('Todo lo demás coincide');expect(boton('Confirmar revisión y retirar').disabled).toBe(true);
+  await change(node.querySelector('input[maxlength="300"]'),'Obra QA');await fotos();await click('Confirmar revisión y retirar');
+  expect(calls('confirmar_retiro')[0][1].p_datos.evidencia_id).toBeTruthy();expect(node.textContent).toContain('En transporte');
+});
 it('permite al revisor cerrar con fotos una entrega anterior ya despachada',async()=>{
   qa.id='revisa';qa.doc.tarea.estado='DESPACHADO';qa.doc.tarea.salida_previa=true;qa.doc.entregada=true;qa.doc.lineas.forEach(l=>{l.confirmada=true;l.preparada_base=24;l.revisada_base=24;});
   await mount();expect(node.textContent).toContain('no volverá a descontar stock');expect(node.querySelector('input[inputmode]')).toBeNull();

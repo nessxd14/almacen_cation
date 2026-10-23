@@ -749,7 +749,7 @@ export async function inyectarConciliacionSesion({ sesionId, usuario }) {
   return { resultado: data, error };
 }
 
-/* ── entregar un ítem personalizado (ESPECIAL -> COMPRADO_DIRECTO) ───── */
+/* ── entregar un ítem personalizado (ESPECIAL -> DESPACHADA, desde retiro QR) ───── */
 export async function entregarPersonalizado({ lineaId, usuario }) {
   const { data, error } = await supabase.rpc("entregar_personalizado", {
     p_linea_id: Number(lineaId),
