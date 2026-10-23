@@ -23,11 +23,11 @@ Validado con `npm run test:qr` y las pruebas móviles: compra separada del retir
 
 El servidor propone ubicaciones físicas de la sucursal, con stock positivo y sin ubicaciones excluidas. Respeta el criterio de pick existente: mayor stock primero. Descuenta del plan lo ya asignado a otra línea del mismo producto. El verificador ve las ubicaciones antes de confirmar; si el plan cambia, debe actualizar y comprobarlo de nuevo.
 
-El despacho usa `despachar_linea` y su motor de stock/FIFO existente, sin omitir turno ni permitir sobregiro. Si falla una línea, se revierten todas las salidas, eventos, retiro y cola de esa confirmación. Un personalizado se retira completo o queda pendiente, mediante su motor existente; no se inventa una entrega parcial de personalizados.
+El despacho de Almacén usa `despachar_linea` y su motor de stock/FIFO existente, sin omitir turno ni permitir sobregiro. Si falla una línea, se revierten todas las salidas, eventos, retiro y cola de esa confirmación. Las preparaciones del nuevo modelo permiten parciales de personalizados por cantidad, conservando su saldo hasta completar.
 
 Las cantidades alistadas y sus motivos se conservan. Las cantidades revisadas y los motivos de diferencia se registran por separado. Los saldos siguen pendientes en el Pedido y cada entrega parcial mantiene su expediente. Crear la siguiente preparación conserva el circuito de dos actores. Una entrega del circuito anterior ya despachada, pero sin retiro confirmado, puede cerrarla su revisor con destino/fotos: se identifica como salida previa y no se vuelve a mover stock. Los retiros históricos ya confirmados conservan a su responsable original.
 
-El botón rápido sólo completa el checklist. El stock se mueve al confirmar revisión y retiro. Las rutas de despacho manual no pueden saltar esa confirmación en un Pedido tomado por el nuevo circuito; la autorización transaccional vive en una tabla privada sin permisos de cliente. No se modifica caja ni se confirma pago o recepción en destino.
+El botón rápido sólo completa el checklist. El stock se mueve al confirmar revisión y retiro. Las rutas de despacho manual no pueden saltar esa confirmación en ningún pedido, incluso antes de crear su preparación; la autorización transaccional vive en una tabla privada sin permisos de cliente. No se modifica caja ni se confirma pago o recepción en destino.
 
 Una respuesta perdida conserva el intento: la app consulta la evidencia y el retiro antes de repetir. El mismo lote, versión, actor, destino y plan recupera la respuesta sin otra salida ni nuevas fotos. Las funciones privadas anteriores no quedan ejecutables directamente por `authenticated`.
 

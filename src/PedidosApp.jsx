@@ -34,6 +34,7 @@ import { objetivoPick, haySobreTurno, MOTIVOS_DESPACHO_FORZADO, MOTIVO_OTRO, mot
 import CodigosLinea from "./CodigosLinea";
 import BarraSeleccion from "./BarraSeleccion";
 import ConfirmarDespacho from './ConfirmarDespacho';
+import CorreccionSalidaDocumental from './CorreccionSalidaDocumental';
 import { coincideLineaDespacho, grupoDespacho, planDespacho } from './lib/despachoUI';
 import './despacho-ui.css';
 import { obtenerBorrador, limpiarBorrador } from "./lib/pedidoBorrador";
@@ -981,7 +982,7 @@ function EventoAlistadoAcciones({ evento, linea, onLineaPatch, onEventoRevertido
 function FilaLinea({
   linea, eventos, habilitado, categoria, saldoLibre, saldoIndisponible, codigos,
   seleccionada, onToggleSeleccion, onPickChange, onLineaPatch, onEventoNuevo, onEventoRevertido, onAbrirCambiar,
-  compra, onRecargar,
+  compra, onRecargar, soloGestion = true,
 }) {
   const usuarioActual = useUsuarioActual();
   const { nombreSucursal } = useSucursal();
@@ -1016,7 +1017,7 @@ function FilaLinea({
   const [abriendoCompra, setAbriendoCompra] = useState(false);
 
   const pendiente = Math.max(Number(linea.cantidad_base) - Number(linea.cantidad_despachada), 0);
-  const puedeDespachar = linea.estado === "POR_DESPACHAR" || (linea.estado === "PENDIENTE" && habilitado);
+  const puedeDespachar = !soloGestion && (linea.estado === "POR_DESPACHAR" || (linea.estado === "PENDIENTE" && habilitado));
   // Restar/Rechazar/Cambiar (brief W-B): a diferencia de "puedeDespachar",
   // no exigen `habilitado` — el backend las permite en PENDIENTE aunque
   // todavía no haya llegado stock nuevo (habilitado solo gatea el pick).
@@ -1386,7 +1387,7 @@ function FilaLinea({
             </div>
           )}
 
-          {linea.estado !== "COMPRADO_DIRECTO" && (
+          {!soloGestion && linea.estado !== "COMPRADO_DIRECTO" && (
             <div>
               {!mostrarComprado ? (
                 <button onClick={() => setMostrarComprado(true)} className="text-xs text-amber-600 underline">
@@ -1414,7 +1415,7 @@ function FilaLinea({
             </div>
           )}
 
-          {linea.estado === "DESPACHADA" && categoria === "TIENDA" && (eventos || []).map((e) => {
+          {linea.estado === "DESPACHADA" && categoria === "TIENDA" && (eventos || []).filter(e=>!e.abastecimiento_origenes).map((e) => {
             const vigente = !e.revertido && e.reversible_hasta && new Date(e.reversible_hasta) > new Date();
             return (
               <div key={e.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs">
@@ -1437,7 +1438,7 @@ function FilaLinea({
 
           {categoria !== "TIENDA" && (eventos || []).length > 0 && (
             <div className="space-y-1.5">
-              {(eventos || []).map((e) => (
+              {(eventos || []).filter(e=>!e.abastecimiento_origenes).map((e) => (
                 <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs">
                   <span className="shrink-0 text-slate-500">
                     Evento #{e.id} · {cantidadFmt(e.cantidad_base)} {linea.producto?.unidad_base} · {fechaFmt(e.creado_en)}
@@ -1450,6 +1451,7 @@ function FilaLinea({
         </div>
       )}
 
+      {abierto && <EventosDocumentales eventos={eventos} onRecargar={onRecargar}/>}
       {modalCompra && (
         <ModalEnviarACompra linea={linea} pendiente={pendiente} cubierto={modalCompra.cubierto}
           onClose={() => setModalCompra(null)}
@@ -1460,7 +1462,7 @@ function FilaLinea({
 }
 
 /* Los personalizados se alistan, verifican y retiran desde la miniapp QR. */
-function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
+function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra, eventos, onRecargar }) {
   const usuarioActual = useUsuarioActual();
   const [rechazando, setRechazando] = useState(false);
   const [flash, setFlash] = useState(null);
@@ -1499,6 +1501,7 @@ function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
           </span>
         )}
       </div>
+      <EventosDocumentales eventos={eventos} onRecargar={onRecargar}/>
       {linea.precio_unitario != null && (
         <p className="text-xs text-slate-500">Precio unitario: {fmtDinero(linea.precio_unitario)}</p>
       )}
@@ -1536,6 +1539,10 @@ function FilaEspecial({ linea, onLineaPatch, onAbrirCambiar, compra }) {
       )}
     </div>
   );
+}
+
+function EventosDocumentales({eventos=[],onRecargar}) {
+  return eventos.filter(e=>e.abastecimiento_origenes).map(e=><div key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 text-xs"><span>Salida documental #{e.id} · {cantidadFmt(e.cantidad_base)} · {fechaFmt(e.creado_en)}</span><CorreccionSalidaDocumental evento={e} onCorregido={onRecargar}/></div>);
 }
 
 /* ── Reporte de impresión (solo visible en @media print, ver print:hidden
@@ -1863,6 +1870,7 @@ export function DetallePedido({ pedidoId, onBack }) {
 
   const lineasCatalogo = lineas.filter((l) => !l.es_personalizado);
   const lineasEspeciales = lineas.filter((l) => l.es_personalizado);
+  const soloGestion = true;
 
   const puedeDespacharLinea = (l) => l.estado === "POR_DESPACHAR" || (l.estado === "PENDIENTE" && habilitadas.has(l.id));
   const visibles = lineas.filter(l => coincideLineaDespacho(l, filtroLineas, busquedaLineas));
@@ -1958,7 +1966,7 @@ export function DetallePedido({ pedidoId, onBack }) {
   return (
     <div className="dispatch-workspace">
       <div className="print:hidden space-y-4" inert={despachandoLote ? true : undefined}>
-        <div className="dispatch-page-heading"><div><small>ALMACÉN / PEDIDOS</small><h2>Despacho de pedido</h2><p>Organiza la salida y controla lo que queda pendiente.</p></div><span className="dispatch-header-icon"><Warehouse size={27} /></span></div>
+        <div className="dispatch-page-heading"><div><small>ALMACÉN / PEDIDOS</small><h2>Gestión del pedido</h2><p>Consulta entregas y pendientes. Alista, verifica y retira desde la mini app QR.</p></div><span className="dispatch-header-icon"><Warehouse size={27} /></span></div>
         <div className="dispatch-order-header flex flex-wrap items-center gap-2">
           <button onClick={onBack} aria-label="Volver a pedidos" className="ui-icon-button text-slate-500 hover:text-slate-700"><ArrowLeft size={18} /></button>
           <h1 className="text-lg font-semibold text-slate-800">Pedido #{pedido.id}</h1>
@@ -1982,7 +1990,7 @@ export function DetallePedido({ pedidoId, onBack }) {
               Rechazar pedido
             </button>
           )}
-          {hayLineaParaCerrarTanda && (
+          {!soloGestion && hayLineaParaCerrarTanda && (
             <button onClick={cerrarTandaCompleta} disabled={cerrandoTanda}
               className="flex items-center gap-1.5 rounded-lg border border-amber-200 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50">
               {cerrandoTanda ? <Loader size={14} className="animate-spin" /> : <SplitSquareHorizontal size={15} />}
@@ -2049,7 +2057,7 @@ export function DetallePedido({ pedidoId, onBack }) {
         <section className="dispatch-product-tools" aria-label="Buscar y filtrar líneas"><div className="dispatch-section-title"><h2>Productos del pedido</h2><span>{visibles.length} de {lineas.length}</span></div><label className="dispatch-search"><Search size={18} /><span className="sr-only">Buscar productos del pedido</span><input value={busquedaLineas} onChange={e => setBusquedaLineas(e.target.value)} placeholder="Buscar producto, SKU o presentación…" />{busquedaLineas && <button onClick={() => setBusquedaLineas('')} aria-label="Limpiar búsqueda de líneas"><X size={16} /></button>}</label><div className="dispatch-filters" aria-label="Estado de las líneas">{[['todas','Todos'],['pendiente','Por despachar'],['compra','Por comprar'],['entregado','Entregados'],['cerrado','Cerrados']].map(([id,label]) => <button key={id} aria-pressed={filtroLineas === id} onClick={() => setFiltroLineas(id)}>{label}<span>{conteos[id]}</span></button>)}</div></section>
         {flashLote && !revisionLote && <p role={flashLote.type === 'error' ? 'alert' : 'status'} className={`dispatch-message ${flashLote.type === 'error' ? 'is-error' : ''}`}>{flashLote.msg}</p>}
         {seleccionOculta > 0 && <p className="dispatch-notice">{seleccionOculta} productos seleccionados están fuera del filtro actual. También se incluirán en la revisión de salida.</p>}
-        {idsDespachables.size > 0 && (
+        {!soloGestion && idsDespachables.size > 0 && (
           <label className="flex items-center gap-2 text-xs text-slate-500">
             <input type="checkbox" checked={todasSeleccionadas} onChange={toggleSeleccionarTodas} />
             Seleccionar productos visibles para despacho ({idsDespachables.size})
@@ -2097,6 +2105,8 @@ export function DetallePedido({ pedidoId, onBack }) {
                 onLineaPatch={patchLinea}
                 onAbrirCambiar={setLineaCambiando}
                 compra={compraPorLinea.get(l.id)}
+                eventos={eventosPorLinea[l.id]}
+                onRecargar={cargar}
               />
             ))}
           </div>
@@ -2108,7 +2118,7 @@ export function DetallePedido({ pedidoId, onBack }) {
           onCambiado={() => { setLineaCambiando(null); cargar(); }} />
       )}
 
-      {seleccion.size > 0 && (
+      {!soloGestion && seleccion.size > 0 && (
         <BarraSeleccion
           fixed
           texto={`${seleccion.size} productos seleccionados · ${plan.parciales} con salida parcial`}
