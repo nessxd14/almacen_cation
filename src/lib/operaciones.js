@@ -278,7 +278,7 @@ export async function ejecutarOperacion({
       p_referencia: referencia || "Sin referencia",
       p_usuario: usuario,
       p_fecha: fecha,
-      p_idempotencia: uuid(),
+      p_idempotencia: idempotencia || uuid(),
       p_permitir_sobregiro: !!permitirSobregiro,
     });
   } else if (modo === "TRASLADO") {

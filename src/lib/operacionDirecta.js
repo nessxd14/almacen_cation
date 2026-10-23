@@ -61,7 +61,7 @@ export function resumenOperacion({ modo, cantidad, cantidadObjetivo, factor, sto
   const base = error ? null : ajuste ? numero : numero * factorNumero;
   if (base !== null && (!Number.isFinite(base) || !precisionValida(base))) error = 'La cantidad debe poder expresarse con hasta 4 decimales en la unidad base.';
   const cantidadBase = error ? null : redondear(base);
-  if (modo === 'TRASLADO' && stockOrigen != null && cantidadBase > Number(stockOrigen)) error = 'La cantidad supera el stock de la ubicación de origen.';
+  if ((modo === 'TRASLADO' || modo === 'SALIDA') && stockOrigen != null && cantidadBase > Number(stockOrigen)) error = 'La cantidad supera el stock de la ubicación de origen.';
   return {
     error, cantidadBase,
     delta: cantidadBase == null ? null : ajuste ? stockOrigen == null ? null : redondear(cantidadBase - stockOrigen) : modo === 'ENTRADA' ? cantidadBase : -cantidadBase,
