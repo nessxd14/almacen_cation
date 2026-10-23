@@ -4,8 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import MovimientosDiarios from './MovimientosDiarios';
 
-const qa = vi.hoisted(() => ({ cargar: vi.fn() }));
-vi.mock('./lib/reportesAlmacen', () => ({ movimientosProductoDia: qa.cargar }));
+const qa = vi.hoisted(() => ({ cargar: vi.fn(), comprobantes: vi.fn() }));
+vi.mock('./lib/reportesAlmacen', () => ({ movimientosProductoDia: qa.cargar, movimientosComprobantesDia: qa.comprobantes }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let node, root;
 const linea = { producto_id: 1, ubicacion_id: 2, nombre: 'Bolígrafos QA', sku: 'QA-01', ubicacion: 'Estante A', unidad: 'unidad', factor: 1, inicial: 100, sistema: 111, entradas: 20, salidas: 6, ajustes: -3 };
@@ -23,7 +23,51 @@ const montar = async () => act(async () => root.render(<div className="rp-app"><
 beforeEach(() => {
   localStorage.clear();
   qa.cargar.mockReset().mockResolvedValue({ items: movimientos, total: 3, incompleto: false });
+  qa.comprobantes.mockReset().mockResolvedValue({ items: [
+    { id: 10, producto_id: 1, nombre: 'Bolígrafos QA', ubicacion: 'Estante A', unidad: 'UND', autor: 'Operario QA', referencia: 'Venta #35', tipo_movimiento: 'SALIDA', cantidad: -2, creado_en: '2026-10-23T12:00:00Z', comprobante: { clave: 'venta:35', numero: 'VTD-2026-00035', tipo: 'VTD' } },
+    { id: 11, producto_id: 2, nombre: 'Cuadernos QA', ubicacion: 'Estante B', unidad: 'UND', autor: 'Operario QA', referencia: 'Venta #35', tipo_movimiento: 'SALIDA', cantidad: -4, creado_en: '2026-10-23T20:00:00Z', comprobante: { clave: 'venta:35', numero: 'VTD-2026-00035', tipo: 'VTD' } },
+    { id: 12, producto_id: 1, nombre: 'Bolígrafos QA', ubicacion: 'Estante A', unidad: 'UND', autor: 'Operario QA', referencia: 'Pedido #8 · línea 1', tipo_movimiento: 'SALIDA', cantidad: -1, creado_en: '2026-10-23T12:00:00Z', comprobante: { clave: 'pedido:8', numero: 'PED-2026-00008', tipo: 'PEDIDO' } },
+  ], total: 3, incompleto: false });
   node = document.createElement('div'); document.body.append(node); root = createRoot(node);
+});
+
+describe('selector Productos / Comprobantes', () => {
+  it('consulta al elegir comprobantes, agrupa el documento y filtra sus líneas por turno sin otra consulta', async () => {
+    await montar();
+    expect(qa.comprobantes).not.toHaveBeenCalled();
+    await click('Comprobantes');
+    expect(boton('Comprobantes').getAttribute('aria-pressed')).toBe('true');
+    expect(node.querySelector('.rp-diario-layout').hidden).toBe(true);
+    expect(qa.comprobantes).toHaveBeenCalledWith({ fecha: '2026-10-23', hasta: data.hasta, sucursalId: 1 });
+    expect(node.querySelectorAll('.rp-document')).toHaveLength(2);
+    expect(node.querySelector('.rp-document').textContent).toContain('VTD-2026-00035');
+    expect(node.querySelector('.rp-document').querySelectorAll('tbody tr')).toHaveLength(2);
+    await cambio(node.querySelector('[aria-label="Periodo de comprobantes"]'), 'TARDE');
+    expect(node.querySelectorAll('.rp-document')).toHaveLength(1);
+    expect(node.querySelector('.rp-document').querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(node.querySelector('.rp-document').textContent).toContain('Cuadernos QA');
+    expect(qa.comprobantes).toHaveBeenCalledTimes(1);
+  });
+  it('busca comprobantes, filtra tipo y recupera la búsqueda de productos al volver', async () => {
+    await montar(); await cambio(node.querySelector('.rp-diario-list input'), 'Bolígrafos');
+    await click('Comprobantes');
+    await cambio(node.querySelector('.rp-documents input'), 'VTD-2026-00035');
+    expect(node.querySelectorAll('.rp-document')).toHaveLength(1);
+    await cambio(node.querySelector('[aria-label="Tipo de comprobante"]'), 'PEDIDO');
+    expect(node.querySelector('.rp-documents').textContent).toContain('No hay comprobantes para estos filtros.');
+    await click('Productos');
+    expect(node.querySelector('.rp-diario-layout').hidden).toBe(false);
+    expect(node.querySelector('.rp-diario-list input').value).toBe('Bolígrafos');
+  });
+  it('avisa consultas incompletas y permite reintentar un fallo sin anunciar datos vacíos', async () => {
+    qa.comprobantes.mockRejectedValueOnce(new Error('Consulta interrumpida'));
+    await montar(); await click('Comprobantes');
+    expect(node.querySelector('[role=alert]').textContent).toContain('Consulta interrumpida');
+    expect(node.querySelector('.rp-document')).toBeNull();
+    qa.comprobantes.mockResolvedValueOnce({ items: [], total: 8, incompleto: true });
+    await click('Reintentar comprobantes');
+    expect(node.querySelector('.rp-documents').textContent).toContain('Consulta incompleta: se cargaron 0 movimientos de 8');
+  });
 });
 afterEach(async () => { await act(async () => root.unmount()); node.remove(); vi.restoreAllMocks(); });
 

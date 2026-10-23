@@ -40,6 +40,16 @@ El selector también está disponible con el detalle abierto. Cambiar de present
 
 La búsqueda filtra nombre, SKU y ubicación. El resumen usa verde para entradas, rojo para salidas y ámbar para ajustes. En el detalle, etiqueta, icono y cantidad identifican el tipo: entrada verde, salida roja, ajuste ámbar, traslado azul e inventario inicial violeta. El signo de la cantidad se conserva: un ajuste negativo sigue siendo ámbar. Se mantienen las comprobaciones de corte, límites y coincidencia del saldo del desglose. La actividad fuera de horario queda en un apartado desplegable de la lista. No hay cambios en la base de datos ni publicación del sitio.
 
+## Movimientos por productos o comprobantes · 23 de octubre de 2026
+
+**Movimientos diarios** incluye el selector **Productos / Comprobantes**. Productos conserva el resumen por producto/ubicación y sus tres presentaciones del desglose. Comprobantes consulta las entradas, salidas y ajustes de existencias del día y sucursal al mismo corte; reúne las líneas por documento y resuelve los folios de venta (VTD/VTA), pedido (PED) y traslado (TRA). Los documentos sin movimientos de existencias en ese periodo no aparecen en esta consulta.
+
+Cada comprobante se despliega para mostrar hora de Bolivia, producto, SKU, ubicación, cantidad con signo, referencia original, motivo y responsable. Las entradas y salidas de un traslado permanecen como renglones separados, sin compensar cantidades entre ubicaciones ni sumar unidades diferentes. La búsqueda encuentra folio, producto, SKU, ubicación o responsable y conserva el resto de las líneas del documento seleccionado. Periodo filtra día completo, mañana, tarde o fuera de horario antes de agrupar; tipo filtra traslados, VTD, pedidos y los demás tipos presentes.
+
+La consulta mantiene RLS y el alcance de ubicaciones operativas de la sucursal. Pagina de forma estable, avanza por las filas efectivamente recibidas y carga hasta 10000 movimientos. Si falta actividad, la interfaz advierte que los comprobantes, contadores y filtros pueden estar incompletos. Un error se presenta con reintento. Los motivos libres repetidos y las referencias vacías no se fusionan como si fueran un mismo documento. No se requieren migraciones ni se escriben existencias.
+
+Se verificaron agrupación, resolución de folios, paginación con límite reducido, cortes de horario, filtros, búsqueda, errores y regreso a Productos. La revisión visual con datos sintéticos a 1280, 390 y 320 px está en `.reportes-qa.local/comprobantes-*.png`. Los cambios quedan locales, sin publicación.
+
 ## Recorrido operativo
 
 1. Abrir **Existencias → Reportes de turno** y seleccionar fecha y sucursal. Los horarios se interpretan en `America/La_Paz`: mañana 07:30-12:30 y tarde 14:30-21:30. No se generan turnos futuros.

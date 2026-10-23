@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { AppWindow, ArrowLeft, FileText, PanelRight, Search, X } from 'lucide-react';
 import CatalogDialog from './CatalogDialog';
+import ComprobantesDiarios from './ComprobantesDiarios';
 import { MovimientosDia } from './MovimientosReporte';
 import { equivalenciaReporte, fechaHoraReporte, fmtReporte as fmt } from './lib/reporteTurno';
 
@@ -25,6 +26,7 @@ function posicionLista(elemento) {
 export default function MovimientosDiarios({ data, fecha, sucursalId, preferenciaId = 'local' }) {
   const clave = `wms_reportes_vista_movimientos_v1:${preferenciaId}`;
   const [modo, setModo] = useState(() => preferenciaInicial(clave));
+  const [agrupacion, setAgrupacion] = useState('productos');
   const [seleccion, setSeleccion] = useState(null), [busqueda, setBusqueda] = useState('');
   const origen = useRef(null), posicion = useRef(null), anterior = useRef({ seleccion: null, modo });
   const detalleRef = useRef(null);
@@ -64,8 +66,10 @@ export default function MovimientosDiarios({ data, fecha, sucursalId, preferenci
     return <section ref={detalleRef} className={`rp-daily-detail rp-daily-detail-${modo}`} aria-label={esPagina ? 'Página de detalle de movimientos' : 'Panel de detalle de movimientos'}>{cabecera}{contenido}</section>;
   };
   return <section className="rp-diario" onKeyDown={e => { if (e.key === 'Escape' && seleccion && modo !== 'ventana') { e.preventDefault(); cerrar(); } }}>
-    <div className="rp-daily-heading"><div><h3>Movimientos del día</h3><p className="rp-help">{fecha} · Corte: {fechaHoraReporte(data.hasta)} · Por producto y ubicación.</p></div>{!seleccion && selector}</div>
-    <div className={`rp-diario-layout is-${modo}${seleccion ? ' has-selection' : ''}`}>
+    <div className="rp-daily-heading"><div><h3>Movimientos del día</h3><p className="rp-help">{fecha} · Corte: {fechaHoraReporte(data.hasta)} · {agrupacion === 'productos' ? 'Por producto y ubicación.' : 'Por comprobante.'}</p></div>{agrupacion === 'productos' && !seleccion && selector}</div>
+    <div className="rp-tools rp-group-selector" role="group" aria-label="Agrupar movimientos por"><button type="button" aria-pressed={agrupacion === 'productos'} onClick={() => setAgrupacion('productos')}>Productos</button><button type="button" aria-pressed={agrupacion === 'comprobantes'} onClick={() => { cerrar(); setAgrupacion('comprobantes'); }}>Comprobantes</button></div>
+    {agrupacion === 'comprobantes' && <ComprobantesDiarios fecha={fecha} hasta={data.hasta} sucursalId={sucursalId} />}
+    <div hidden={agrupacion !== 'productos'} className={`rp-diario-layout is-${modo}${seleccion ? ' has-selection' : ''}`}>
       <div className="rp-diario-list" hidden={!mostrarLista}>
         <label className="rp-daily-search"><span><Search size={16} aria-hidden="true" />Buscar producto o ubicación</span><input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Nombre, SKU o ubicación" maxLength={150} /></label>
         <div className="rp-table-wrap"><table className="rp-daily-summary"><thead><tr><th>Ítem / ubicación</th><th>Inicial</th><th className="rp-col-entrada">Entradas</th><th className="rp-col-salida">Salidas</th><th className="rp-col-ajuste">Ajustes</th><th>Sistema al corte</th><th>Fuera de turno</th></tr></thead><tbody>{items.map(l => {
