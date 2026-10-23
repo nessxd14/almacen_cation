@@ -7,6 +7,7 @@ import { testCajaOperacion } from './caja-operacion.integration.mjs';
 import { testEvidenciaVtd } from './evidencia-vtd.integration.mjs';
 import { testEvidenciaOperaciones } from './evidencia-operaciones.integration.mjs';
 import { testPedidosDosActores } from './pedidos-dos-actores.integration.mjs';
+import { testPersonalizadosQr } from './personalizados-qr.integration.mjs';
 import { testTrasladosQr } from './traslados-qr.integration.mjs';
 import { testCajaCobroLiberado } from './caja-cobro-liberado.integration.mjs';
 
@@ -180,6 +181,7 @@ try {
   await testEvidenciaVtd(db, { login, stock, count, uid });
   await testEvidenciaOperaciones(db, { login, call, step, stock, count, uid });
   await testPedidosDosActores(db, { login, stock, count, uid });
+  await testPersonalizadosQr(db, { login, stock, count, uid });
   await testTrasladosQr(db, { login, stock, count, uid });
   await testCajaCobroLiberado(db, { login, stock, count });
   await db.query("select set_config('request.jwt.claim.sub','',false)");await assert.rejects(() => call('TRASLADO_VIRTUAL',cid), /perfil no tiene acceso|Inicia sesión/);

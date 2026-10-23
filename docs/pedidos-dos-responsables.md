@@ -11,6 +11,14 @@ Ampliación del 21/10/2026. VTD conserva su flujo, worker y configuración. Tras
 
 Los campos empiezan completos y usan teclado decimal mediante `inputmode=decimal`, admitiendo coma y punto, con selección del valor al enfocar. Se validan hasta seis decimales en unidad base; las cantidades que no se representan exactamente en una presentación se muestran en base. La aparición exacta del teclado depende del navegador/teclado instalado: pendiente comprobar en teléfonos Android e iOS reales.
 
+### Personalizados (23/10/2026)
+
+Los productos personalizados siguen estas mismas etapas, solos o junto a productos del catálogo. Recibir su compra mantiene la línea pendiente de entrega. En Pedidos, «Alistar y entregar con QR» abre la miniapp; se retiró el cierre manual «Marcar entregado». El verificador comprueba descripción y cantidad visualmente, sin código de barras, y adjunta las fotos de salida.
+
+El servidor también rechaza cerrar un personalizado mediante los RPC antiguos o un cambio directo de estado, incluso si todavía no existe preparación. Solo la transacción autorizada de revisión y retiro puede entregarlo. La salida registra `DESPACHADA`, cantidad y responsable reales, sin Kardex de catálogo. Los históricos conservan su estado. El pedido 699 ya fue entregado físicamente, según confirmó el usuario; no se reabre ni se inventan fotos de esa entrega.
+
+Validado con `npm run test:qr` y las pruebas móviles: compra separada del retiro, fotos obligatorias en ambas etapas, responsables distintos, revisión visual, reintento sin duplicados y personalizado pendiente en pedido mixto.
+
 ## Stock, reservas y trazabilidad
 
 El servidor propone ubicaciones físicas de la sucursal, con stock positivo y sin ubicaciones excluidas. Respeta el criterio de pick existente: mayor stock primero. Descuenta del plan lo ya asignado a otra línea del mismo producto. El verificador ve las ubicaciones antes de confirmar; si el plan cambia, debe actualizar y comprobarlo de nuevo.

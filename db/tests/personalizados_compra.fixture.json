@@ -1,0 +1,129 @@
+{
+  "columnas": [
+    {
+      "name": "id",
+      "type": "bigint",
+      "default": null,
+      "notnull": true
+    },
+    {
+      "name": "pedido_linea_id",
+      "type": "bigint",
+      "default": null,
+      "notnull": true
+    },
+    {
+      "name": "linea_origen_id",
+      "type": "bigint",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "producto_id",
+      "type": "bigint",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "descripcion",
+      "type": "text",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "cantidad_base",
+      "type": "numeric",
+      "default": null,
+      "notnull": true
+    },
+    {
+      "name": "cantidad_recibida",
+      "type": "numeric",
+      "default": "0",
+      "notnull": true
+    },
+    {
+      "name": "estado",
+      "type": "text",
+      "default": "'SOLICITADA'::text",
+      "notnull": true
+    },
+    {
+      "name": "origen",
+      "type": "text",
+      "default": null,
+      "notnull": true
+    },
+    {
+      "name": "motivo",
+      "type": "text",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "solicitado_por",
+      "type": "text",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "solicitado_en",
+      "type": "timestamp with time zone",
+      "default": "now()",
+      "notnull": true
+    },
+    {
+      "name": "comprado_por",
+      "type": "text",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "comprado_en",
+      "type": "timestamp with time zone",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "costo_total",
+      "type": "numeric",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "nota_compra",
+      "type": "text",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "recibido_por",
+      "type": "text",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "recibido_en",
+      "type": "timestamp with time zone",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "cancelado_en",
+      "type": "timestamp with time zone",
+      "default": null,
+      "notnull": false
+    },
+    {
+      "name": "cancelado_motivo",
+      "type": "text",
+      "default": null,
+      "notnull": false
+    }
+  ],
+  "funciones": [
+    "CREATE OR REPLACE FUNCTION public._compra_solicitud_sync()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_crear  boolean := false;\r\n  v_origen text;\r\n  v_quien  text;\r\nbegin\r\n  -- IF anidados a propósito: en un INSERT no se toca OLD.\r\n  if tg_op = 'INSERT' then\r\n    -- Nace una solicitud: línea creada POR_COMPRAR, o personalizado nuevo.\r\n    v_crear := NEW.estado = 'POR_COMPRAR' or (NEW.estado = 'ESPECIAL' and NEW.es_personalizado);\r\n  else\r\n    if OLD.estado is distinct from NEW.estado then\r\n      if NEW.estado = 'POR_COMPRAR' then\r\n        v_crear := true;\r\n\r\n      -- La línea ya no se va a entregar: la compra deja de hacer falta.\r\n      elsif NEW.estado in ('RECHAZADO','CAMBIADA','RETIRADA') then\r\n        update compra_solicitud\r\n           set estado = 'CANCELADA', cancelado_en = now(),\r\n               cancelado_motivo = 'Línea ' || NEW.estado::text\r\n         where pedido_linea_id = NEW.id and estado in ('SOLICITADA','COMPRADA');\r\n\r\n      -- La línea se entregó (despacho normal, comprado directo o personalizado\r\n      -- entregado): la compra queda cerrada.\r\n      elsif NEW.estado in ('DESPACHADA','COMPRADO_DIRECTO') then\r\n        update compra_solicitud\r\n           set estado = 'RECIBIDA',\r\n               recibido_en  = coalesce(recibido_en, now()),\r\n               recibido_por = coalesce(recibido_por, NEW.modificado_por)\r\n         where pedido_linea_id = NEW.id and estado in ('SOLICITADA','COMPRADA');\r\n      end if;\r\n    end if;\r\n  end if;\r\n\r\n  if v_crear and not exists (select 1 from compra_solicitud cs\r\n                              where cs.pedido_linea_id = NEW.id\r\n                                and cs.estado in ('SOLICITADA','COMPRADA')) then\r\n    v_origen := case\r\n      when NEW.es_personalizado then 'PERSONALIZADO'\r\n      else coalesce(nullif(current_setting('roari.compra_origen', true), ''), 'ALMACEN')\r\n    end;\r\n    if v_origen not in ('VENDEDOR','ALMACEN','PERSONALIZADO') then\r\n      v_origen := 'ALMACEN';\r\n    end if;\r\n    select coalesce(NEW.modificado_por, p.creado_por) into v_quien\r\n      from pedido p where p.id = NEW.pedido_id;\r\n\r\n    insert into compra_solicitud\r\n      (pedido_linea_id, producto_id, descripcion, cantidad_base, origen, solicitado_por)\r\n    values\r\n      (NEW.id, NEW.producto_id,\r\n       case when NEW.es_personalizado then NEW.descripcion end,\r\n       NEW.cantidad_base, v_origen, v_quien);\r\n  end if;\r\n\r\n  return NEW;\r\nend;\r\n$function$\n",
+    "CREATE OR REPLACE FUNCTION public.comprar_directo(p_linea_id bigint, p_nota text, p_costo numeric DEFAULT NULL::numeric, p_usuario text DEFAULT NULL::text)\n RETURNS jsonb\n LANGUAGE plpgsql\nAS $function$\ndeclare v_linea pedido_linea%rowtype;\nbegin\n  if not app_puede_inventariar() then\n    raise exception 'Un cajero no puede marcar una línea como comprada directa.' using errcode = '42501';\n  end if;\n  select * into v_linea from pedido_linea where id = p_linea_id for update;\n  if not found then raise exception 'Línea % no existe', p_linea_id; end if;\n  if v_linea.estado in ('DESPACHADA', 'COMPRADO_DIRECTO') then raise exception 'La línea % ya está cerrada (%)', p_linea_id, v_linea.estado; end if;\n  if p_nota is null or btrim(p_nota) = '' then raise exception 'La nota de compra directa es obligatoria'; end if;\n  update pedido_linea set estado = 'COMPRADO_DIRECTO', compra_directa_nota = p_nota, compra_directa_costo = p_costo where id = p_linea_id;\n  perform recalcular_estado_pedido(v_linea.pedido_id);\n  return jsonb_build_object('linea_id', p_linea_id, 'estado', 'COMPRADO_DIRECTO');\nend; $function$\n",
+    "CREATE OR REPLACE FUNCTION public.recibir_compra(p_solicitud_id bigint, p_ubicacion_id bigint DEFAULT NULL::bigint, p_cantidad_base numeric DEFAULT NULL::numeric, p_usuario text DEFAULT NULL::text, p_costo_total numeric DEFAULT NULL::numeric)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_s compra_solicitud%rowtype; v_l pedido_linea%rowtype; v_pedido pedido%rowtype;\r\n  v_cant numeric; v_falta numeric; v_pres_base bigint; v_kardex_id bigint;\r\n  v_actor text; v_estado text; v_linea_estado estado_linea;\r\n  v_ubicacion bigint; v_costo_total numeric; v_costo_unit numeric;\r\nbegin\r\n  if not app_puede_inventariar() then\r\n    raise exception 'Un cajero no puede recibir compras.' using errcode = '42501';\r\n  end if;\r\n  if p_costo_total is not null and p_costo_total < 0 then\r\n    raise exception 'El costo no puede ser negativo';\r\n  end if;\r\n\r\n  select * into v_s from compra_solicitud where id = p_solicitud_id for update;\r\n  if not found then raise exception 'La solicitud de compra % no existe', p_solicitud_id; end if;\r\n  if v_s.estado not in ('SOLICITADA','COMPRADA') then\r\n    raise exception 'La solicitud % está % — no admite recepción', p_solicitud_id, v_s.estado;\r\n  end if;\r\n\r\n  select * into v_l from pedido_linea where id = v_s.pedido_linea_id for update;\r\n  select * into v_pedido from pedido where id = v_l.pedido_id;\r\n  if v_pedido.estado <> 'ABIERTO' then\r\n    raise exception 'El pedido % está % — no admite recibir compras', v_l.pedido_id, v_pedido.estado;\r\n  end if;\r\n\r\n  v_falta := v_s.cantidad_base - v_s.cantidad_recibida;\r\n  v_cant  := coalesce(p_cantidad_base, v_falta);\r\n  if v_cant <= 0 then raise exception 'La cantidad recibida debe ser positiva'; end if;\r\n  if v_cant > v_falta + 0.0001 then\r\n    raise exception 'La cantidad recibida (%) excede lo que falta recibir (%)', v_cant, v_falta;\r\n  end if;\r\n  v_cant := least(v_cant, v_falta);\r\n\r\n  v_actor := coalesce(p_usuario, auth.jwt() ->> 'email');\r\n  v_linea_estado := v_l.estado;\r\n  v_costo_total := coalesce(p_costo_total, v_s.costo_total);\r\n\r\n  if not v_l.es_personalizado then\r\n    -- a) ubicación: la indicada, o la de recepción de la sucursal de la línea.\r\n    v_ubicacion := p_ubicacion_id;\r\n    if v_ubicacion is null then\r\n      select u.id into v_ubicacion from ubicacion u\r\n       where u.sucursal_id = coalesce(v_l.sucursal_origen_id, 1) and u.es_recepcion\r\n       limit 1;\r\n      if v_ubicacion is null then\r\n        raise exception 'La sucursal no tiene una ubicación de recepción configurada: indicá la ubicación donde entra la mercadería';\r\n      end if;\r\n    end if;\r\n\r\n    select id into v_pres_base from presentacion\r\n     where producto_id = v_l.producto_id and es_base = true limit 1;\r\n    if v_pres_base is null then\r\n      raise exception 'Producto % no tiene presentación base', v_l.producto_id;\r\n    end if;\r\n\r\n    -- b) costo por unidad base, sobre la cantidad total de la compra.\r\n    v_costo_unit := case when v_costo_total is not null\r\n                         then round(v_costo_total / v_s.cantidad_base, 4) end;\r\n\r\n    select registrar_entrada(\r\n      p_presentacion_id => v_pres_base,\r\n      p_ubicacion_id    => v_ubicacion,\r\n      p_cantidad_pres   => v_cant,\r\n      p_referencia      => 'Compra para pedido ' || coalesce(v_pedido.numero, '#' || v_pedido.id)\r\n                           || ' · línea ' || v_l.id,\r\n      p_usuario         => v_actor,\r\n      p_fecha           => (now() at time zone 'America/La_Paz')::date,   -- c)\r\n      p_costo_unitario  => v_costo_unit\r\n    ) into v_kardex_id;\r\n\r\n    -- Con la primera recepción la línea vuelve a la cola de despacho (toma su\r\n    -- turno por fecha del pedido, como cualquier otra).\r\n    if v_l.estado = 'POR_COMPRAR' then\r\n      update pedido_linea\r\n         set estado = 'POR_DESPACHAR', modificado_por = v_actor, modificado_en = now()\r\n       where id = v_l.id;\r\n      v_linea_estado := 'POR_DESPACHAR';\r\n    end if;\r\n  end if;\r\n\r\n  update compra_solicitud\r\n     set cantidad_recibida = cantidad_recibida + v_cant,\r\n         estado = case when cantidad_recibida + v_cant >= cantidad_base - 0.0001\r\n                       then 'RECIBIDA' else 'COMPRADA' end,\r\n         costo_total  = coalesce(p_costo_total, costo_total),\r\n         comprado_por = coalesce(comprado_por, v_actor),\r\n         comprado_en  = coalesce(comprado_en, now()),\r\n         recibido_por = v_actor, recibido_en = now()\r\n   where id = p_solicitud_id\r\n   returning estado into v_estado;\r\n\r\n  insert into pedido_evento (pedido_id, accion, motivo, usuario)\r\n  values (v_l.pedido_id, 'COMPRA_RECIBIDA',\r\n          'Recibido ' || v_cant::float8::text || ' de ' || v_s.cantidad_base::float8::text,\r\n          v_actor);\r\n\r\n  return jsonb_build_object(\r\n    'solicitud_id', p_solicitud_id, 'estado', v_estado,\r\n    'cantidad_recibida', v_s.cantidad_recibida + v_cant,\r\n    'linea_id', v_l.id, 'linea_estado', v_linea_estado,\r\n    'kardex_id', v_kardex_id, 'ubicacion_id', v_ubicacion);\r\nend;\r\n$function$\n"
+  ]
+}
