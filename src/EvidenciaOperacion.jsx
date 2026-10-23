@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
+import {Camera, Images, Trash2} from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { operarEvidenciaOperacion } from './lib/evidenciaOperacion';
 
 const estados = { PENDIENTE: 'Pendiente de envío a Telegram', ENVIANDO: 'Enviando a Telegram', ENVIADO: 'Enviado a Telegram', ERROR: 'No se pudo enviar a Telegram', INCIERTO: 'Hay que comprobar el envío en Telegram' };
-export default function EvidenciaOperacion({ tipo, documentoId, entregaId, version, revision, fotos, onFotos, onDatos, busy }) {
+export default function EvidenciaOperacion({ tipo, documentoId, entregaId, version, revision, fotos, onFotos, onDatos, busy, compacto=false }) {
   const [datos, setDatos] = useState(null), [error, setError] = useState(''), [actualizar, setActualizar] = useState(0), [reintentando, setReintentando] = useState(false);
   useEffect(() => {
     let vigente = true, timer;
@@ -37,14 +38,14 @@ export default function EvidenciaOperacion({ tipo, documentoId, entregaId, versi
     finally { setReintentando(false); }
   }
   if (datos && !datos.activo && !datos.envios.length && !error) return null;
-  return <section className="om-pedido om-evidencia">
+  return <section className={`om-pedido om-evidencia${compacto?' om-evidencia-compacta':''}`}>
     <h3>{tipo==='traslado'?(datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos de la entrega y recepción'):tipo === 'pedido' ? datos?.contexto?.dos_actores && !datos.contexto.puede_capturar?'Evidencias de esta entrega':datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos del retiro del pedido' : 'Fotos del traslado'}</h3>
     {datos?.activo && datos.contexto.puede_capturar && <>
       <p>Adjunta entre 1 y 10 fotos del material. Se enviarán al tema {tipo==='traslado'?(datos.contexto.etapa==='PREPARACION'?'Traslados al terminar el alistado':'Traslados al confirmar la entrega y recepción'):tipo === 'pedido' ? datos.contexto.etapa==='PREPARACION'?'Pedidos al enviar a verificación':'Pedidos al confirmar el retiro' : 'Traslados al autorizar la salida'}.</p>
-      <label>Tomar foto<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
-      <label>Elegir fotos<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label>
+      <div className={compacto?'om-evidencia-iconos':undefined}><label className={compacto?'om-icon-action om-foto-icon':undefined} title="Tomar foto">{compacto?<><Camera size={21}/><span className="sr-only">Tomar foto</span></>:'Tomar foto'}<input className={compacto?'sr-only':undefined} aria-label="Tomar foto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
+      <label className={compacto?'om-icon-action om-foto-icon':undefined} title="Elegir fotos">{compacto?<><Images size={21}/><span className="sr-only">Elegir fotos</span></>:'Elegir fotos'}<input className={compacto?'sr-only':undefined} aria-label="Elegir fotos" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label></div>
       <p aria-live="polite">{fotos.length} de 10 fotos seleccionadas</p>
-      <div className="om-evidencia-fotos">{fotos.map((foto,i) => <Foto key={`${i}:${foto.name}`} foto={foto} indice={i} busy={busy} onQuitar={() => onFotos(fotos.filter((_,index) => index!==i))} />)}</div>
+      <div className="om-evidencia-fotos">{fotos.map((foto,i) => <Foto key={`${i}:${foto.name}`} foto={foto} indice={i} busy={busy} compacto={compacto} onQuitar={() => onFotos(fotos.filter((_,index) => index!==i))} />)}</div>
     </>}
     {datos?.envios.map(e => <div className="om-evidencia-estado" key={e.id}><strong>{e.etapa==='PREPARACION'?'📦 Alistado · ':e.etapa==='SALIDA'?'🚚 Salida · ':''}{estados[e.estado]}</strong><p>{e.cantidad} foto(s)</p>
       {e.enlace && <a href={e.enlace} target="_blank" rel="noreferrer">Ver evidencia en Telegram</a>}
@@ -55,8 +56,8 @@ export default function EvidenciaOperacion({ tipo, documentoId, entregaId, versi
     {error && <p role="alert" className="om-aviso om-error">{error}</p>}
   </section>;
 }
-function Foto({ foto, indice, busy, onQuitar }) {
+function Foto({ foto, indice, busy, onQuitar, compacto }) {
   const [url,setUrl] = useState('');
   useEffect(() => { const next=URL.createObjectURL(foto); setUrl(next); return () => URL.revokeObjectURL(next); }, [foto]); // eslint-disable-line react-hooks/set-state-in-effect
-  return <figure><img src={url} alt={`Evidencia ${indice+1}`} /><button disabled={busy} onClick={onQuitar}>Quitar foto {indice+1}</button></figure>;
+  return <figure><img src={url} alt={`Evidencia ${indice+1}`} /><button className={compacto?'om-secondary om-icon-action':undefined} aria-label={`Quitar foto ${indice+1}`} title={`Quitar foto ${indice+1}`} disabled={busy} onClick={onQuitar}>{compacto?<Trash2 size={18}/>:<>Quitar foto {indice+1}</>}</button></figure>;
 }
