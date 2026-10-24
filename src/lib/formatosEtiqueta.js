@@ -14,7 +14,8 @@ export const FORMATOS_ETIQUETA = [
   { id: 'caja_bulto', nombre: 'Caja y bulto · 90 × 50 mm', grupo: 'Almacén', descripcion: 'Presentación y equivalencia registradas para identificar el contenido.', ancho: 90, alto: 50, fuente: 8, qr: 22, relleno: 2.5 },
   { id: 'caja_grande', nombre: 'Caja grande · 150 × 100 mm', grupo: 'Almacén', descripcion: 'Código destacado y características en casillas, adaptadas a cada producto. El contenido procede de la presentación elegida.', ancho: 150, alto: 100, fuente: 10, qr: 28, relleno: 4, atributos: true, ubicacion: false, marca: true },
   { id: 'lectura_distancia', nombre: 'Lectura a distancia · 150 × 100 mm', grupo: 'Almacén', descripcion: 'Nombre grande primero, código en franja y características del producto. Para reconocer cajas, paquetes y bolsas a distancia.', ancho: 150, alto: 100, fuente: 10, qr: 28, relleno: 4, atributos: true, ubicacion: false, marca: true, estilo: 'industrial' },
-  { id: 'ubicacion', nombre: 'Ubicación · 100 × 50 mm', grupo: 'Almacén', descripcion: 'Código del lugar destacado y QR para consultar sus productos.', ancho: 100, alto: 50, fuente: 10, qr: 26, relleno: 3, codigo: false, presentacion: false },
+  { id: 'ubicacion_tira', nombre: 'Ubicación en tira · 100 × 25 mm', grupo: 'Almacén', descripcion: 'Tira sencilla con el código grande y las indicaciones Zona, Mueble y Compartimiento.', ancho: 100, alto: 25, fuente: 10, qr: 14, relleno: 2, codigo: false, presentacion: false, estilo: 'industrial' },
+  { id: 'ubicacion', nombre: 'Ubicación con QR · 100 × 50 mm', grupo: 'Almacén', descripcion: 'Código del lugar destacado y QR para consultar sus productos.', ancho: 100, alto: 50, fuente: 10, qr: 26, relleno: 3, codigo: false, presentacion: false },
   { id: 'qr_rapido', nombre: 'QR rápido · 40 × 40 mm', grupo: 'Productos', descripcion: 'Acceso a la ficha digital con un QR central y código breve.', ancho: 40, alto: 40, fuente: 6, qr: 24, relleno: 1.5, ubicacion: false, presentacion: false },
   { id: 'control_lote', nombre: 'Control de lote · 70 × 40 mm', grupo: 'Recepción', descripcion: 'Producto y presentación con campos manuales de lote y fecha de ingreso.', ancho: 70, alto: 40, fuente: 6.5, qr: 18, relleno: 1.5, ubicacion: false },
 ].map(formato => ({ ...OPCIONES_BASE, ...formato, diseno: formato.id }));
@@ -26,6 +27,7 @@ export const FORMATO_INICIAL = {
 
 const DISENOS = new Set(FORMATOS_ETIQUETA.map(formato => formato.id));
 export const esEtiquetaDeEmpaque = diseno => ['caja_bulto', 'caja_grande', 'lectura_distancia'].includes(diseno);
+export const esEtiquetaDeUbicacion = diseno => ['ubicacion', 'ubicacion_tira'].includes(diseno);
 const ENUMERACIONES = {
   papel: ['hoja', 'rollo'], orientacion: ['vertical', 'horizontal'],
   estilo: ['corporativo', 'industrial', 'minimalista'], simbologia: ['automatico', 'CODE128', 'EAN13'],
@@ -64,9 +66,11 @@ export function validarFormato(formato) {
   const qr = Number(formato.qr), relleno = Number(formato.relleno);
   const ancho = Number(formato.ancho), alto = Number(formato.alto);
   const espacioNombre = formato.diseno === 'qr_rapido' ? 0 : 15;
-  if (qr + relleno * 2 + espacioNombre > ancho) errores.push('El ancho no deja espacio suficiente para el QR y el nombre.');
-  if (qr + relleno * 2 > alto) errores.push('El QR no cabe en la altura elegida.');
-  if (formato.barras && Number(formato.altoBarras ?? FORMATO_INICIAL.altoBarras) + relleno * 2 + 8 > alto) errores.push('La altura no deja espacio suficiente para el código de barras y el producto.');
+  if (formato.diseno !== 'ubicacion_tira') {
+    if (qr + relleno * 2 + espacioNombre > ancho) errores.push('El ancho no deja espacio suficiente para el QR y el nombre.');
+    if (qr + relleno * 2 > alto) errores.push('El QR no cabe en la altura elegida.');
+  }
+  if (formato.barras && !esEtiquetaDeUbicacion(formato.diseno) && Number(formato.altoBarras ?? FORMATO_INICIAL.altoBarras) + relleno * 2 + 8 > alto) errores.push('La altura no deja espacio suficiente para el código de barras y el producto.');
   if (formato.papel === 'hoja') {
     const cabe = calcularDistribucion(formato).porPagina > 0;
     const cabeGirada = formato.giroAutomatico !== false && calcularDistribucion(formato, true).porPagina > 0;
