@@ -5,7 +5,7 @@ import { documentoImpresion } from './impresionEtiquetas';
 describe('formatos e impresión de etiquetas', () => {
   const capacidadesKit = [
     ['compacto', 10, false], ['estandar', 4, true], ['ficha_grande', 4, true], ['a6', 2, true], ['mini', 25, true],
-    ['estanteria', 12, false], ['caja_bulto', 10, false], ['caja_grande', 2, false], ['lectura_distancia', 2, false], ['ubicacion', 6, true], ['qr_rapido', 24, false], ['control_lote', 12, false],
+    ['estanteria', 12, false], ['caja_bulto', 10, false], ['caja_grande', 2, false], ['lectura_distancia', 2, false], ['ubicacion_tira', 12, true], ['ubicacion', 6, true], ['qr_rapido', 24, false], ['control_lote', 12, false],
   ];
   it.each(capacidadesKit)('%s conserva la capacidad del kit en A4 con margen de 10 mm y separación de 3 mm', (id, porPagina, girada) => {
     const formato = { ...FORMATO_INICIAL, ...FORMATOS_ETIQUETA.find(f => f.id === id) };
@@ -28,6 +28,14 @@ describe('formatos e impresión de etiquetas', () => {
     const rapido = { ...FORMATO_INICIAL, ...FORMATOS_ETIQUETA.find(f => f.id === 'qr_rapido') };
     expect(validarFormato(rapido)).toEqual([]);
     expect(validarFormato({ ...rapido, qr: 38 })).not.toEqual([]);
+  });
+  it('la tira de ubicación no reserva espacio para QR ni barras y conserva las medidas al guardarla', () => {
+    const tira = { ...FORMATO_INICIAL, ...FORMATOS_ETIQUETA.find(f => f.id === 'ubicacion_tira'), qr: 60, barras: true, altoBarras: 35 };
+    expect(validarFormato(tira)).toEqual([]);
+    expect(normalizarFormato(tira)).toMatchObject({ diseno: 'ubicacion_tira', ancho: 100, alto: 25 });
+    const doc = documentoImpresion(['<div>PB-EA-3</div>'], { ...tira, papel: 'rollo' });
+    expect(doc).toContain('@page { size:100mm 25mm; margin:0; }');
+    expect(validarFormato({ ...tira, diseno: 'ubicacion' })).toContain('El QR no cabe en la altura elegida.');
   });
   it('gira solo la etiqueta cuando mejora la capacidad y permite desactivar el giro', () => {
     expect(distribucionEtiquetas(FORMATO_INICIAL)).toMatchObject({ porPagina: 4, anchoCelda: 70, altoCelda: 100, rotacion: 90 });

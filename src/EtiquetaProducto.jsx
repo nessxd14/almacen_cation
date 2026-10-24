@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import { textoUbicacion } from './lib/fichaProducto';
 import { textoPresentacion, textoContenidoPresentacion, tieneContenidoRegistrado } from './lib/presentacionEtiqueta';
-import { FORMATOS_ETIQUETA, esEtiquetaDeEmpaque } from './lib/formatosEtiqueta';
+import { FORMATOS_ETIQUETA, esEtiquetaDeEmpaque, esEtiquetaDeUbicacion } from './lib/formatosEtiqueta';
 import { resolverSimbologia, tieneDesbordeEtiqueta } from './lib/codigoEtiqueta';
 import { codigoUbicacion as codigoCorto, nombreMueble } from './lib/ubicacionTexto';
 
@@ -23,17 +23,19 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
   const identidad = etiquetaId ?? producto.id;
   const diseno = DISENOS.has(formato.diseno) ? formato.diseno : (DISENOS.has(formato.id) ? formato.id : 'estandar');
   const estilo = ['corporativo', 'industrial', 'minimalista'].includes(formato.estilo) ? formato.estilo : 'corporativo';
-  const esUbicacion = diseno === 'ubicacion';
+  const esUbicacion = esEtiquetaDeUbicacion(diseno);
+  const usaQr = diseno !== 'ubicacion_tira';
   const imprimeBarras = formato.barras && !esUbicacion;
   const altoBarras = Number(formato.altoBarras ?? 8);
   const { qr, falloQr, size, path } = useMemo(() => {
+    if (!usaQr) return { qr: null, size: 8, path: '', falloQr: false };
     try {
       const qr = QRCode.create(enlace, { errorCorrectionLevel: 'M' });
       let path = '';
       for (let y = 0; y < qr.modules.size; y++) for (let x = 0; x < qr.modules.size; x++) if (qr.modules.get(y, x)) path += `M${x + 4},${y + 4}h1v1h-1z`;
       return { qr, size: qr.modules.size + 8, path, falloQr: false };
     } catch { return { qr: null, size: 8, path: '', falloQr: true }; }
-  }, [enlace]);
+  }, [enlace, usaQr]);
 
   useLayoutEffect(() => {
     barcodeError.current = null;
@@ -56,7 +58,7 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
     const medir = () => {
       if (!activo || !stage.current) return;
       const desborde = tieneDesbordeEtiqueta(label);
-      const moduloPequeno = Number(formato.qr) / size < 0.3;
+      const moduloPequeno = usaQr && Number(formato.qr) / size < 0.3;
       let error = falloQr ? 'No se pudo generar el QR.'
         : desborde ? 'El contenido no cabe completo. Amplía el formato, reduce la fuente o desactiva campos.'
           : moduloPequeno ? `Aumenta el QR a por lo menos ${Math.ceil(size * 0.3)} mm para que este enlace se pueda escanear.` : null;
@@ -78,7 +80,7 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
     const imagenes = [...label.querySelectorAll('img')];
     imagenes.forEach(img => { img.addEventListener('load', medir); img.addEventListener('error', medir); });
     return () => { activo = false; observer.disconnect(); imagenes.forEach(img => { img.removeEventListener('load', medir); img.removeEventListener('error', medir); }); };
-  }, [formato, datos, ubicacion, codigoBarras, onEstado, identidad, falloQr, size, imprimeBarras, diseno, presentacion, lote, fechaIngreso, producto.unidad_base]);
+  }, [formato, datos, ubicacion, codigoBarras, onEstado, identidad, falloQr, size, imprimeBarras, diseno, presentacion, lote, fechaIngreso, producto.unidad_base, usaQr]);
 
   const nombre = <h3 className="label-name" data-label-field>{producto.nombre}</h3>;
   const sku = producto.sku_interno || `Producto ${producto.id}`;
@@ -155,6 +157,20 @@ export default function EtiquetaProducto({ datos, formato, enlace, ubicacion, co
         {formato.marca && producto.marca && <div className="label-pack-brand" data-label-field>Marca: {producto.marca}</div>}
         {formato.unidad && <div className="label-detail" data-label-field>Unidad base: {producto.unidad_base || 'Sin registrar'}</div>}
         {ubicacionImprimir}{barras}<div className="label-pack-footer" data-label-field>Existencias actuales en la ficha digital</div></>;
+      break;
+    }
+    case 'ubicacion_tira': {
+      const codigo = codigoCorto(ubicacion);
+      const titulos = ['Zona', 'Mueble', 'Compartimiento'];
+      contenido = codigo ? <div className="label-location-strip" role="group" aria-label={codigo}>
+        {codigo.split('-').map((valor, i) => <div className="label-strip-segment" key={titulos[i]}>
+          {i > 0 && <span className="label-strip-dash" aria-hidden="true">-</span>}
+          <div className={`label-strip-part${i === 2 ? ' label-strip-compartment' : ''}`}>
+            <strong className="label-strip-value" data-label-field>{valor}</strong>
+            <span className="label-strip-title" data-label-field>{titulos[i]}</span>
+          </div>
+        </div>)}
+      </div> : <strong data-label-field>Sin ubicación registrada</strong>;
       break;
     }
     case 'ubicacion': {

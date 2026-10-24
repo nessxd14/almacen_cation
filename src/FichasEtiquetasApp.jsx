@@ -7,7 +7,7 @@ import { useAuth } from './lib/useAuth';
 import { cargarDatosEtiqueta, enlaceFicha, textoUbicacion, sucursalDeFicha } from './lib/fichaProducto';
 import { listarUbicacionesEtiqueta, enlaceFichaUbicacion } from './lib/fichaUbicacion';
 import { presentacionesActivas, resolverPresentacion, textoPresentacion, codigosDePresentacion, tieneContenidoRegistrado } from './lib/presentacionEtiqueta';
-import { FORMATO_INICIAL, normalizarFormato, validarFormato, distribucionEtiquetas, esEtiquetaDeEmpaque } from './lib/formatosEtiqueta';
+import { FORMATO_INICIAL, normalizarFormato, validarFormato, distribucionEtiquetas, esEtiquetaDeEmpaque, esEtiquetaDeUbicacion } from './lib/formatosEtiqueta';
 import { CSS_ETIQUETA, imprimirEtiquetas } from './lib/impresionEtiquetas';
 import ConfiguracionEtiquetas from './ConfiguracionEtiquetas';
 import TypeaheadProducto from './TypeaheadProducto';
@@ -25,7 +25,7 @@ export default function FichasEtiquetasApp({ productoId, sucursalId: inicialSucu
   const [preferencias] = useState(() => leerPreferencias(storageKey));
   const [formato, setFormato] = useState(() => {
     const guardado = normalizarFormato(preferencias.formato);
-    return guardado && !(productoId && guardado.diseno === 'ubicacion') ? guardado : { ...FORMATO_INICIAL };
+    return guardado && !(productoId && esEtiquetaDeUbicacion(guardado.diseno)) ? guardado : { ...FORMATO_INICIAL };
   });
   const [guardados, setGuardados] = useState(() => (Array.isArray(preferencias.guardados) ? preferencias.guardados : []).filter(g => typeof g.nombre === 'string' && normalizarFormato(g.formato)));
   const [baseUrl, setBaseUrl] = useState(preferencias.baseUrl || import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin);
@@ -39,7 +39,8 @@ export default function FichasEtiquetasApp({ productoId, sucursalId: inicialSucu
   const [estados, setEstados] = useState({});
   const [mensaje, setMensaje] = useState(null);
   const [imprimiendo, setImprimiendo] = useState(false);
-  const esUbicacion = formato.diseno === 'ubicacion';
+  const esUbicacion = esEtiquetaDeUbicacion(formato.diseno);
+  const usaQr = formato.diseno !== 'ubicacion_tira';
   const tipo = esUbicacion ? 'ubicacion' : 'producto';
   const filas = selecciones.filter(f => f.tipo === tipo);
   let sucursalId, errorSucursal;
@@ -92,7 +93,7 @@ export default function FichasEtiquetasApp({ productoId, sucursalId: inicialSucu
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error();
     urlOrigin = url.origin;
     urlLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-  } catch { errorUrl = 'Escribe una dirección válida de Almacén (https://…).'; }
+  } catch { if (usaQr) errorUrl = 'Escribe una dirección válida de Almacén (https://…).'; }
 
   const onEstado = useCallback((id, estado) => {
     setEstados(prev => prev[id]?.error === estado.error && prev[id]?.nodo === estado.nodo ? prev : { ...prev, [id]: estado });
@@ -139,7 +140,7 @@ export default function FichasEtiquetasApp({ productoId, sucursalId: inicialSucu
   function persistir(nuevosGuardados) {
     try {
       localStorage.setItem(storageKey, JSON.stringify({ formato, guardados: nuevosGuardados, baseUrl }));
-      setMensaje('Formato y dirección guardados en este navegador.');
+      setMensaje(usaQr ? 'Formato y dirección guardados en este navegador.' : 'Formato guardado en este navegador.');
     } catch { setMensaje('No se pudo guardar en este navegador. Puedes seguir usando el formato durante esta sesión.'); }
   }
   function guardar(nombre) {
@@ -189,7 +190,7 @@ export default function FichasEtiquetasApp({ productoId, sucursalId: inicialSucu
           {!esUbicacion && e.data && <button className="fichas-button" onClick={() => agregar(e.fila.id, true)}><Copy size={15} /> Añadir otra presentación</button>}
           {!esUbicacion && e.data && formato.barras && !e.codigos.length && <p className="fichas-note">La presentación elegida no tiene código de barras. Su etiqueta llevará el QR de la ficha.</p>}
           {!esUbicacion && e.data && formato.foto && !e.data.producto.imagen_url && <p className="fichas-note">Este producto no tiene foto registrada.</p>}
-          {e.data && e.enlace && !e.error && !erroresFormato.length && <EtiquetaProducto etiquetaId={e.fila.key} datos={e.data} formato={formato} enlace={e.enlace} ubicacion={e.ubicacion} presentacion={e.presentacion} codigoBarras={e.codigoBarras} sucursalNombre={sucursalNombre} lote={e.fila.lote || ''} fechaIngreso={e.fila.fechaIngreso || ''} onEstado={onEstado} />}
+          {e.data && (!usaQr || e.enlace) && !e.error && !erroresFormato.length && <EtiquetaProducto etiquetaId={e.fila.key} datos={e.data} formato={formato} enlace={e.enlace} ubicacion={e.ubicacion} presentacion={e.presentacion} codigoBarras={e.codigoBarras} sucursalNombre={sucursalNombre} lote={e.fila.lote || ''} fechaIngreso={e.fila.fechaIngreso || ''} onEstado={onEstado} />}
           {estados[e.fila.key]?.error && <p className="fichas-alert" role="alert">{estados[e.fila.key].error}</p>}
           <p className="fichas-note">{formato.ancho} × {formato.alto} mm · {e.fila.copias} copias</p>
         </section>)}

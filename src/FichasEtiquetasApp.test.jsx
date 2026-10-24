@@ -87,6 +87,31 @@ describe('selección de presentaciones e impresión', () => {
     await cambiar(seleccion('Formato'), 'estandar');
     expect(vistas()[0].dataset.presentacion).toBe('12');
   });
+  it('la tira usa ubicaciones y permite guardar e imprimir sin una dirección de QR válida', async () => {
+    localStorage.setItem('wms_etiquetas_v1_qa', JSON.stringify({ baseUrl: 'dirección pendiente' }));
+    await montar({ presentacionId: 12 });
+    expect(boton('Imprimir etiquetas').disabled).toBe(true);
+    await cambiar(seleccion('Formato'), 'ubicacion_tira');
+    expect(contenedor.querySelector('input[type="url"]')).toBeNull();
+    expect(seleccion('Presentación de')).toBeUndefined();
+    await cambiar(seleccion('Añadir ubicación'), 21);
+    expect(vistas()).toHaveLength(1);
+    expect(boton('Imprimir etiquetas').disabled).toBe(false);
+    await pulsar('Imprimir etiquetas');
+    expect(simulado.imprimir.mock.lastCall[1]).toMatchObject({ diseno: 'ubicacion_tira', ancho: 100, alto: 25 });
+    await pulsar('Guardar formato');
+    expect(JSON.parse(localStorage.getItem('wms_etiquetas_v1_qa')).formato.diseno).toBe('ubicacion_tira');
+    await cambiar(seleccion('Formato'), 'ubicacion');
+    expect(boton('Imprimir etiquetas').disabled).toBe(true);
+    await cambiar(seleccion('Formato'), 'estandar');
+    expect(seleccion('Presentación de').value).toBe('12');
+  });
+  it('abrir etiquetas de producto descarta una tira de ubicación guardada como formato actual', async () => {
+    localStorage.setItem('wms_etiquetas_v1_qa', JSON.stringify({ formato: { diseno: 'ubicacion_tira' } }));
+    await montar();
+    expect(seleccion('Formato').value).toBe('estandar');
+    expect(vistas()[0].dataset.presentacion).toBe('11');
+  });
   it.each(['caja_grande', 'lectura_distancia'])('%s conserva la presentación en el QR y bloquea la impresión si falta la equivalencia', async diseno => {
     await montar({ presentacionId: 12 });
     await cambiar(seleccion('Formato'), diseno);

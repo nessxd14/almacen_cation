@@ -8,11 +8,11 @@ import { FORMATO_INICIAL, FORMATOS_ETIQUETA } from './lib/formatosEtiqueta';
 let contenedor, root;
 const atributo = (nombre, valor) => ({ atributo_valor: { atributo: { nombre }, valor } });
 const onEstado = vi.fn();
-async function montar({ diseno = 'lectura_distancia', atributos = [], presentacion = { id: 12, nombre: 'Caja', factor_unidad_base: 50 }, unidadBase = 'UND' } = {}) {
+async function montar({ diseno = 'lectura_distancia', atributos = [], presentacion = { id: 12, nombre: 'Caja', factor_unidad_base: 50 }, unidadBase = 'UND', ubicacion, enlace = 'https://almacen.example/productos/4/ficha?sucursal=1&presentacion=12' } = {}) {
   await act(async () => root.render(<EtiquetaProducto
     datos={{ producto: { id: 4, nombre: 'Producto de prueba', sku_interno: 'SKU-004', unidad_base: unidadBase }, atributos }}
     formato={{ ...FORMATO_INICIAL, ...FORMATOS_ETIQUETA.find(f => f.id === diseno) }}
-    enlace="https://almacen.example/productos/4/ficha?sucursal=1&presentacion=12" sucursalNombre="Almacén"
+    enlace={enlace} ubicacion={ubicacion} sucursalNombre="Almacén"
     presentacion={presentacion} onEstado={onEstado}
   />));
 }
@@ -24,6 +24,28 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(566);
   onEstado.mockClear();
   contenedor = document.createElement('div'); document.body.append(contenedor); root = createRoot(contenedor);
+});
+
+describe('ubicaciones en tira', () => {
+  it('imprime el código por partes sin QR, cabecera ni datos del producto, incluso sin enlace', async () => {
+    await montar({ diseno: 'ubicacion_tira', enlace: null, ubicacion: { codigo_zona: 'PLANTA BAJA', estante: 'Estante', nivel: 'A', compartimiento: '3' } });
+    expect(contenedor.querySelector('.label-location-strip').getAttribute('aria-label')).toBe('PB-EA-3');
+    expect([...contenedor.querySelectorAll('.label-strip-value')].map(n => n.textContent)).toEqual(['PB', 'EA', '3']);
+    expect([...contenedor.querySelectorAll('.label-strip-title')].map(n => n.textContent)).toEqual(['Zona', 'Mueble', 'Compartimiento']);
+    expect(contenedor.querySelectorAll('.label-strip-dash')).toHaveLength(2);
+    expect(contenedor.querySelector('svg, .label-header, .label-name, .label-presentation')).toBeNull();
+    expect(onEstado.mock.lastCall[1].error).toBeNull();
+  });
+  it('omite compartimientos ausentes y conserva los códigos de pallets y zonas especiales', async () => {
+    await montar({ diseno: 'ubicacion_tira', ubicacion: { codigo_zona: 'PLANTA BAJA', estante: 'Pallet', nivel: 'B' } });
+    expect(contenedor.querySelector('.label-location-strip').getAttribute('aria-label')).toBe('PB-PB');
+    expect(contenedor.querySelectorAll('.label-strip-value')).toHaveLength(2);
+    expect(contenedor.textContent).not.toContain('Compartimiento');
+    await montar({ diseno: 'ubicacion_tira', ubicacion: { codigo_zona: 'RECEPCIÓN', estante: 'Recepción' } });
+    expect(contenedor.querySelector('.label-location-strip').getAttribute('aria-label')).toBe('REC');
+    expect(contenedor.querySelectorAll('.label-strip-value')).toHaveLength(1);
+    expect(contenedor.querySelectorAll('.label-strip-dash')).toHaveLength(0);
+  });
 });
 afterEach(async () => { await act(async () => root.unmount()); contenedor.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 

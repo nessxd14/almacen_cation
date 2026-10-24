@@ -91,4 +91,12 @@ export const CSS_ETIQUETA = `
 .warehouse-label.label-style-minimalista { --label-ink:#111; --label-accent:#111; --label-soft:#fff; --label-rule:#bbb; font-family:Arial,sans-serif; }
 .warehouse-label.label-style-minimalista .label-header { background:#fff; color:#111; border-bottom:.25mm solid #111; padding:.5mm 0 1mm; }
 .warehouse-label.label-style-minimalista .label-presentation { border-left:0; padding:.6mm 0; }
+.warehouse-label.label-design-ubicacion_tira { --label-ink:#000; --label-accent:#000; border:.25mm solid #888; justify-content:center; font-family:Arial,sans-serif; }
+.warehouse-label .label-location-strip { display:flex; align-items:center; gap:2mm; width:100%; }
+.warehouse-label .label-strip-segment { display:contents; }
+.warehouse-label .label-strip-part { display:flex; flex:1; min-width:0; flex-direction:column; align-items:center; gap:1mm; }
+.warehouse-label .label-strip-compartment { flex:1.45; }
+.warehouse-label .label-strip-value { font-size:3em; font-weight:800; line-height:1.2; padding-bottom:1.5mm; white-space:nowrap; }
+.warehouse-label .label-strip-title { font-size:.65em; line-height:1.2; text-transform:uppercase; white-space:nowrap; }
+.warehouse-label .label-strip-dash { flex:none; font-size:2em; font-weight:700; line-height:1.2; margin-bottom:3.2mm; }
 `;
