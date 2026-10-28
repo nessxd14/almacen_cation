@@ -47,6 +47,22 @@ beforeEach(()=>{
 });
 afterEach(async()=>{await act(async()=>root.unmount());node.remove();vi.unstubAllGlobals();});
 
+it('el recorrido flexible usa tarjetas y envía con fotos sin exigir stock ni origen previo',async()=>{
+  qa.doc.pedido_flexible=true;qa.doc.abastecimiento=true;
+  qa.doc.lineas.forEach(l=>{l.confirmada=true;l.preparada_base=24;});
+  qa.doc.bloqueos_despacho=[{linea_id:1,codigo:'STOCK',detalle:'Stock descuadrado'}];
+  await mount();expect(node.querySelector('[aria-label="Tarjetas de alistado"]')).toBeTruthy();expect(node.querySelector('.om-resolver')).toBeNull();
+  expect(boton('Enviar a verificación').disabled).toBe(true);await fotos();expect(boton('Enviar a verificación').disabled).toBe(false);
+  await click('Enviar a verificación');expect(calls('preparado')).toHaveLength(1);
+});
+
+it('el origen sigue siendo una tarea del alistador cuando la tanda ya salió',async()=>{
+  qa.doc.pedido_flexible=true;qa.doc.abastecimiento=true;qa.doc.tarea.estado='DESPACHADO';qa.doc.puede_declarar_origen=true;
+  qa.doc.origenes_pendientes=[{linea_id:1,nombre:'Producto 1',cantidad_base:24,unidad_base:'unidades',producto_id:1}];
+  await mount();expect(node.querySelector('[aria-label="Declaración de origen pendiente"]')).toBeTruthy();await click('Declarar origen');
+  expect(node.querySelector('form[aria-label="Origen de Producto 1"]')).toBeTruthy();expect(boton('Guardar origen')).toBeTruthy();
+});
+
 it('abre Resolver primero y permite dejar en cero la línea bloqueada sin cerrar el pedido',async()=>{
   qa.id='revisa';qa.doc.abastecimiento=true;qa.doc.tarea.estado='REVISANDO';qa.doc.lineas.forEach(l=>{l.confirmada=true;l.preparada_base=24;l.revisada_base=24;l.origenes_preparacion=[{tipo:'ALMACEN',cantidad_base:24}];});
   qa.doc.lineas[0].stock_almacen=[{ubicacion_id:12,nombre:'Planta baja · A1',cantidad_base:-158}];

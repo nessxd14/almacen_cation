@@ -11,6 +11,7 @@ import { testPersonalizadosQr } from './personalizados-qr.integration.mjs';
 import { testAbastecimiento } from './abastecimiento.integration.mjs';
 import { testTrasladosQr } from './traslados-qr.integration.mjs';
 import { testCajaCobroLiberado } from './caja-cobro-liberado.integration.mjs';
+import { testPedidosTarjetas } from './pedidos-tarjetas.integration.mjs';
 
 // Sólo esquema y funciones públicas inspeccionadas; nunca contiene datos de negocio.
 // Todos los documentos, personas y movimientos de esta prueba viven en memoria.
@@ -186,6 +187,7 @@ try {
   await testTrasladosQr(db, { login, stock, count, uid });
   await testCajaCobroLiberado(db, { login, stock, count });
   await testAbastecimiento(db, { login, uid });
+  await testPedidosTarjetas(db, { login, uid });
   await db.query("select set_config('request.jwt.claim.sub','',false)");await assert.rejects(() => call('TRASLADO_VIRTUAL',cid), /perfil no tiene acceso|Inicia sesión/);
   console.log('OK: pedidos, asignación al escanear, verificador separado, devolución, RLS y sin stock durante checklist');
 } catch (error) {

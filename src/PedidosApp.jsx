@@ -106,6 +106,7 @@ const ETIQUETA_EVENTO_PEDIDO = {
   LINEAS_AGREGADAS: "Ítems agregados",
   LINEA_RECHAZADA: "Línea rechazada",
   LINEA_CAMBIADA: "Línea cambiada",
+  REEMPLAZO_MATERIAL: "Almacén cambió el material · pendiente de revisión del vendedor",
   LINEA_RETIRADA: "Línea retirada",
 };
 

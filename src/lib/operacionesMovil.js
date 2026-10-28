@@ -69,9 +69,14 @@ export async function operarPedidoMovil(cliente, { pedidoId, sucursalId, tareaId
   return data;
 }
 export async function listarOperacionesMovil(cliente, sucursalId) {
-  const { data, error } = await cliente.from('almacen_preparacion').select('*, pedido:pedido_id(id, numero, referencia, cliente:cliente_id(nombre))').eq('sucursal_id', sucursalId).order('actualizado_en', { ascending: false }).limit(80);
+  const [{data,error},origenes] = await Promise.all([
+    cliente.from('almacen_preparacion').select('*, pedido:pedido_id(id, numero, referencia, cliente:cliente_id(nombre))').eq('sucursal_id', sucursalId).order('actualizado_en', { ascending: false }).limit(80),
+    cliente.rpc('listar_origenes_pendientes_pedido',{p_sucursal_id:sucursalId}),
+  ]);
   if (error) throw new Error(error.message || 'No se pudieron cargar las tareas.');
-  return data || [];
+  if(origenes.error&&origenes.error.code!=='PGRST202')throw new Error(origenes.error.message||'No se pudieron consultar los orígenes pendientes.');
+  const pendientes=Array.isArray(origenes.data)?origenes.data:[];
+  return [...(data||[]),...pendientes.filter(t=>!(data||[]).some(r=>r.id===t.id))];
 }
 
 export const rolesAlmacen = new Set(['admin', 'gerente', 'almacenero', 'operario']);
