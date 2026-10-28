@@ -195,6 +195,7 @@ export async function ubicacionesParaOperacion({ productoId, modo, sucursalPrefe
       const { data: todas } = await supabase
         .from("ubicacion")
         .select("id, codigo_zona, estante, nivel, compartimiento, sucursal_id")
+        .eq("activo", true)
         .order("codigo_zona").order("estante").order("nivel").order("compartimiento");
       return {
         ubicaciones: (todas || []).map((u) => ({ id: u.id, label: labelUbicacion(u, { nombreSucursal }) })),

@@ -20,7 +20,7 @@ export async function cargarDatosOperacion({ productoId, sucursalId, sucursales,
       .eq('producto_id', productoId).eq('activo', true).order('id')),
     fetchAll(() => supabase.from('ubicacion')
       .select('id, codigo_zona, estante, nivel, compartimiento, sucursal_id')
-      .in('sucursal_id', ids).order('id')),
+      .in('sucursal_id', ids).eq('activo', true).order('id')),
     fetchAll(() => supabase.from('producto_ubicacion')
       .select('id, ubicacion_id, es_principal').eq('producto_id', productoId).order('id')),
     fetchAll(() => supabase.from('stock_actual')

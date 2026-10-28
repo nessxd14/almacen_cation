@@ -15,7 +15,7 @@ export function enlaceFichaUbicacion(ubicacionId, sucursalId, origin = window.lo
 export async function listarUbicacionesEtiqueta(cliente, sucursalId) {
   if (!idValido(sucursalId)) throw new Error('Elige el almacén o la tienda para consultar sus ubicaciones.');
   return fetchAll(() => cliente.from('ubicacion').select(CAMPOS_UBICACION)
-    .eq('sucursal_id', sucursalId).eq('excluye_disponible', false).order('id'));
+    .eq('sucursal_id', sucursalId).eq('excluye_disponible', false).eq('activo', true).order('id'));
 }
 
 // Las asignaciones no demuestran una existencia cero: sólo el saldo consultado

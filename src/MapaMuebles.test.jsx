@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import MapaMuebles from './MapaMuebles';
 
-const db = vi.hoisted(() => ({ tablas: {}, inserts: [], updates: [] }));
+const db = vi.hoisted(() => ({ tablas: {}, inserts: [], updates: [], rpcs: [], rpcRespuesta: null, rol: 'admin' }));
 
 // Constructor de consultas mínimo: cada cadena termina en una promesa con los datos de la tabla.
 vi.mock('./supabaseClient', () => {
@@ -19,8 +19,10 @@ vi.mock('./supabaseClient', () => {
     };
     return q;
   };
-  return { supabase: { from: consulta } };
+  const rpc = (nombre, args) => { db.rpcs.push({ nombre, args }); return Promise.resolve(db.rpcRespuesta ?? { data: null, error: null }); };
+  return { supabase: { from: consulta, rpc } };
 });
+vi.mock('./lib/useAuth', () => ({ useUsuarioActual: () => ({ id: 'u1', rol: db.rol }) }));
 vi.mock('./lib/useSucursal', () => ({ useSucursal: () => ({ sucursalActivaId: 1, nombreSucursal: () => 'Almacén Central' }) }));
 
 const fila = (id, estante, nivel, compartimiento, zona = 'PLANTA BAJA') =>
@@ -34,7 +36,7 @@ async function montar() {
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  db.inserts = []; db.updates = [];
+  db.inserts = []; db.updates = []; db.rpcs = []; db.rpcRespuesta = null; db.rol = 'admin';
   db.tablas = {
     ubicacion: [
       fila(12, 'Estante', 'A', '1'), fila(13, 'Estante', 'A', '2'), fila(14, 'Estante', 'A', '10'),
@@ -87,5 +89,71 @@ describe('MapaMuebles', () => {
     const pallet = contenedor.querySelector('article[aria-label="Pallet A"]');
     const eliminar = [...pallet.querySelectorAll('button')].find(b => b.textContent === 'Eliminar');
     expect(eliminar.disabled).toBe(true);
+  });
+
+  const clic = async (el) => { await act(async () => { el.click(); }); await act(async () => { await new Promise(r => setTimeout(r, 0)); }); };
+  const botonPapelera = (n) => contenedor.querySelector(`article[aria-label="Estante A"]:not([id*="HUECO"]) button[aria-label="Eliminar compartimiento ${n}"]`);
+  const botonDialogo = (texto) => [...contenedor.querySelectorAll('[role="dialog"] button')].find(b => b.textContent === texto);
+
+  it('oculta los controles de eliminar a quien no es admin ni gerente', async () => {
+    db.rol = 'operario';
+    await montar();
+    expect(botonPapelera(1)).toBeNull();
+    expect(contenedor.textContent).not.toContain('Eliminar vacíos');
+  });
+
+  it('elimina un compartimiento vía RPC tras confirmar', async () => {
+    db.rpcRespuesta = { data: { resultado: 'eliminado' }, error: null };
+    await montar();
+    await clic(botonPapelera(2));
+    expect(contenedor.querySelector('[role="dialog"]').textContent).toContain('¿Eliminar compartimiento 2?');
+    await clic(botonDialogo('Eliminar'));
+    expect(db.rpcs).toEqual([{ nombre: 'eliminar_compartimiento', args: { p_ubicacion_id: 13, p_eliminar_estante: false } }]);
+    expect(document.body.textContent).toContain('Compartimiento 2 eliminado');
+  });
+
+  it('muestra el aviso de productos cuando el compartimiento no se puede eliminar', async () => {
+    db.rpcRespuesta = { data: { resultado: 'tiene_productos', productos: [
+      { producto_id: 1, nombre: 'Tornillo', cantidad: 5, asignado: true },
+      { producto_id: 2, nombre: 'Tuerca', cantidad: 0, asignado: true },
+    ] }, error: null };
+    await montar();
+    await clic(botonPapelera(1));
+    await clic(botonDialogo('Eliminar'));
+    const d = contenedor.querySelector('[role="dialog"]');
+    expect(d.textContent).toContain('El compartimiento 1 tiene productos');
+    expect(d.textContent).toContain('asignado, sin stock');
+    expect(botonDialogo('Entendido')).toBeTruthy();
+  });
+
+  it('pide confirmar y repite con p_eliminar_estante cuando es el último compartimiento', async () => {
+    db.rpcRespuesta = { data: { resultado: 'ultimo_compartimiento' }, error: null };
+    await montar();
+    await clic(botonPapelera(1));
+    await clic(botonDialogo('Eliminar'));
+    expect(contenedor.querySelector('[role="dialog"]').textContent).toContain('elimina el Estante A completo');
+    db.rpcRespuesta = { data: { resultado: 'eliminado' }, error: null };
+    await clic(botonDialogo('Continuar'));
+    expect(db.rpcs[1].args).toEqual({ p_ubicacion_id: 12, p_eliminar_estante: true });
+  });
+
+  it('traduce el error 42501 a un aviso legible', async () => {
+    db.rpcRespuesta = { data: null, error: { code: '42501' } };
+    await montar();
+    await clic(botonPapelera(1));
+    await clic(botonDialogo('Eliminar'));
+    expect(document.body.textContent).toContain('No tenés permiso');
+  });
+
+  it('elimina los vacíos del mueble y resume el resultado', async () => {
+    db.rpcRespuesta = { data: { eliminados: ['4', '5', '6'], archivados: [], con_productos: [{ ubicacion_id: 12, compartimiento: '1', total_productos: 2, productos: [] }] }, error: null };
+    await montar();
+    const estante = contenedor.querySelector('article[aria-label="Estante A"]:not([id*="HUECO"])');
+    await clic([...estante.querySelectorAll('button')].find(b => b.textContent === 'Eliminar vacíos'));
+    await clic(botonDialogo('Eliminar vacíos'));
+    expect(db.rpcs[0]).toEqual({ nombre: 'eliminar_compartimientos_vacios', args: { p_codigo_zona: 'PLANTA BAJA', p_estante: 'Estante', p_nivel: 'A' } });
+    const d = contenedor.querySelector('[role="dialog"]').textContent;
+    expect(d).toContain('Eliminados: 4–6');
+    expect(d).toContain('1 (2)');
   });
 });
