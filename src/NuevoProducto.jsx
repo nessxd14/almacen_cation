@@ -94,6 +94,7 @@ export default function NuevoProducto({ onClose, onCreado }) {
     if (!mostrarEntrada || ubicaciones.length > 0) return;
     supabase.from("ubicacion")
       .select("id, codigo_zona, estante, nivel, compartimiento")
+      .eq("activo", true)
       .order("codigo_zona").order("estante").order("nivel").order("compartimiento")
       .then(({ data }) => {
         setUbicaciones(data || []);

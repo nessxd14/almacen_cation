@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  AlertCircle, Check, LayoutGrid, Layers, MapPin, Pencil, Plus, Search, Star, Trash2, Warehouse, X,
+  AlertCircle, Check, ChevronDown, LayoutGrid, Layers, MapPin, Pencil, Plus, Search, Star, Trash2, Warehouse, X,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { fetchAll } from "./lib/fetchAll";
 import { sanearFiltro } from "./lib/filtroTexto";
 import { useSucursal } from "./lib/useSucursal";
+import { useUsuarioActual } from "./lib/useAuth";
 import {
   LETRAS, TIPOS_MUEBLE, abreviaturaZona, codigoUbicacion, compararUbicaciones, esMueble,
   etiquetaUbicacion, rangoNumeros, siguienteLetra,
@@ -51,6 +52,78 @@ function Boton({ onClick, icon: Icon, children, tono = "neutro", type = "button"
       {Icon && <Icon size={14} aria-hidden="true" />}{children}
     </button>
   );
+}
+
+// Mismo criterio que app_es_admin() en la base: admin o gerente.
+const ROLES_GESTION = ["admin", "gerente"];
+
+function Dialogo({ titulo, onCerrar, children, pie }) {
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4" onClick={onCerrar}>
+      <div role="dialog" aria-modal="true" aria-label={titulo} onClick={e => e.stopPropagation()}
+        className="flex max-h-[85vh] w-full max-w-md flex-col gap-3 rounded-2xl bg-white p-5 shadow-xl">
+        <h3 className="text-base font-bold text-slate-800">{titulo}</h3>
+        <div className="min-h-0 flex-1 overflow-auto text-sm text-slate-600">{children}</div>
+        <div className="flex justify-end gap-2">{pie}</div>
+      </div>
+    </div>
+  );
+}
+
+function ListaProductos({ productos }) {
+  return (
+    <ul className="flex max-h-60 flex-col gap-1 overflow-auto rounded-lg border border-slate-200 p-2">
+      {productos.map(p => (
+        <li key={p.producto_id} className="flex items-baseline justify-between gap-3 text-xs">
+          <span className="font-medium text-slate-800">{p.nombre}</span>
+          <span className="whitespace-nowrap text-slate-500">
+            {Number(p.cantidad)}{p.asignado && Number(p.cantidad) === 0 ? " · asignado, sin stock" : ""}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ["4","5","6","9"] → "4–6, 9"
+function compactarNumeros(lista) {
+  const nums = lista.map(Number).sort((a, b) => a - b);
+  const tramos = [];
+  for (const n of nums) {
+    const t = tramos[tramos.length - 1];
+    if (t && n === t[1] + 1) t[1] = n; else tramos.push([n, n]);
+  }
+  return tramos.map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`)).join(", ");
+}
+
+function ResumenVacios({ resumen }) {
+  const { eliminados = [], archivados = [], con_productos: conProductos = [] } = resumen;
+  const [abierto, setAbierto] = useState(null);
+  return (
+    <div className="flex flex-col gap-2">
+      <p><strong>Eliminados:</strong> {eliminados.length ? compactarNumeros(eliminados) : "—"}</p>
+      <p><strong>Archivados:</strong> {archivados.length ? compactarNumeros(archivados) : "—"}</p>
+      <p><strong>Con productos:</strong> {conProductos.length ? conProductos.map(c => `${c.compartimiento} (${c.total_productos})`).join(", ") : "—"}</p>
+      {conProductos.map(c => (
+        <div key={c.ubicacion_id}>
+          <button type="button" aria-expanded={abierto === c.ubicacion_id}
+            onClick={() => setAbierto(abierto === c.ubicacion_id ? null : c.ubicacion_id)}
+            className="inline-flex min-h-9 items-center gap-1 text-xs font-semibold text-blue-700">
+            <ChevronDown size={14} aria-hidden="true" className={abierto === c.ubicacion_id ? "rotate-180" : ""} />
+            Compartimiento {c.compartimiento}: {c.total_productos} {c.total_productos === 1 ? "producto" : "productos"}
+          </button>
+          {abierto === c.ubicacion_id && <ListaProductos productos={c.productos || []} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function mensajeErrorRpc(error) {
+  if (error?.code === "42501") return "No tenés permiso para eliminar compartimientos";
+  if (error?.code === "22023") return "Ese compartimiento no se puede eliminar (recepción o no es un compartimiento)";
+  if (error?.code === "P0002") return "El compartimiento ya no existe";
+  return "No se pudo eliminar el compartimiento";
 }
 
 // Agrupa las filas planas en zona → muebles → compartimientos.
@@ -123,7 +196,7 @@ function FormNuevoMueble({ ubicaciones, zona, zonaEditable, onCrear, onCancelar 
   );
 }
 
-function TarjetaMueble({ mueble, zona, sucursalId, conteos, resaltadas, ubicaciones, acciones }) {
+function TarjetaMueble({ mueble, zona, sucursalId, conteos, resaltadas, ubicaciones, acciones, puedeEliminar }) {
   const [modo, setModo] = useState(null); // null | "comp" | "letra"
   const [hasta, setHasta] = useState("");
   const [nuevaLetra, setNuevaLetra] = useState(mueble.letra);
@@ -164,7 +237,7 @@ function TarjetaMueble({ mueble, zona, sucursalId, conteos, resaltadas, ubicacio
             const n = conteos[f.id] || 0;
             const marcada = resaltadas.has(f.id);
             return (
-              <li key={f.id}>
+              <li key={f.id} className="relative">
                 <Link to={enlace(f)} title={`${etiquetaUbicacion(f)} · ${n} productos`}
                   aria-label={`Compartimiento ${f.compartimiento}, ${n} productos${marcada ? ", contiene el producto buscado" : ""}`}
                   className={`flex min-h-11 flex-col items-center justify-center rounded-lg border text-sm font-bold no-underline transition-colors
@@ -172,6 +245,13 @@ function TarjetaMueble({ mueble, zona, sucursalId, conteos, resaltadas, ubicacio
                   {f.compartimiento}
                   <span className={`text-[10px] font-medium ${marcada ? "text-emerald-50" : "text-slate-400"}`}>{n ? `${n} prod.` : "vacío"}</span>
                 </Link>
+                {puedeEliminar && !f.es_recepcion && (
+                  <button type="button" onClick={() => acciones.pedirEliminarCompartimiento(f)}
+                    aria-label={`Eliminar compartimiento ${f.compartimiento}`} title={`Eliminar compartimiento ${f.compartimiento}`}
+                    className="absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600">
+                    <Trash2 size={11} aria-hidden="true" />
+                  </button>
+                )}
               </li>
             );
           })}
@@ -215,6 +295,9 @@ function TarjetaMueble({ mueble, zona, sucursalId, conteos, resaltadas, ubicacio
         <footer className="mt-auto flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
           {!sinDivisiones && <Boton onClick={() => { setHasta(String(ultimo + 1)); setModo("comp"); }} icon={Plus}>Compartimientos</Boton>}
           <Boton onClick={() => { setNuevaLetra(mueble.letra); setModo("letra"); }} icon={Pencil}>Letra</Boton>
+          {puedeEliminar && compartimientos.length > 1 && (
+            <Boton onClick={() => acciones.pedirEliminarVacios(mueble)} icon={Trash2}>Eliminar vacíos</Boton>
+          )}
           <Boton onClick={() => acciones.eliminarMueble(mueble)} icon={Trash2} tono="rojo" disabled={productos > 0}
             title={productos > 0 ? "Tiene productos asignados" : undefined}>Eliminar</Boton>
         </footer>
@@ -225,7 +308,7 @@ function TarjetaMueble({ mueble, zona, sucursalId, conteos, resaltadas, ubicacio
 
 // Ubicaciones de la sucursal + cuántos productos tiene asignada cada una.
 async function leerMapa(sucursalId) {
-  let consulta = supabase.from("ubicacion").select("*");
+  let consulta = supabase.from("ubicacion").select("*").eq("activo", true);
   if (sucursalId) consulta = consulta.eq("sucursal_id", sucursalId);
   const { data, error } = await consulta;
   const conteos = {};
@@ -244,6 +327,9 @@ export default function MapaMuebles() {
   const [conteos, setConteos] = useState({});
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState(null);
+  const [dialogo, setDialogo] = useState(null);
+  const usuario = useUsuarioActual();
+  const puedeEliminar = ROLES_GESTION.includes(usuario?.rol);
   const [formZona, setFormZona] = useState(null); // nombre de zona, o "__nueva__"
   const [busqueda, setBusqueda] = useState("");
   const [resultados, setResultados] = useState([]);
@@ -346,6 +432,39 @@ export default function MapaMuebles() {
       mostrar(`Ahora es ${mueble.tipo} ${letra}`);
       cargar();
     },
+    pedirEliminarCompartimiento(f) {
+      setDialogo({ tipo: "confirmar", ubicacion: f });
+    },
+    pedirEliminarVacios(mueble) {
+      setDialogo({ tipo: "confirmarVacios", mueble });
+    },
+    async eliminarCompartimiento(f, eliminarEstante = false) {
+      setDialogo(null);
+      const { data, error } = await supabase.rpc("eliminar_compartimiento", { p_ubicacion_id: f.id, p_eliminar_estante: eliminarEstante });
+      if (error) { mostrar(mensajeErrorRpc(error), "err"); return; }
+      switch (data?.resultado) {
+        case "eliminado": mostrar(`Compartimiento ${f.compartimiento} eliminado`); break;
+        case "archivado": mostrar(`Compartimiento ${f.compartimiento} archivado (tenía historial)`); break;
+        case "tiene_productos":
+          setDialogo({ tipo: "productos", ubicacion: f, productos: data.productos || [] });
+          return;
+        case "ultimo_compartimiento":
+          setDialogo({ tipo: "estante", ubicacion: f });
+          return;
+        default: break; // ya_archivado: solo refrescar
+      }
+      cargar();
+    },
+    async eliminarVacios(mueble) {
+      setDialogo(null);
+      const f0 = mueble.filas[0];
+      const { data, error } = await supabase.rpc("eliminar_compartimientos_vacios", {
+        p_codigo_zona: f0.codigo_zona, p_estante: f0.estante, p_nivel: f0.nivel,
+      });
+      if (error) { mostrar(mensajeErrorRpc(error), "err"); return; }
+      setDialogo({ tipo: "resumen", mueble, resumen: data || {} });
+      cargar();
+    },
     async eliminarMueble(mueble) {
       if (!confirm(`¿Eliminar ${mueble.tipo} ${mueble.letra} y sus ${mueble.filas.length} casillas? Si tienen movimientos registrados, no se podrá.`)) return;
       const { error } = await supabase.from("ubicacion").delete().in("id", mueble.filas.map(f => f.id));
@@ -360,6 +479,41 @@ export default function MapaMuebles() {
   return (
     <div className="flex flex-col gap-5">
       <Aviso aviso={aviso} onCerrar={cerrarAviso} />
+
+      {dialogo?.tipo === "confirmar" && (
+        <Dialogo titulo={`¿Eliminar compartimiento ${dialogo.ubicacion.compartimiento}?`} onCerrar={() => setDialogo(null)}
+          pie={<><Boton onClick={() => setDialogo(null)}>Cancelar</Boton>
+            <Boton tono="rojo" icon={Trash2} onClick={() => acciones.eliminarCompartimiento(dialogo.ubicacion)}>Eliminar</Boton></>}>
+          Si tiene historial se archiva; si tiene productos o stock no se elimina.
+        </Dialogo>
+      )}
+      {dialogo?.tipo === "estante" && (
+        <Dialogo titulo="Último compartimiento" onCerrar={() => setDialogo(null)}
+          pie={<><Boton onClick={() => setDialogo(null)}>Cancelar</Boton>
+            <Boton tono="rojo" icon={Trash2} onClick={() => acciones.eliminarCompartimiento(dialogo.ubicacion, true)}>Continuar</Boton></>}>
+          Esto elimina el {dialogo.ubicacion.estante} {dialogo.ubicacion.nivel} completo. ¿Continuar?
+        </Dialogo>
+      )}
+      {dialogo?.tipo === "productos" && (
+        <Dialogo titulo={`El compartimiento ${dialogo.ubicacion.compartimiento} tiene productos`} onCerrar={() => setDialogo(null)}
+          pie={<Boton tono="primario" onClick={() => setDialogo(null)}>Entendido</Boton>}>
+          <p className="mb-2">{dialogo.productos.length} {dialogo.productos.length === 1 ? "producto" : "productos"}. Mové el stock a otro compartimiento antes de eliminarlo.</p>
+          <ListaProductos productos={dialogo.productos} />
+        </Dialogo>
+      )}
+      {dialogo?.tipo === "confirmarVacios" && (
+        <Dialogo titulo={`¿Eliminar compartimientos vacíos de ${dialogo.mueble.tipo} ${dialogo.mueble.letra}?`} onCerrar={() => setDialogo(null)}
+          pie={<><Boton onClick={() => setDialogo(null)}>Cancelar</Boton>
+            <Boton tono="rojo" icon={Trash2} onClick={() => acciones.eliminarVacios(dialogo.mueble)}>Eliminar vacíos</Boton></>}>
+          Se eliminan (o archivan, si tienen historial) los compartimientos sin productos ni stock. Siempre queda al menos uno.
+        </Dialogo>
+      )}
+      {dialogo?.tipo === "resumen" && (
+        <Dialogo titulo={`${dialogo.mueble.tipo} ${dialogo.mueble.letra}: compartimientos vacíos`} onCerrar={() => setDialogo(null)}
+          pie={<Boton tono="primario" onClick={() => setDialogo(null)}>Entendido</Boton>}>
+          <ResumenVacios resumen={dialogo.resumen} />
+        </Dialogo>
+      )}
 
       {/* Buscador + acciones */}
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -446,7 +600,7 @@ export default function MapaMuebles() {
             <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))" }}>
               {z.muebles.map(m => (
                 <TarjetaMueble key={m.clave} mueble={m} zona={z.zona} sucursalId={z.sucursalId} conteos={conteos}
-                  resaltadas={resaltadas} ubicaciones={ubicaciones} acciones={acciones} />
+                  resaltadas={resaltadas} ubicaciones={ubicaciones} acciones={acciones} puedeEliminar={puedeEliminar} />
               ))}
             </div>
           </section>

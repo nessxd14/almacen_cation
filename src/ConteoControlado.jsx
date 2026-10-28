@@ -49,7 +49,7 @@ function Workspace({ usuario, sucursalId, revision }) {
     async function iniciar() {
       try {
         const [ubicaciones, presentaciones, identificadores] = await Promise.all([
-          fetchAll(() => supabase.from('ubicacion').select('id,codigo_zona,estante,nivel,compartimiento,sucursal_id,excluye_disponible').eq('sucursal_id', sucursalId).eq('excluye_disponible', false).order('id')),
+          fetchAll(() => supabase.from('ubicacion').select('id,codigo_zona,estante,nivel,compartimiento,sucursal_id,excluye_disponible').eq('sucursal_id', sucursalId).eq('excluye_disponible', false).eq('activo', true).order('id')),
           fetchAll(() => supabase.from('presentacion').select('id,producto_id,nombre,factor_unidad_base,es_base,activo,producto(id,nombre,sku_interno,marca,unidad_base)').eq('activo', true).order('id')),
           fetchAll(() => supabase.from('identificador').select('presentacion_id,valor').eq('activo', true).order('id')),
         ]);

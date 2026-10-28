@@ -65,6 +65,7 @@ function TabAsignaciones() {
     supabase
       .from("ubicacion")
       .select("*")
+      .eq("activo", true)
       .order("codigo_zona")
       .order("estante")
       .order("nivel")

@@ -42,7 +42,7 @@ describe('identificación y listado de ubicaciones', () => {
     expect(await listarUbicacionesEtiqueta(cliente, 1)).toHaveLength(1001);
     expect(cliente.consultas.map(c => c.rango)).toEqual([[0, 999], [1000, 1999]]);
     for (const c of cliente.consultas) {
-      expect(c.filtros).toEqual([['sucursal_id', 1], ['excluye_disponible', false]]);
+      expect(c.filtros).toEqual([['sucursal_id', 1], ['excluye_disponible', false], ['activo', true]]);
       expect(c.orden).toEqual(['id']);
     }
   });
