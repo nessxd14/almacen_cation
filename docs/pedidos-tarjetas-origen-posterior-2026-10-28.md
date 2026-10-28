@@ -45,10 +45,10 @@ Sólo la salida confirmada reduce el saldo del pedido. Al volver a escanear el m
 ## Implementación y publicación
 
 - Migración: `supabase/migrations/20261028131324_pedidos_tarjetas_origen_posterior.sql`, creada con el CLI de Supabase.
-- Las nuevas tandas usan el modo flexible cuando están habilitados los circuitos de dos actores y abastecimiento. Las preparaciones existentes conservan el contrato con el que nacieron.
+- Las nuevas tandas usan el modo flexible cuando están habilitados los circuitos de dos actores y abastecimiento. La migración `20261028144609_activar_tarjetas_pedidos_pendientes.sql` también activa las tandas existentes de pedidos abiertos que aún no registraron su salida.
 - La API reutiliza la autenticación y los bloqueos de pedido/líneas/tanda. Los helpers de inventario son privados; el listado de tareas respeta RLS y pertenece al alistador autenticado.
 - Para habilitarlo hay que aplicar la migración y publicar Almacén. El cambio de Seller sólo incorpora el rótulo del evento de reemplazo en su historial.
-- No se aplicó a la base remota ni se publicaron aplicaciones en esta sesión.
+- Ambas migraciones están aplicadas en Supabase. La interfaz ya estaba publicada en Vercel cuando se activaron las tandas existentes.
 
 Las correcciones posteriores de estas salidas requieren un encargado y la revisión de todos los movimientos asociados. Se impide usar la corrección documental antigua, que no revierte Kardex, sobre una tanda flexible.
 
@@ -62,5 +62,9 @@ OpenClaw y los recordatorios de compra al gerente quedan para una etapa posterio
 - Compilación de Almacén y revisión visual a 390 px de ancho.
 
 Las pruebas no registran movimientos ni envían mensajes en los servicios reales.
+
+La activación de las tandas existentes conserva cantidades, alistado, revisiones, responsables, fuentes anteriores y versiones de fotos en borrador. Los orígenes ya resueltos se reutilizan cuando su ubicación/recepción sigue siendo válida; los demás continúan como tarea pendiente. Las recepciones documentales heredadas se consumen una sola vez al salir o completar el origen. Los pedidos completados, cancelados y las salidas históricas permanecen intactos.
+
+Verificación de producción del 28 de octubre: seis pedidos abiertos con el nuevo flujo, cero tandas pendientes en modo anterior, foto de revisión conservada y ninguna transacción nueva de Kardex causada por la activación. El asesor de seguridad no agregó avisos.
 
 Resultado final: 58 archivos de pruebas de Almacén y 513 casos aprobados; integración SQL aprobada; compilación de Almacén aprobada; cinco pruebas del historial de Seller aprobadas. El lint de los componentes y helpers del nuevo flujo pasa. El lint de `PedidosApp.jsx` conserva dos errores previos de efectos de React, ajenos al rótulo del evento añadido aquí.
