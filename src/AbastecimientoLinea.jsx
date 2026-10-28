@@ -17,7 +17,7 @@ export function ResumenEntregasPedido({datos,pedidoId,sucursalId}) {
   if(!resumen)return null;
   const nombres={PENDIENTE:'Pendiente',PARCIAL:'Envío parcial · pendiente de completar',COMPLETADO:'Completado',CANCELADO:'Cancelado'};
   return <section className="om-pedido om-resumen-entregas"><div className="om-section-title"><h3>{nombres[resumen.estado]||resumen.estado}</h3>{datos.tarea&&<strong>Entrega {datos.numero_entrega}</strong>}</div><p className="om-muted">Un solo pedido y el mismo QR para completar las cantidades restantes.</p>
-    {resumen.entregas?.length>0&&<details><summary>Entregas del pedido ({resumen.entregas.length})</summary>{resumen.entregas.map(e=><Link className="om-task" key={e.id} to={`/operaciones/pedidos/${pedidoId}?sucursal=${sucursalId}&preparacion=${e.id}`}><span>Entrega {e.numero} · {e.preparador||'Sin asignar'} / {e.revisor||'Sin verificar'}</span><strong>{e.estado==='DESPACHADO'?'Retirada':e.estado==='ANULADO'?'Anulada':e.estado}</strong></Link>)}</details>}
+    {resumen.entregas?.length>0&&<details><summary>Tandas del pedido ({resumen.entregas.length})</summary>{resumen.entregas.map(e=><Link className="om-task" key={e.id} to={`/operaciones/pedidos/${pedidoId}?sucursal=${sucursalId}&preparacion=${e.id}`}><span>Tanda {e.numero} · {e.preparador||'Sin asignar'} / {e.revisor||'Sin verificar'}</span><strong>{e.estado==='DESPACHADO'?'Retirada':e.estado==='ANULADO'?'Anulada':e.estado}</strong></Link>)}</details>}
   </section>;
 }
 
