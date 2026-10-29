@@ -122,3 +122,84 @@ body:has(.pt-pedido-dark){background:#18191d}
 .pt-tanda-aviso strong{display:block;margin-bottom:5px}
 @media(max-width:380px){.pt-contenido{padding:42px 17px 20px}.pt-contenido h3{font-size:24px}.pt-acciones{gap:5px}.pt-accion-icono{width:58px;height:58px}.pt-cabecera h2{font-size:20px}.pt-cantidad{font-size:19px}.pt-origen-base{top:14px;left:14px}.pt-origen-sucursal{max-width:60px}}
 @media(prefers-reduced-motion:reduce){.pt-tarjeta{transform:none!important;transition:none}.pt-accion-icono{transition:none}}
+
+/* El mismo lenguaje visual desde el escaneo hasta el historial del pedido. */
+body:has(.om-pedidos-ui){background:#18191d}
+.om-app.om-pedidos-ui{--om-accent:#b99aff;--om-border:#3b3d45;max-width:560px;background:#202125;color:#f4f4f6;color-scheme:dark;padding:18px 16px 40px}
+.om-pedidos-ui .om-header{margin-bottom:14px;gap:11px}
+.om-pedidos-ui .om-header h1{font-size:22px}
+.om-pedidos-ui .om-header small,.om-pedidos-ui .om-header>svg{color:#a8aab5}
+.om-pedidos-ui :is(.om-back,.om-icon){background:#2a2b31;border-color:#41434d;color:#e3e3e8;border-radius:50%}
+.om-pedidos-ui .om-contexto{color:#a8aab5;padding-bottom:12px;margin-bottom:14px;border-color:#34363e;font-size:12px}
+.om-pedidos-ui :is(input,select,textarea){background:#25262d;border-color:#484b58;color:#f4f4f6}
+.om-pedidos-ui :is(.om-pedido,.om-linea,.om-task,.om-checklist,.om-preparacion-rapida,.om-gestion,.om-historial,.om-editor){background:#28292f;border-color:#3c3e48;color:#ededf1}
+.om-pedidos-ui :is(.om-muted,.om-responsables,.om-task small,.om-task span:not(.om-badge),.om-section-title small,.om-stock-info,.om-historial li span,.om-historial li small,.om-linea-title small,.om-equivalencia){color:#b2b4c1}
+.om-pedidos-ui .om-tabs{background:#292a31;border:1px solid #3c3e48}
+.om-pedidos-ui .om-tabs button{color:#b8b6c6}
+.om-pedidos-ui .om-tabs button[aria-current]{background:#493564;color:#eee1ff;box-shadow:none}
+.om-pedidos-ui .om-inicio p,.om-pedidos-ui .om-inicio>small,.om-pedidos-ui :is(.om-loading,.om-vacio,.om-progreso,.om-text-link){color:#b5b7c5}
+.om-pedidos-ui .om-scan-icon{background:#342b43;border-color:#64517d;color:#cfb1ff}
+.om-pedidos-ui .om-badge{background:#36303f;color:#dfcef6}
+.om-pedidos-ui :is(.om-despachado,.om-verificado,.om-recibido){background:#283d30;color:#b5e39f}
+.om-pedidos-ui :is(.om-preparado,.om-revisando){background:#473b25;color:#f4cc7c}
+.om-pedidos-ui .om-anulado{background:#452b30;color:#ffc3c9}
+.om-pedidos-ui .om-primary{background:#9360df;color:#fff}
+.om-pedidos-ui .om-primary:hover:not(:disabled){background:#a16dea}
+.om-pedidos-ui .om-secondary{background:#292b33;border-color:#484b58;color:#e1d5fa}
+.om-pedidos-ui .om-aviso{background:#362f24;border-color:#695334;color:#edcf98}
+.om-pedidos-ui .om-exito{background:#263a2d;border-color:#426647;color:#c1e9ad}
+.om-pedidos-ui .om-error{background:#402a2d;border-color:#87565a;color:#ffd0d2}
+.om-pedidos-ui .om-error-text{color:#ffb5a8}
+.om-pedidos-ui :is(.om-responsables,.om-historial li,.om-preparacion-rapida li,.om-cantidad-pedido,.om-evidencia-estado){border-color:#424550}
+.om-pedidos-ui .om-cantidades{background:#22232a;color:#eeedf4}
+.om-pedidos-ui .om-cantidades small,.om-pedidos-ui .om-retiro-pedido li span{color:#b5b8c7}
+.om-pedidos-ui .om-evidencia-fotos img{background:#202128}
+.om-pedidos-ui .om-evidencia a{color:#d1b3ff}
+.om-pedidos-ui .om-evidencia button:not(.om-primary):not(.om-secondary){min-height:44px;padding:8px 12px;border:1px solid #565064;border-radius:10px;background:#32303c;color:#eadcff}
+.om-pedidos-ui :is(button,a,input,select,textarea,summary):focus-visible{outline-color:#c29cff}
+.om-pedidos-ui .om-progreso strong{color:#e8c27a}
+.om-pedidos-ui .om-ubicaciones a{background:#34303e;color:#d6c2f5}
+.om-pedidos-ui :is(.om-nota,.om-editor-missing){background:#352e23;color:#edcf98}
+.om-pedidos-ui .om-reason-options button{background:#34313d;border-color:#4d455e;color:#d0c7df}
+.om-pedidos-ui .om-reason-options button[aria-pressed=true]{background:#533d70;border-color:#9d79d0;color:#fff}
+.pt-envio{margin:20px 0;color:#f2f0f7}
+.pt-envio-cabecera{margin-bottom:16px}
+.pt-envio-cabecera>small{color:#c4a6ef;font-size:11px;letter-spacing:.1em;font-weight:650}
+.pt-envio-cabecera h2{font-size:24px;line-height:1.2;letter-spacing:-.025em;margin:8px 0}
+.pt-envio-cabecera p,.pt-envio-aclaracion{font-size:13px;line-height:1.6;color:#b7b6c4}
+.pt-envio-grupo{border:1px solid #42454d;border-radius:20px;background:#25272d;overflow:hidden;margin:14px 0}
+.pt-envio-grupo>header{display:flex;align-items:center;flex-wrap:wrap;justify-content:space-between;gap:10px;padding:17px 16px 10px}
+.pt-envio-grupo h3{margin:0;font-size:16px;line-height:1.4;font-weight:650}
+.pt-envio-grupo>header>span{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#c6c3d4}
+.pt-envio-sale{border-color:#435c45}
+.pt-envio-sale>header>span{color:#c2e8ad}
+.pt-envio-pendiente{border-color:#715532;background:#302b24}
+.pt-envio-pendiente>header>span{color:#f4c679}
+.pt-envio-fila{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:0;border-top:1px solid #ffffff12;padding:16px;font:inherit;color:inherit;min-width:0}
+.pt-envio-fila:first-of-type{border-top:0}
+.pt-envio-foto{flex:0 0 52px;width:52px;height:64px;display:flex;align-items:center;justify-content:center;background:#ffffff06;border-radius:12px;overflow:hidden}
+.pt-envio-foto img{display:block;width:100%;height:100%;object-fit:contain;padding:4px}
+.pt-envio-foto .product-image-placeholder{width:100%;height:100%;display:grid;place-items:center;background:transparent;color:#a9a2b4}
+.pt-envio-producto{flex:1;min-width:0;display:grid;gap:5px}
+.pt-envio-producto>strong{font-size:14px;line-height:1.4;font-weight:650}
+.pt-envio-producto>span{font-size:13px;color:#d0d1dc}
+.pt-envio-producto>small{font-size:11px;line-height:1.5;color:#b9b5c7}
+.pt-envio-pendiente .pt-envio-producto>span,.pt-envio-pendiente .pt-envio-estado{color:#f4c679}
+.pt-envio-estado{flex-shrink:0;color:#b5d4a4}
+.pt-envio-vacio{padding:4px 16px 14px;color:#b9b5c7;font-size:13px;line-height:1.5}
+.pt-envio-aclaracion{display:flex;align-items:flex-start;gap:8px;margin:15px 0}
+.pt-envio-aclaracion svg{flex-shrink:0;margin-top:2px;color:#b99aff}
+.pt-envio .om-origenes-material{display:flex;flex-wrap:wrap;gap:5px}
+.pt-envio .om-origen-etiqueta{font-size:10px;color:#c6c1d2;background:#ffffff08;border:1px solid #ffffff10;border-radius:7px;padding:5px 7px;line-height:1.5}
+.pt-envio .om-origen-etiqueta strong{font-weight:500}
+.pt-cantidades-origen label>span{display:flex;align-items:center;gap:7px}
+.pt-cantidades-origen label>span svg{color:#c6a6f2;flex-shrink:0}
+.pt-cantidades-origen label input{font-size:16px}
+.pt-origen-balance{display:grid;gap:8px;padding:14px;border:1px solid #4c6940;border-radius:13px;background:#263323;color:#c7e5b4;font-size:13px;line-height:1.5}
+.pt-origen-balance>span{display:flex;gap:7px;align-items:flex-start}
+.pt-origen-balance>span svg{flex-shrink:0;margin-top:2px}
+.pt-origen-balance small{font-size:11px;line-height:1.6}
+.pt-origen-balance-pendiente{border-color:#715532;background:#352e23;color:#f2cc8d}
+.pt-nota-devolucion{border-color:#8c6940;color:#f2cc8d!important;background:#513a2244}
+.pt-estado-pendiente{color:#f4cc7c;background:#6d52262b;border-color:#c997473b}
+@media(max-width:380px){.om-app.om-pedidos-ui{padding:16px 12px 35px}.pt-envio-fila{padding:13px;gap:10px}.pt-envio-foto{flex-basis:44px;width:44px;height:56px}.pt-envio-cabecera h2{font-size:22px}}

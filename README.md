@@ -1,5 +1,9 @@
 # React + Vite
 
+## Alistado simple y envíos pendientes
+
+Nueva versión local: Almacén se propone por defecto, el faltante genera una solicitud de compra y los envíos pueden salir parcialmente, incluso con cantidades 0 de Almacén y 8 externas de 10 solicitadas. La verificación devuelve las diferencias al alistador y conserva las líneas pendientes. Consulta [reglas, instalación y pruebas del alistado simple](docs/alistado-simple.md). La migración está preparada para nuevas tandas; su aplicación al backend existente es un paso separado.
+
 ## Operaciones directas de inventario
 
 **Movimientos → Operaciones** permite registrar entradas, salidas, traslados y ajustes con conversión visible por presentación y revisión del saldo antes de guardar. Los selectores muestran primero las ubicaciones con stock actual del producto; Entrada, Ajuste y el destino de Traslado permiten incluir ubicaciones sin stock de forma explícita. La sucursal activa delimita las ubicaciones de origen; el diseño se adapta a escritorio y celular. Consulta [la guía de Operaciones](docs/operaciones-directas.md) para los controles y la validación local.
