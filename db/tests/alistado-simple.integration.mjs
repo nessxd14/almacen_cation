@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 
 export async function testAlistadoSimple(db,{login}) {
-  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261028215041_alistado_origen_automatico.sql',import.meta.url),'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261029132653_alistado_origen_automatico.sql',import.meta.url),'utf8'));
   await db.exec(`select registrar_ajuste(22,22,6,'QA alistado simple','QA','QA');
     insert into pedido(id,categoria,numero) values(950,'TIENDA','QA-SIMPLE'),(951,'TIENDA','QA-EXTERNO-PARCIAL'),(952,'TIENDA','QA-CERO');
     insert into pedido_linea(id,pedido_id,producto_id,presentacion_id,cantidad_base,cantidad_presentacion,precio_unitario,sucursal_origen_id)

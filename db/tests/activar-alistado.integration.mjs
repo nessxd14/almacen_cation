@@ -34,7 +34,7 @@ export async function testActivarAlistado(db,{login,uid}) {
     'ANULADO','RESTAURADO','ELIMINADO','LINEA_RECHAZADA','PEDIDO_RECHAZADO','LINEA_CAMBIADA','LINEA_RETIRADA',
     'LINEA_DEVUELTA_ALMACEN','LINEA_INYECTADA_TIENDA','LINEAS_AGREGADAS','LINEA_A_COMPRA','COMPRA_COMPRADA',
     'COMPRA_RECIBIDA','COMPRA_CANCELADA','REMANENTE_CANCELADO','PEDIDO_EDITADO','AVISO_RESUELTO','TANDA_CORTADA')) not valid;`);
-  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261029131809_activar_alistado_pedidos_abiertos.sql',import.meta.url),'utf8'));
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261029132900_activar_alistado_pedidos_abiertos.sql',import.meta.url),'utf8'));
   assert.equal(await digest(lineasSql),antes.lineas,'Conserva exactamente cantidades, revisión, orígenes y responsables de todas las líneas');
   assert.equal(await digest(historicoSql),antes.historico,'No modifica cancelados ni históricos');
   assert.equal(await digest('select * from stock_actual'),antes.stock,'Activar no mueve inventario');

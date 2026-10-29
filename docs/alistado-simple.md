@@ -43,10 +43,10 @@ La demostración interactiva local está en `.local/qa-alistado/asistente/index.
 
 ## Instalación de esta versión
 
-- Migración preparada: `supabase/migrations/20261028215041_alistado_origen_automatico.sql`.
+- Migración aplicada: `supabase/migrations/20261029132653_alistado_origen_automatico.sql`.
 - Depende de la versión anterior `20261028131324_pedidos_tarjetas_origen_posterior.sql` y su cadena existente. No ejecutar todo el histórico sobre una base ya instalada.
 - La migración inicial agrega indicadores con valor inicial falso. El nuevo circuito se activa en nuevas tareas flexibles y se anuncia al frontend con `alistado_simple: true`.
-- La migración `20261029131809_activar_alistado_pedidos_abiertos.sql` lo extiende a todas las tandas activas de pedidos abiertos que aún no registraron su salida. Conserva cantidades, revisiones, responsables, versiones y fotos. No reabre salidas, cancelados ni pedidos completados.
+- La migración `20261029132900_activar_alistado_pedidos_abiertos.sql` lo extiende a todas las tandas activas de pedidos abiertos que aún no registraron su salida. Conserva cantidades, revisiones, responsables, versiones y fotos. No reabre salidas, cancelados ni pedidos completados.
 - Las tandas convertidas se identifican con `alistado_migrado`. Si ya estaban en verificación, el alistador puede completar el origen sin repetir la revisión ni invalidar las fotos; el origen es obligatorio antes de salir. Las líneas confirmadas aún en alistado que carezcan de origen vuelven a aparecer para completar su distribución. Las diferencias que ya había registrado el verificador se conservan.
 - La activación calcula los faltantes de compra sin duplicar solicitudes previas ni modificar compras ya comprometidas. No confirma cantidades ni mueve inventario.
 - El frontend mantiene compatibilidad con las tareas del contrato anterior. Sus orígenes pendientes siguen visibles.
@@ -54,6 +54,8 @@ La demostración interactiva local está en `.local/qa-alistado/asistente/index.
 - Para activar el circuito completo se publica el frontend y se aplican la migración inicial y la activación de pedidos abiertos. La publicación de código por sí sola no convierte las tandas existentes.
 
 Activación de producción del 29 de octubre: ambas migraciones aplicadas y frontend publicado con el PR #120. Las ocho tandas activas usan el alistado nuevo, incluidas las 165 líneas revisadas de la tanda 63. Se conservaron exactamente las líneas, cantidades, revisiones, versiones y fotos; no cambió el número de movimientos de Kardex. La activación creó tres solicitudes de compra por faltantes y el asesor de seguridad no añadió avisos. El CHECK de `pedido_evento.accion` conserva sus acciones previas y admite `COMPRA_ALISTADO_AUTOMATICA` y `REEMPLAZO_MATERIAL`.
+
+Los nombres de archivo usan las versiones asignadas por Supabase al aplicar las migraciones (`20261029132653` y `20261029132900`); se actualizaron las referencias locales sin reescribir el historial remoto.
 
 ## Verificación
 
