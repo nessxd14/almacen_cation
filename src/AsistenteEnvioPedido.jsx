@@ -1,18 +1,20 @@
 import {useLayoutEffect,useRef,useState} from 'react';
 import {ArrowLeft, ArrowRight, Check, CheckCircle2, Camera, ClipboardCheck, Clock3, Send} from 'lucide-react';
 import ResumenEnvioPedido from './ResumenEnvioPedido';
-import {textoCantidadEnvio} from './lib/envioPedido';
+import {cantidadEnvio,filasEnvio,textoCantidadEnvio} from './lib/envioPedido';
 import './asistente-envio.css';
 
-export default function AsistenteEnvioPedido({lineas,revision=false,numero=1,usuario,ocupado=false,editando=false,confirmacionPendiente=false,evidenciaLista=false,fotos=[],destino='',onDestino,onConfirmar,onConfirmarNoSale,renderProductos,evidencia,motivoBloqueo=''}) {
+export default function AsistenteEnvioPedido({lineas,revision=false,revisionAnterior=false,numero=1,usuario,ocupado=false,editando=false,confirmacionPendiente=false,evidenciaLista=false,fotos=[],destino='',onDestino,onConfirmar,onConfirmarNoSale,renderProductos,evidencia,motivoBloqueo=''}) {
   const [paso,setPaso]=useState(1),[edicion,setEdicion]=useState({id:null,numero:0}),[error,setError]=useState('');
   const enviando=useRef(false),cabecera=useRef(null),inicio=useRef(null),pasoAnterior=useRef(1);
   const vigentes=lineas.filter(l=>l.vigente);
-  const salen=vigentes.filter(l=>Number(l.preparada_base)>0);
-  const noSalen=revision?vigentes.filter(l=>Number(l.preparada_base)===0):[];
-  const completas=vigentes.length>0&&vigentes.every(l=>l.confirmada&&!l.incidencia_pendiente&&(!revision||l.revisada_base!=null&&Number(l.revisada_base)===Number(l.preparada_base)));
+  const salen=vigentes.filter(l=>cantidadEnvio(l,revision)>0);
+  const noSalen=revision?vigentes.filter(l=>cantidadEnvio(l,true)===0):[];
+  const registrada=l=>l.confirmada&&!l.incidencia_pendiente&&(!revision||l.revisada_base!=null&&(revisionAnterior||Number(l.revisada_base)===Number(l.preparada_base)));
+  const origenesListos=filasEnvio(vigentes,revision).every(f=>f.cantidad===0||f.origenCompleto);
+  const completas=vigentes.length>0&&vigentes.every(registrada)&&origenesListos;
   const productosListos=completas&&salen.length>0;
-  const registrados=vigentes.filter(l=>l.confirmada&&!l.incidencia_pendiente&&(!revision||l.revisada_base!=null&&Number(l.revisada_base)===Number(l.preparada_base))).length;
+  const registrados=vigentes.filter(registrada).length;
   const fotosListas=fotos.length>=1&&fotos.length<=10;
   const destinoListo=!revision||destino.trim().length>=3&&destino.trim().length<=300;
   // Si se invalida una línea o se quita una foto, el siguiente paso no puede
@@ -42,6 +44,7 @@ export default function AsistenteEnvioPedido({lineas,revision=false,numero=1,usu
     <div hidden={visible!==1} className="ae-panel" data-paso="productos">
       <p className="ae-instruccion">{revision?'Compara el material físico con lo alistado. Si encuentras una diferencia, devuelve la línea para corregirla.':'Confirma un producto a la vez. Almacén tiene prioridad; puedes enviar lo disponible y conservar el faltante.'}</p>
       {renderProductos({lineas:revision?salen:vigentes,lineaInicial:edicion.id,edicion:edicion.numero})}
+      {!origenesListos&&<p className="om-aviso">Completa el origen de las cantidades ya registradas antes de continuar.{revision&&' El alistador puede hacerlo en la sección de origen pendiente, sin repetir la revisión.'}</p>}
       {noSalen.length>0&&<section className="ae-no-sale" aria-label="Productos que no salen"><h3><Clock3 size={17}/> No sale en este envío</h3><p>Estas cantidades siguen pendientes en el mismo pedido.</p>{noSalen.map(l=><div className="ae-no-sale-fila" key={l.pedido_linea_id}><div><strong>{l.snapshot.nombre}</strong><small>{textoCantidadEnvio(Number(l.snapshot.pendiente_base),l.snapshot)} pendientes</small></div>{l.revisada_base!=null?<span><CheckCircle2 size={16}/> No sale</span>:<button className="om-secondary" disabled={ocupado||editando} onClick={()=>onConfirmarNoSale(l.pedido_linea_id)}>Confirmar que no sale</button>}</div>)}</section>}
       {!salen.length&&completas&&<p className="om-aviso">No hay material alistado para este envío. Las líneas siguen pendientes; no se registra una salida vacía.</p>}
       <footer className="ae-acciones"><p className={productosListos?'ae-listo':''} aria-live="polite">{productosListos?<><CheckCircle2 size={16}/> Todo listo. Continúa con las fotos.</>:<>{registrados} de {vigentes.length} productos {revision?'comprobados':'registrados'}. {revision?'Comprueba también las líneas que no salen.':'Incluye los que quedan en cero.'}</>}</p><button className="om-primary om-wide" disabled={bloqueado||!productosListos} onClick={()=>cambiar(2)}>Continuar a {revision?'fotos y destino':'fotos'} <ArrowRight size={18}/></button></footer>

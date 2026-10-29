@@ -45,10 +45,13 @@ La demostración interactiva local está en `.local/qa-alistado/asistente/index.
 
 - Migración preparada: `supabase/migrations/20261028215041_alistado_origen_automatico.sql`.
 - Depende de la versión anterior `20261028131324_pedidos_tarjetas_origen_posterior.sql` y su cadena existente. No ejecutar todo el histórico sobre una base ya instalada.
-- La migración agrega indicadores con valor inicial falso para conservar las tandas y compras anteriores. El nuevo circuito se activa en nuevas tareas flexibles y se anuncia al frontend con `alistado_simple: true`.
+- La migración inicial agrega indicadores con valor inicial falso. El nuevo circuito se activa en nuevas tareas flexibles y se anuncia al frontend con `alistado_simple: true`.
+- La migración `20261029131809_activar_alistado_pedidos_abiertos.sql` lo extiende a todas las tandas activas de pedidos abiertos que aún no registraron su salida. Conserva cantidades, revisiones, responsables, versiones y fotos. No reabre salidas, cancelados ni pedidos completados.
+- Las tandas convertidas se identifican con `alistado_migrado`. Si ya estaban en verificación, el alistador puede completar el origen sin repetir la revisión ni invalidar las fotos; el origen es obligatorio antes de salir. Las líneas confirmadas aún en alistado que carezcan de origen vuelven a aparecer para completar su distribución. Las diferencias que ya había registrado el verificador se conservan.
+- La activación calcula los faltantes de compra sin duplicar solicitudes previas ni modificar compras ya comprometidas. No confirma cantidades ni mueve inventario.
 - El frontend mantiene compatibilidad con las tareas del contrato anterior. Sus orígenes pendientes siguen visibles.
 - Las funciones auxiliares quedan privadas; se mantiene el punto de entrada autenticado y se revoca el acceso directo al motor anterior para evitar saltarse las nuevas comprobaciones.
-- Esta entrega es local. No se aplicó la migración ni se desplegó código sobre los servicios del negocio.
+- Para activar el circuito completo se publica el frontend y se aplican la migración inicial y la activación de pedidos abiertos. La publicación de código por sí sola no convierte las tandas existentes.
 
 ## Verificación
 
