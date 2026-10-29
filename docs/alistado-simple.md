@@ -53,6 +53,8 @@ La demostración interactiva local está en `.local/qa-alistado/asistente/index.
 - Las funciones auxiliares quedan privadas; se mantiene el punto de entrada autenticado y se revoca el acceso directo al motor anterior para evitar saltarse las nuevas comprobaciones.
 - Para activar el circuito completo se publica el frontend y se aplican la migración inicial y la activación de pedidos abiertos. La publicación de código por sí sola no convierte las tandas existentes.
 
+Activación de producción del 29 de octubre: ambas migraciones aplicadas y frontend publicado con el PR #120. Las ocho tandas activas usan el alistado nuevo, incluidas las 165 líneas revisadas de la tanda 63. Se conservaron exactamente las líneas, cantidades, revisiones, versiones y fotos; no cambió el número de movimientos de Kardex. La activación creó tres solicitudes de compra por faltantes y el asesor de seguridad no añadió avisos. El CHECK de `pedido_evento.accion` conserva sus acciones previas y admite `COMPRA_ALISTADO_AUTOMATICA` y `REEMPLAZO_MATERIAL`.
+
 ## Verificación
 
 ```powershell

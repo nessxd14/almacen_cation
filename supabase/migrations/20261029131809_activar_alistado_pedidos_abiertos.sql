@@ -1,5 +1,22 @@
 -- Activa el alistado nuevo sin reabrir salidas ni rehacer el trabajo físico.
 set local lock_timeout='5s';
+
+-- Conserva las acciones comerciales admitidas y agrega los eventos del flujo
+-- de tarjetas y de compra automática antes de crear faltantes existentes.
+do $$
+declare regla text;validada boolean;
+begin
+  select pg_get_constraintdef(oid),convalidated into regla,validada from pg_constraint
+    where conrelid='public.pedido_evento'::regclass and conname='pedido_evento_accion_check' and contype='c';
+  if regla is not null then
+    alter table public.pedido_evento drop constraint pedido_evento_accion_check;
+    -- pg_get_constraintdef devuelve CHECK (...); conservamos su expresión completa.
+    execute 'alter table public.pedido_evento add constraint pedido_evento_accion_check check ('||
+      substring(regexp_replace(regla,' NOT VALID$','') from 7)||' or accion in (''COMPRA_ALISTADO_AUTOMATICA'',''REEMPLAZO_MATERIAL''))'||
+      case when validada then '' else ' not valid' end;
+  end if;
+end $$;
+
 alter table public.almacen_preparacion add column alistado_migrado boolean not null default false;
 
 -- La procedencia de una tanda anterior se completa sobre su cantidad física
