@@ -29,7 +29,12 @@ export async function testActivarAlistado(db,{login,uid}) {
   const lineasSql='select * from almacen_preparacion_linea';
   const historicoSql="select to_jsonb(t)-'alistado_migrado' datos from almacen_preparacion t join pedido p on p.id=t.pedido_id where p.estado<>'ABIERTO' or t.estado in ('DESPACHADO','ANULADO')";
   const antes={lineas:await digest(lineasSql),historico:await digest(historicoSql),stock:await digest('select * from stock_actual')};
-  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261029131809_activar_alistado_pedidos_abiertos.sql',import.meta.url),'utf8'));
+  // Contrato de producción: el fixture previo no incluía este CHECK comercial.
+  await db.exec(`alter table pedido_evento add constraint pedido_evento_accion_check check (accion in (
+    'ANULADO','RESTAURADO','ELIMINADO','LINEA_RECHAZADA','PEDIDO_RECHAZADO','LINEA_CAMBIADA','LINEA_RETIRADA',
+    'LINEA_DEVUELTA_ALMACEN','LINEA_INYECTADA_TIENDA','LINEAS_AGREGADAS','LINEA_A_COMPRA','COMPRA_COMPRADA',
+    'COMPRA_RECIBIDA','COMPRA_CANCELADA','REMANENTE_CANCELADO','PEDIDO_EDITADO','AVISO_RESUELTO','TANDA_CORTADA')) not valid;`);
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261029132900_activar_alistado_pedidos_abiertos.sql',import.meta.url),'utf8'));
   assert.equal(await digest(lineasSql),antes.lineas,'Conserva exactamente cantidades, revisión, orígenes y responsables de todas las líneas');
   assert.equal(await digest(historicoSql),antes.historico,'No modifica cancelados ni históricos');
   assert.equal(await digest('select * from stock_actual'),antes.stock,'Activar no mueve inventario');
