@@ -29,7 +29,7 @@ async function montar(ruta = '/operaciones/pedidos/248') { await act(async () =>
 const ultimo = () => qa.rpc.mock.calls.at(-1)[1];
 function capturar(nombre) {
   if (!env.CATION_QA_OUTPUT) return;
-  const css = readFileSync('src/operaciones-movil.css', 'utf8') + readFileSync('src/preparacion-checklist.css', 'utf8');
+  const css = readFileSync('src/operaciones-movil.css', 'utf8') + readFileSync('src/preparacion-checklist.css', 'utf8') + readFileSync('src/pedido-tarjetas.css', 'utf8');
   writeFileSync(`${env.CATION_QA_OUTPUT}/operaciones-${nombre}.html`, `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Operaciones · datos ficticios QA</title><style>body{margin:0;font-family:Arial,sans-serif;background:#f8fafc}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}${css}</style><body>${nodo.innerHTML}</body></html>`);
 }
 function estado(nombre, version) { return { ...qa.datos, tarea: { ...qa.datos.tarea, estado: nombre, version } }; }
@@ -48,6 +48,23 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); nodo.remove(); });
 
 describe('preparación y revisión en el celular', () => {
+  it('mantiene el tema de pedidos al alistar, verificar y consultar el envío cerrado',async()=>{
+    qa.datos.pedido_flexible=true;qa.datos.alistado_simple=true;qa.datos.pedido_dos_actores=true;qa.datos.numero_entrega=1;
+    qa.datos.lineas[0]={...qa.datos.lineas[0],propuesta_almacen_base:24,propuesta_compra_base:0};
+    qa.rpc.mockImplementation(async nombre=>nombre==='operar_evidencia_operacion'?{data:{activo:true,envios:[],contexto:{puede_capturar:qa.datos.tarea.estado!=='DESPACHADO',etapa:qa.datos.tarea.estado==='PREPARANDO'?'PREPARACION':'SALIDA',dos_actores:true}},error:null}:{data:structuredClone(qa.datos),error:null});
+    await montar();expect(nodo.querySelector('.om-app').classList.contains('om-pedidos-ui')).toBe(true);capturar('simple-alistado');
+    await pulsar('Ajustar cantidades');capturar('simple-cantidades');await pulsar('Cancelar');
+    qa.datos.lineas[0]={...qa.datos.lineas[0],confirmada:true,preparada_base:12,origenes_declarados:[{tipo:'ALMACEN',cantidad_base:12,ubicacion_id:1}]};
+    qa.datos.lineas.push({...qa.datos.lineas[0],pedido_linea_id:32,preparada_base:0,origenes_declarados:[],snapshot:{...qa.datos.lineas[0].snapshot,nombre:'Sobre manila TOP oficio',pendiente_base:100,factor:100,presentacion:'paquete'}});
+    qa.datos.tarea={...qa.datos.tarea,estado:'REVISANDO',preparador_id:'otra-persona',preparador_nombre:'Luis QA',revisor_id:'operario-qa',revisor_nombre:'Ana QA'};
+    await pulsar('Actualizar');expect(buscarBoton('Devolver al almacenero')).toBeTruthy();capturar('simple-verificacion');
+    await pulsar('Devolver al almacenero');capturar('simple-devolver');await pulsar('Cancelar');
+    qa.datos.tarea.estado='DESPACHADO';qa.datos.entregada=true;qa.datos.resumen_pedido={estado:'PARCIAL'};
+    qa.datos.lineas=qa.datos.lineas.map(l=>({...l,revisada_base:l.preparada_base}));
+    await pulsar('Actualizar');expect(nodo.textContent).toContain('Preparar productos pendientes');capturar('simple-cerrado');
+    expect(buscarBoton('Crear una nueva preparación')).toBeUndefined();
+    expect(nodo.textContent).not.toContain('Origen por declarar');
+  });
   it('cierra una revisión del contrato anterior desde QR con su plan conservado',async()=>{
     qa.datos.tarea={...qa.datos.tarea,estado:'VERIFICADO',preparador_id:'otra-persona',revisor_id:'operario-qa'};qa.datos.salida_qr_legada=true;
     qa.datos.plan_salida=[{linea_id:31,cantidad_base:24,asignaciones:[{ubicacion_id:1,nombre:'A · 01',cantidad_base:24}],error:null}];
