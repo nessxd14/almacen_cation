@@ -48,6 +48,17 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); nodo.remove(); });
 
 describe('preparación y revisión en el celular', () => {
+  it('muestra el origen pendiente del alistador dentro de una revisión migrada',async()=>{
+    qa.datos.pedido_flexible=true;qa.datos.alistado_simple=true;qa.datos.alistado_migrado=true;qa.datos.pedido_dos_actores=true;
+    qa.datos.tarea={...qa.datos.tarea,estado:'REVISANDO',preparador_id:'otra-persona',revisor_id:'operario-qa'};
+    qa.datos.lineas[0]={...qa.datos.lineas[0],confirmada:true,preparada_base:24,revisada_base:24,origenes_declarados:null};
+    qa.datos.origenes_pendientes=[{linea_id:31,nombre:'Producto pendiente QA',cantidad_base:24,unidad_base:'unidades',producto_id:1}];
+    qa.datos.puede_declarar_origen=false;
+    await montar();
+    expect(nodo.textContent).toContain('Origen por declarar');
+    expect(nodo.textContent).toContain('Tarea pendiente del alistador');
+    expect(buscarBoton('Continuar a fotos y destino').disabled).toBe(true);
+  });
   it('mantiene el tema de pedidos al alistar, verificar y consultar el envío cerrado',async()=>{
     qa.datos.pedido_flexible=true;qa.datos.alistado_simple=true;qa.datos.pedido_dos_actores=true;qa.datos.numero_entrega=1;
     qa.datos.lineas[0]={...qa.datos.lineas[0],propuesta_almacen_base:24,propuesta_compra_base:0};

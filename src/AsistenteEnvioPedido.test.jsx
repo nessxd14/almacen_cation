@@ -56,3 +56,23 @@ it('cero y cero conserva el pedido pendiente y no permite avanzar con un envío 
   await act(async()=>root.render(<Harness cero/>));expect(paso()).toBe('productos');expect(boton('Continuar a fotos').disabled).toBe(true);
   expect(node.textContent).toContain('no se registra una salida vacía');expect(confirmar).not.toHaveBeenCalled();
 });
+
+it('bloquea una tanda migrada ya revisada hasta completar el origen, conservando la diferencia anterior',async()=>{
+  const linea={...fila(),preparada_base:8,revisada_base:6,origenes_declarados:null};
+  const props={revision:true,revisionAnterior:true,usuario:'Ana QA',renderProductos:()=>null,onConfirmar:confirmar};
+  await act(async()=>root.render(<AsistenteEnvioPedido {...props} lineas={[linea]}/>));
+  expect(boton('Continuar a fotos y destino').disabled).toBe(true);
+  expect(node.textContent).toContain('sin repetir la revisión');
+  await act(async()=>root.render(<AsistenteEnvioPedido {...props} lineas={[{...linea,origenes_declarados:[{tipo:'ALMACEN',cantidad_base:6}]}]}/>));
+  expect(boton('Continuar a fotos y destino').disabled).toBe(false);
+  expect(confirmar).not.toHaveBeenCalled();
+});
+
+it('conserva una revisión anterior de cero sin presentarla como material saliente',async()=>{
+  const lineas=[{...fila(),preparada_base:8,revisada_base:6,origenes_declarados:[{tipo:'ALMACEN',cantidad_base:6}]},{...fila(2),preparada_base:4,revisada_base:0,origenes_declarados:null}];
+  const renderProductos=vi.fn(()=>null);
+  await act(async()=>root.render(<AsistenteEnvioPedido revision revisionAnterior lineas={lineas} usuario="Ana QA" renderProductos={renderProductos}/>));
+  expect(renderProductos.mock.calls.at(-1)[0].lineas).toHaveLength(1);
+  expect(node.textContent).toContain('No sale en este envío');
+  expect(boton('Continuar a fotos y destino').disabled).toBe(false);
+});

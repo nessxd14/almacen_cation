@@ -14,6 +14,7 @@ import { testCajaCobroLiberado } from './caja-cobro-liberado.integration.mjs';
 import { testPedidosTarjetas } from './pedidos-tarjetas.integration.mjs';
 import { testActivarTarjetas } from './activar-tarjetas.integration.mjs';
 import { testAlistadoSimple } from './alistado-simple.integration.mjs';
+import { testActivarAlistado } from './activar-alistado.integration.mjs';
 
 // Sólo esquema y funciones públicas inspeccionadas; nunca contiene datos de negocio.
 // Todos los documentos, personas y movimientos de esta prueba viven en memoria.
@@ -192,6 +193,7 @@ try {
   await testPedidosTarjetas(db, { login, uid });
   await testActivarTarjetas(db, { login, uid });
   await testAlistadoSimple(db, { login, uid });
+  await testActivarAlistado(db, { login, uid });
   await db.query("select set_config('request.jwt.claim.sub','',false)");await assert.rejects(() => call('TRASLADO_VIRTUAL',cid), /perfil no tiene acceso|Inicia sesión/);
   console.log('OK: pedidos, asignación al escanear, verificador separado, devolución, RLS y sin stock durante checklist');
 } catch (error) {

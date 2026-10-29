@@ -3,7 +3,7 @@ import {supabase} from './supabaseClient';
 import {cantidadOperacion,cantidadTexto} from './lib/operacionesMovil';
 import {etiquetaUbicacion} from './lib/ubicacionTexto';
 
-export default function OrigenesPendientesPedido({pendientes,puedeDeclarar,ocupado,accion,sucursalId,sucursales,setEditor}) {
+export default function OrigenesPendientesPedido({pendientes,puedeDeclarar,ocupado,accion,sucursalId,sucursales,setEditor,antesDeSalida=false}) {
   const [abierta,setAbierta]=useState(null),[ubicaciones,setUbicaciones]=useState([]),[error,setError]=useState('');
   useEffect(()=>{
     let vigente=true;
@@ -14,7 +14,7 @@ export default function OrigenesPendientesPedido({pendientes,puedeDeclarar,ocupa
   },[sucursalId]);
   if(!pendientes?.length)return null;
   function cerrar(){setAbierta(null);setEditor(null);}
-  return <section className="pt-origenes" aria-label="Declaración de origen pendiente"><h3>Origen por declarar · {pendientes.length}</h3><p>El alistador debe indicar de dónde vino el material. Puede combinar Almacén, Tienda y compra. Esta tarea se conserva después de la salida.</p>{error&&<p role="alert">{error}</p>}
+  return <section className="pt-origenes" aria-label="Declaración de origen pendiente"><h3>Origen por declarar · {pendientes.length}</h3><p>El alistador debe indicar de dónde vino el material. Puede combinar Almacén, Tienda y compra. {antesDeSalida?'Completa esta información antes de la salida; se conservan las cantidades, revisiones y fotos anteriores.':'Esta tarea se conserva después de la salida.'}</p>{error&&<p role="alert">{error}</p>}
     {pendientes.map(l=><article key={l.linea_id}><strong>{l.nombre}</strong><div className="pt-origen-resumen">{cantidadTexto(l.cantidad_base)} {l.unidad_base} por distribuir</div>{puedeDeclarar?(abierta===l.linea_id?<FormularioOrigen key={`${l.linea_id}:${l.cantidad_base}`} linea={l} ubicaciones={ubicaciones} tiendas={sucursales.filter(s=>s.tipo!=='virtual'&&String(s.id)!==String(sucursalId))} ocupado={ocupado} guardar={async origenes=>{const ok=await accion('declarar_origen',{linea_id:l.linea_id,origenes});if(ok!==false)cerrar();return ok;}} onCerrar={cerrar}/>:<button className="om-secondary" disabled={ocupado||abierta!=null} onClick={()=>{setAbierta(l.linea_id);setEditor({lineaId:l.linea_id,intencion:'origen_posterior'});}}>Declarar origen</button>):<p className="om-muted">Tarea pendiente del alistador de esta tanda.</p>}</article>)}
   </section>;
 }

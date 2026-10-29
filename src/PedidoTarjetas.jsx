@@ -6,7 +6,7 @@ import {cantidadOperacion,cantidadTexto} from './lib/operacionesMovil';
 import {etiquetaUbicacion} from './lib/ubicacionTexto';
 import './pedido-tarjetas.css';
 import ResumenEnvioPedido from './ResumenEnvioPedido';
-import {cantidadEnvio,estadoAlistado} from './lib/envioPedido';
+import {cantidadEnvio,estadoAlistado,filasEnvio} from './lib/envioPedido';
 import CantidadOrigenPedido from './CantidadOrigenPedido';
 
 const motivos=['Solo hay una parte','No hay stock','Producto dañado','No lo encuentro','Otro'];
@@ -39,7 +39,7 @@ export default function PedidoTarjetas({lineas,revision,ocupado,accion,setEditor
   const [seleccion,setSeleccion]=useState(lineaInicial),[formulario,setFormulario]=useState(null),[error,setError]=useState('');
   const [arrastre,setArrastre]=useState(0);
   const inicio=useRef(null),guardando=useRef(false);
-  const procesada=l=>revision?l.revisada_base!=null:l.confirmada||l.incidencia_pendiente;
+  const procesada=l=>revision?l.revisada_base!=null:simple?l.confirmada&&!l.incidencia_pendiente&&(Number(l.preparada_base)===0||filasEnvio([l])[0]?.origenCompleto):l.confirmada||l.incidencia_pendiente;
   const pendientes=lineas.filter(l=>!procesada(l));
   const incidencias=lineas.filter(l=>l.incidencia_pendiente);
   const actual=seleccion==='resumen'?null:lineas.find(l=>l.pedido_linea_id===seleccion)||pendientes[0];
