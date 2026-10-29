@@ -11,9 +11,9 @@ vi.mock('./TypeaheadProducto',()=>({default:()=>null}));
 vi.mock('./supabaseClient',()=>({supabase:{from:()=>{const q={select:()=>q,eq:()=>q,order:()=>q,then:resolve=>Promise.resolve({data:[{id:1,codigo_zona:'A-01'}],error:null}).then(resolve)};return q;}}}));
 let node,root,accion;
 const inicial=()=>[{pedido_linea_id:1,vigente:true,confirmada:false,preparada_base:0,revisada_base:null,snapshot:{producto_id:1,nombre:'Resma de papel carta',sku:'PAP-CARTA',factor:12,presentacion:'Caja',unidad_base:'unidades',pendiente_base:24,imagen_url:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="500" height="280" viewBox="0 0 500 280"%3E%3Crect width="500" height="280" fill="%23edf4f4"/%3E%3Cpath d="M155 70h175v145H155z" fill="white" stroke="%23c6d4d7" stroke-width="3"/%3E%3Cpath d="M175 50h175v145H175z" fill="white" stroke="%239fb7bd" stroke-width="3"/%3E%3Cpath d="M175 145h175v50H175z" fill="%230e7b70"/%3E%3Ctext x="262" y="176" text-anchor="middle" font-size="19" fill="white" font-family="Arial"%3EPAPEL CARTA%3C/text%3E%3C/svg%3E'}},{pedido_linea_id:2,vigente:true,confirmada:false,preparada_base:0,revisada_base:null,snapshot:{es_personalizado:true,nombre:'Cartulina verde especial',factor:1,unidad_base:'unidades',pendiente_base:5}}];
-function Harness({fallar=false,revision=false}){
+function Harness({fallar=false,revision=false,simple=false}){
   const [lineas,setLineas]=useState(()=>inicial().map(l=>revision?{...l,confirmada:true,preparada_base:l.pedido_linea_id===1?12:0}:l));
-  return <PedidoTarjetas lineas={lineas} revision={revision} ocupado={false} numeroTanda={2} ubicaciones={{1:[{id:1,codigo_zona:'A-01',estante:'B',nivel:'2'}]}} setEditor={()=>{}} accion={async(nombre,payload)=>{
+  return <PedidoTarjetas lineas={lineas} revision={revision} simple={simple} ocupado={false} numeroTanda={2} ubicaciones={{1:[{id:1,codigo_zona:'A-01',estante:'B',nivel:'2'}]}} setEditor={()=>{}} accion={async(nombre,payload)=>{
     accion(nombre,payload);if(fallar)return false;
     setLineas(ls=>ls.map(l=>l.pedido_linea_id===payload.linea_id?{...l,...(nombre==='guardar_revision'?{revisada_base:payload.cantidad_base}:{preparada_base:payload.cantidad_base,confirmada:nombre!=='registrar_incidencia',incidencia_pendiente:nombre==='registrar_incidencia'}),observacion:payload.observacion}:l));return true;
   }}/>;
@@ -47,13 +47,25 @@ it('el gesto horizontal confirma y el gesto vertical conserva la tarjeta',async(
   const gesto=async(x,y)=>act(async()=>{card.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,clientX:40,clientY:40}));card.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:x,clientY:y}));});
   await gesto(70,190);expect(accion).not.toHaveBeenCalled();await gesto(170,45);expect(accion).toHaveBeenCalledTimes(1);
 });
-it('la revisión puede ajustar cantidades e incluir un producto que llegó después',async()=>{
+it('la revisión conserva cero y solo incluye material adicional mediante un ajuste explícito',async()=>{
   await act(async()=>root.render(<Harness revision/>));await click('Ajustar salida');await cambiar(campo('Cantidad que sale'),'2');await enviar();
-  expect(accion.mock.calls[0][1]).toMatchObject({linea_id:1,cantidad_base:24,metodo:'visual'});await click('Verificado · sale');
-  expect(accion.mock.calls.at(-1)[1]).toMatchObject({linea_id:2,cantidad_base:5,observacion:'Material disponible al retirar'});
+  expect(accion.mock.calls[0][1]).toMatchObject({linea_id:1,cantidad_base:24,metodo:'visual'});
+  expect(node.querySelector('.pt-cantidad').textContent).toBe('0 unidades');
+  await click('Confirmar que no sale');
+  expect(accion.mock.calls.at(-1)[1]).toMatchObject({linea_id:2,cantidad_base:0,observacion:''});
+  const linea=[...node.querySelectorAll('.pt-lista>button')].find(b=>b.textContent.includes('Cartulina'));
+  await act(async()=>linea.click());await click('Ajustar salida');await cambiar(campo('Cantidad que sale'),'5');await enviar();
+  expect(accion.mock.calls.at(-1)[1]).toMatchObject({linea_id:2,cantidad_base:5,metodo:'visual'});
 });
 it('permite declarar una combinación de los tres orígenes después de la salida',async()=>{
   await act(async()=>root.render(<OrigenesPendientesPedido pendientes={[{linea_id:1,nombre:'Resma carta',producto_id:1,cantidad_base:8,unidad_base:'unidades'}]} puedeDeclarar ocupado={false} accion={accion} sucursalId={1} sucursales={[{id:2,nombre:'Tienda central',tipo:'fisica'}]} setEditor={()=>{}}/>));
   await click('Declarar origen');await cambiar(campo('De Almacén'),'4');await cambiar(campo('De Tienda'),'2');await cambiar(campo('Comprado'),'2');await cambiar(campo('Ubicación de Almacén'),'1');await cambiar(campo('Tienda de origen'),'2');await cambiar(campo('Proveedor'),'Proveedor QA');captura('origen-mixto');await enviar();
   expect(accion).toHaveBeenCalledWith('declarar_origen',{linea_id:1,origenes:[{tipo:'ALMACEN',cantidad_base:4,ubicacion_id:1},{tipo:'TIENDA',cantidad_base:2,sucursal_tienda_id:2,referencia:'Tienda central'},{tipo:'COMPRA_RAPIDA',cantidad_base:2,referencia:'Proveedor QA'}]});
+});
+it('en el flujo simple el verificador devuelve la línea sin cambiar su cantidad ni origen',async()=>{
+  await act(async()=>root.render(<Harness revision simple/>));
+  expect(boton('Ajustar salida')).toBeUndefined();await click('Devolver al almacenero');
+  await cambiar(campo('Diferencia encontrada'),'Falta una caja física');await enviar();
+  expect(accion).toHaveBeenCalledWith('devolver_linea',{linea_id:1,observacion:'Falta una caja física'});
+  expect(accion.mock.calls.every(([nombre])=>nombre!=='guardar_revision')).toBe(true);
 });
