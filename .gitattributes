@@ -1,0 +1,3 @@
+# Los parches de funciones SQL contrastan sus cuerpos entre migraciones.
+# Evita que Git convierta sus saltos de línea al clonar en Windows.
+*.sql text eol=lf

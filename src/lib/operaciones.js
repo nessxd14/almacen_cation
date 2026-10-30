@@ -1,3 +1,5 @@
+import {peticionAcotada} from './peticionAcotada';
+import {consultarStockSistema} from './stockOperacion';
 /**
  * lib/operaciones.js — Motor compartido de operaciones de Kardex.
  *
@@ -24,7 +26,6 @@
 
 import { supabase } from "../supabaseClient";
 import { sanearFiltro } from "./filtroTexto";
-import { stockDespachable } from "./stockSucursal";
 import { etiquetaUbicacion } from "./ubicacionTexto";
 
 const uuid = () =>
@@ -802,12 +803,14 @@ export async function saldoVendible(productoIds, sucursalId) {
  * -> { resultado: {estado, cantidad_despachada}, error }
  */
 export async function despacharTraslado({ solicitudId, lineas, usuario }) {
-  const { data, error } = await supabase.rpc("despachar_traslado", {
+  try {
+  const { data, error } = await peticionAcotada(supabase.rpc("despachar_traslado", {
     p_solicitud_id: Number(solicitudId),
     p_usuario: usuario,
     p_lineas: lineas || null,
-  });
+  }),{incierta:true});
   return { resultado: data, error };
+  } catch(error) { return {resultado:null,error}; }
 }
 
 /* ── confirmar recepción de un traslado EN_TRANSITO: acredita destino ya
@@ -864,23 +867,9 @@ export async function stockPorSucursalProducto(productoId) {
  * en verdad veía +200 disponibles.
  * -> Map<producto_id, cantidad_base>
  */
-export async function stockDisponibleSucursal(productoIds, sucursalId) {
-  const ids = [...new Set((productoIds || []).filter(Boolean))].map(Number);
-  if (ids.length === 0 || !sucursalId) return new Map();
-  const rows = [];
-  for (let start = 0; start < ids.length; start += 100) {
-    let offset = 0;
-    for (;;) {
-      const { data, error } = await supabase.from('stock_actual')
-        .select('producto_id, cantidad_base, ubicacion:ubicacion_id!inner(sucursal_id, excluye_disponible)')
-        .in('producto_id', ids.slice(start, start + 100)).eq('ubicacion.sucursal_id', sucursalId)
-        .gt('cantidad_base', 0).order('producto_id').order('ubicacion_id').range(offset, offset + 499);
-      if (error) throw error;
-      if (!data?.length) break;
-      rows.push(...data); offset += data.length;
-    }
-  }
-  return stockDespachable(rows, sucursalId);
+export async function stockDisponibleSucursal(productoIds,sucursalId) {
+  if(!(productoIds||[]).filter(Boolean).length)return new Map();
+  return consultarStockSistema(supabase,productoIds,sucursalId);
 }
 
 /* ── stock por sucursal para un lote de producto_id (una página de tabla,
