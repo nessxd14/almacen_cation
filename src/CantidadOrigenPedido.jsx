@@ -1,9 +1,10 @@
+import StockSistema from './StockSistema';
 import {useState} from 'react';
 import {Warehouse, ShoppingCart, Clock3} from 'lucide-react';
 import {cantidadOperacion, cantidadTexto} from './lib/operacionesMovil';
 import {textoCantidadEnvio} from './lib/envioPedido';
 
-export default function CantidadOrigenPedido({linea,ocupado,guardar,onCerrar,sucursales=[],sucursalId}) {
+export default function CantidadOrigenPedido({linea,ocupado,guardar,onCerrar,sucursales=[],sucursalId,stock,lineasStock=[]}) {
   const originales=linea.origenes_declarados;
   const f=Number(linea.reemplazo?.factor ?? 1);
   const presentacion=linea.reemplazo?1:Number(linea.snapshot.factor)||1;
@@ -37,6 +38,7 @@ export default function CantidadOrigenPedido({linea,ocupado,guardar,onCerrar,suc
     <small className="om-muted">Solo cuenta aquí material que ya se consiguió y está preparado.</small>
     {qe>0&&<><label>Procedencia<select value={tipo} onChange={e=>setTipo(e.target.value)} disabled={ocupado}><option value="COMPRA_RAPIDA">Compra para este pedido</option>{tiendas.length>0&&<option value="TIENDA">Traído de Tienda</option>}</select></label>
       {tipo==='TIENDA'?<label>Tienda de origen<select value={tienda} onChange={e=>setTienda(e.target.value)} disabled={ocupado} required><option value="">Seleccionar Tienda</option>{tiendas.map(s=><option key={s.id} value={s.id}>{s.nombre}</option>)}</select></label>:<label>Proveedor o procedencia<input value={referencia} onChange={e=>setReferencia(e.target.value)} disabled={ocupado} maxLength={200} required/></label>}</>}
+    <StockSistema stock={stock} linea={linea} lineas={lineasStock} cantidad={qa}/>
     {pendiente!=null&&<div className={`pt-origen-balance${pendiente>0?' pt-origen-balance-pendiente':''}`} role="status"><strong>Preparado: {cantidadTexto((qa+qe)/presentacion)} {unidad}</strong><span><Clock3 size={16}/>{pendiente>0?`Pendiente de compra: ${textoCantidadEnvio(pendiente/f,linea.snapshot)}`:'Toda la cantidad está preparada'}</span>{qa+qe===0&&<small>No sale esta línea. Sigue pendiente; el rechazo lo decide el vendedor o gerente.</small>}</div>}
     {linea.compra_existente?.some(c=>!c.automatica||c.estado==='COMPRADA')&&<p className="om-aviso">Esta línea tiene una compra en gestión. Se conserva su seguimiento en Compras.</p>}
     <label>Observación (opcional)<input value={nota} onChange={e=>setNota(e.target.value)} disabled={ocupado} maxLength={1000}/></label>

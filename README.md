@@ -1,5 +1,9 @@
 # React + Vite
 
+## Traslados por pasos y saldo visible
+
+El alistado y la recepción por QR de Traslados reutilizan el asistente de tres pasos de Pedidos. Los formularios muestran stock registrado, uso y saldo previsto; distinguen stock cero, insuficiencia y errores de conexión. Las consultas tienen límites de espera y conservan los datos para reintentar. Consulta [la guía del asistente y stock](docs/traslados-asistente-stock.md).
+
 ## Alistado simple y envíos pendientes
 
 Nueva versión local: Almacén se propone por defecto, el faltante genera una solicitud de compra y los envíos pueden salir parcialmente, incluso con cantidades 0 de Almacén y 8 externas de 10 solicitadas. La verificación devuelve las diferencias al alistador y conserva las líneas pendientes. Consulta [reglas, instalación y pruebas del alistado simple](docs/alistado-simple.md). La migración está preparada para nuevas tandas; su aplicación al backend existente es un paso separado.
