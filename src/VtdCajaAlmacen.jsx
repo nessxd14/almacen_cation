@@ -6,7 +6,7 @@ import { subirEvidenciaVtd } from './lib/evidenciaVtd';
 
 const nombres = { SOLICITADO: 'Pendiente de verificar', EN_CAJA: 'Material enviado a Caja', ENTREGADO: 'Entrega confirmada por Caja', RETORNO_PENDIENTE: 'Material en retorno a Almacén', RETORNADO: 'Retorno recibido', CANCELADO: 'Solicitud cancelada antes de salir' };
 
-export default function VtdCajaAlmacen({ registro, ventaId, onChanged }) {
+export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId = null }) {
   const entrega = registro.vtds.find(v => String(v.venta_id) === String(ventaId));
   const [cantidades, setCantidades] = useState({});
   const [motivo, setMotivo] = useState('');
@@ -28,7 +28,11 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged }) {
   const disponible = l => disponibles[l.linea_id] ?? String(l.cantidad_presentacion);
   const faltanteValido = lineas.length > 0 && lineas.every(l => { const n = Number(disponible(l)); return disponible(l) !== '' && Number.isFinite(n) && n >= 0 && n <= Number(l.cantidad_presentacion); })
     && lineas.some(l => Number(disponible(l)) < Number(l.cantidad_presentacion)) && motivoFaltante.trim().length >= 5;
-  const completa = lineas.length > 0 && lineas.every(l => cantidades[l.linea_id] !== undefined && cantidades[l.linea_id] !== '' && Number(cantidades[l.linea_id]) === Number(l.cantidad_base));
+  // Se verifica en la presentación del documento; el servidor sigue comparando unidades base.
+  const completa = lineas.length > 0 && lineas.every(l => cantidades[l.linea_id] !== undefined && cantidades[l.linea_id] !== '' && Number(cantidades[l.linea_id]) === Number(l.cantidad_presentacion));
+  const confirmarTodo = () => setCantidades(Object.fromEntries(lineas.map(l => [l.linea_id, String(l.cantidad_presentacion)])));
+  // El primero que escanea queda como encargado; en un relevo, otro puede tomar la verificación.
+  const ajena = entrega.estado === 'SOLICITADO' && Boolean(entrega.responsable_id) && Boolean(usuarioId) && entrega.responsable_id !== usuarioId;
   async function guardar(accion) {
     if (bloqueado.current) return;
     if (accion === 'enviar' && (evidenciaActiva === null || (evidenciaActiva && !fotos.length))) { setError('Adjunta al menos una foto y espera a que se compruebe la evidencia.'); return; }
@@ -50,7 +54,7 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged }) {
       if (evidenciaId) lote.current.rpcIntentado = true;
       const { data, error: fallo } = await supabase.rpc('operar_caja_almacen', {
         p_accion: accion, p_operacion_id: null, p_sesion_id: null,
-        p_datos: { venta_id: Number(ventaId), version: entrega.version, motivo: motivo.trim(), cantidades: lineas.map(l => ({ linea_id: l.linea_id, cantidad_base: Number(cantidades[l.linea_id]) })).sort((a,b) => a.linea_id-b.linea_id), ...(evidenciaId ? { evidencia_id: evidenciaId } : {}) },
+        p_datos: { venta_id: Number(ventaId), version: entrega.version, motivo: motivo.trim(), cantidades: lineas.map(l => ({ linea_id: l.linea_id, cantidad_base: Number(l.cantidad_base) })).sort((a,b) => a.linea_id-b.linea_id), ...(evidenciaId ? { evidencia_id: evidenciaId } : {}) },
       });
       if (fallo) throw new Error(fallo.message);
       if (!data?.operacion) throw new Error('No se pudo comprobar el resultado. Actualiza y consulta antes de reintentar.');
@@ -73,6 +77,18 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged }) {
     } catch (e) { setError(e.message || 'No se pudo reportar el faltante.'); }
     finally { setBusy(false); bloqueado.current = false; }
   }
+  async function tomar() {
+    if (bloqueado.current) return;
+    bloqueado.current = true;
+    setBusy(true); setError('');
+    try {
+      const { data, error: fallo } = await supabase.rpc('operar_caja_almacen', { p_accion: 'tomar_verificacion', p_operacion_id: null, p_sesion_id: null, p_datos: { venta_id: Number(ventaId), version: entrega.version } });
+      if (fallo) throw new Error(fallo.message);
+      if (!data?.operacion) throw new Error('No se pudo comprobar el cambio. Actualiza antes de reintentar.');
+      onChanged(data);
+    } catch (e) { setError(e.message || 'No se pudo tomar la verificación.'); }
+    finally { setBusy(false); bloqueado.current = false; }
+  }
   async function actualizar() {
     if (bloqueado.current) return;
     bloqueado.current = true;
@@ -93,16 +109,20 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged }) {
       {entrega.escaneado_en && <p className="om-muted">Documento escaneado: {new Date(entrega.escaneado_en).toLocaleString('es-BO')}</p>}
     </section>
     <div className="om-lineas">{lineas.map(l => <article className="om-linea" key={l.linea_id}><h3>{l.nombre}</h3><p>{l.cantidad_presentacion} {l.presentacion} · {l.cantidad_base} unidades base</p>
-      {editable && <label>Cantidad base {retorno ? 'recibida' : 'verificada'}<input aria-label={`Cantidad ${retorno ? 'recibida' : 'verificada'} de ${l.nombre}`} type="number" min="0" step="any" value={cantidades[l.linea_id] ?? ''} disabled={busy} onChange={e => setCantidades(prev => ({ ...prev, [l.linea_id]: e.target.value }))} /></label>}
+      {editable && <label>{l.presentacion} {retorno ? 'recibidos' : 'verificados'}<input aria-label={`Cantidad ${retorno ? 'recibida' : 'verificada'} de ${l.nombre}`} type="number" min="0" step="any" value={cantidades[l.linea_id] ?? ''} disabled={busy} onChange={e => setCantidades(prev => ({ ...prev, [l.linea_id]: e.target.value }))} /></label>}
     </article>)}</div>
     <EvidenciaVtd ventaId={ventaId} estadoEntrega={entrega.estado} busy={busy} fotos={fotos} onFotos={next => { setFotos(next); lote.current = null; }} onConfiguracion={setEvidenciaActiva} revision={revisionEvidencia} />
     {editable && <section className="om-pedido">
+      {ajena && <div className="om-aviso" role="status"><div><strong>{entrega.responsable_nombre || 'Otro encargado'} tiene esta verificación</strong>
+        <p>Tómala si esa persona ya no está a cargo. Queda registrado quién la tomó.</p>
+        <button className="om-secondary" disabled={busy} onClick={tomar}>Tomar esta verificación</button></div></div>}
+      {!ajena && !faltante && !completa && <button className="om-secondary om-wide" disabled={busy} onClick={confirmarTodo}>Confirmar cantidades completas</button>}
       {!retorno && !entrega.escaneado_en && <label>Motivo de verificación sin escaneo<textarea maxLength={1000} value={motivo} disabled={busy} onChange={e => setMotivo(e.target.value)} placeholder="Explica por qué se regulariza ahora; se guardará la hora real." /></label>}
       {faltante ? <div className="om-aviso" role="status"><div><strong>Faltante reportado — esperando ajuste de Caja</strong>
         <p>{entrega.faltante.map(f => { const l = lineas.find(x => x.linea_id === f.linea_id); return l ? `${l.nombre}: ${f.cantidad_presentacion_disponible} de ${l.cantidad_presentacion}` : null; }).filter(Boolean).join(' · ')}</p>
         <button className="om-secondary" disabled={busy} onClick={actualizar}>Actualizar</button></div></div>
         : <p>Comprueba cada cantidad. Si hay diferencias, reporta el faltante y Caja ajustará la VTD.</p>}
-      {!retorno && !faltante && (reportando
+      {!retorno && !faltante && !ajena && (reportando
         ? <div className="om-editor"><strong>Cantidad disponible en Almacén</strong>
           {lineas.map(l => <label key={l.linea_id}>{l.nombre} (pedido: {l.cantidad_presentacion} {l.presentacion})
             <input aria-label={`Disponible de ${l.nombre}`} type="number" min="0" max={l.cantidad_presentacion} step="any" value={disponible(l)} disabled={busy} onChange={e => setDisponibles(prev => ({ ...prev, [l.linea_id]: e.target.value }))} /></label>)}
@@ -110,7 +130,7 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged }) {
           <div className="om-linea-actions"><button className="om-secondary" disabled={busy} onClick={() => setReportando(false)}>Cancelar</button>
             <button className="om-secondary" disabled={busy || !faltanteValido} onClick={reportarFaltante}>Enviar reporte a Caja</button></div></div>
         : <button className="om-secondary om-wide" disabled={busy} onClick={() => setReportando(true)}>Reportar faltante</button>)}
-      <button className="om-primary om-wide" disabled={busy || faltante || !completa || (!retorno && (evidenciaActiva === null || (evidenciaActiva && !fotos.length))) || (!retorno && !entrega.escaneado_en && motivo.trim().length < 5)} onClick={() => guardar(retorno ? 'recibir_retorno' : 'enviar')}>{busy ? 'Guardando fotos y salida…' : retorno ? 'Confirmar recepción del retorno' : 'Verificar y enviar a Caja'}</button>
+      <button className="om-primary om-wide" disabled={busy || ajena || faltante || !completa || (!retorno && (evidenciaActiva === null || (evidenciaActiva && !fotos.length))) || (!retorno && !entrega.escaneado_en && motivo.trim().length < 5)} onClick={() => guardar(retorno ? 'recibir_retorno' : 'enviar')}>{busy ? 'Guardando fotos y salida…' : retorno ? 'Confirmar recepción del retorno' : 'Verificar y enviar a Caja'}</button>
     </section>}
     {entrega.estado === 'EN_CAJA' && <p className="om-aviso om-exito">Salida registrada una sola vez. Falta que Caja complete o resuelva el rechazo de la operación.</p>}
     {error && <p className="om-aviso om-error" role="alert">{error}</p>}

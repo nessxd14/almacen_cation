@@ -127,12 +127,12 @@ function DetalleMovimiento({ mov, autores, nombreSucursal, historico, onClose })
 // Filas por página al navegar el Kardex de UN producto vía RPC (ver abajo).
 const PAGE_SIZE = 50;
 
-// Detecta "Venta #<id>" en la referencia y marca esVentaDirecta contra
+// Detecta "Venta #<id>" o las salidas y retornos de Caja–Almacén en la referencia y marca esVentaDirecta contra
 // venta.numero (prefijo VTD-) — compartido entre el modo panel (RPC) y el
 // modo global (select directo), es puramente el chip visual, no toca nada más.
 async function marcarVentaDirecta(lista) {
   const idsVenta = lista
-    .map(m => m.referencia?.match(/^Venta #(\d+)$/)?.[1])
+    .map(m => m.referencia?.match(/^(?:Venta|Envío Caja VTD|Retorno Caja VTD) #(\d+)/)?.[1])
     .filter(Boolean)
     .map(Number);
   if (idsVenta.length === 0) return;
@@ -142,7 +142,7 @@ async function marcarVentaDirecta(lista) {
     .in("id", [...new Set(idsVenta)]);
   const vtdIds = new Set((ventas || []).filter(v => v.numero?.startsWith("VTD-")).map(v => v.id));
   for (const m of lista) {
-    const id = Number(m.referencia?.match(/^Venta #(\d+)$/)?.[1]);
+    const id = Number(m.referencia?.match(/^(?:Venta|Envío Caja VTD|Retorno Caja VTD) #(\d+)/)?.[1]);
     m.esVentaDirecta = vtdIds.has(id);
   }
 }

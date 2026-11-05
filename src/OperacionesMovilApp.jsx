@@ -243,7 +243,7 @@ function ContenidoOperacion({ tipo, pedidoId, sucursal, sucursales, usuario }) {
   }
   const tareas = lista.filter(t => vista === 'historial' ? ['DESPACHADO','ANULADO','RECIBIDO'].includes(t.estado) : (t.origenes_pendientes>0&&t.preparador_id===usuario.id&&t.estado!=='ANULADO')||!['DESPACHADO','ANULADO','RECIBIDO'].includes(t.estado) && (t.preparador_id === usuario.id || t.revisor_id === usuario.id || t.estado === 'PREPARADO' || t.estado === 'EN_TRANSITO' || ['SOLICITADO','EN_CAJA','RETORNO_PENDIENTE'].includes(t.estado)));
 
-  if (datos?.cajaAlmacen) return <VtdCajaAlmacen registro={datos.cajaAlmacen} ventaId={pedidoId} onChanged={registro => setDatos({ cajaAlmacen: registro })} />;
+  if (datos?.cajaAlmacen) return <VtdCajaAlmacen registro={datos.cajaAlmacen} ventaId={pedidoId} usuarioId={usuario.id} onChanged={registro => setDatos({ cajaAlmacen: registro })} />;
 
   return <div className={flexible?'pt-pedido-dark':undefined}>
     {error && <div className="om-aviso om-error" role="alert"><AlertTriangle size={19} /><span>{error}</span></div>}
