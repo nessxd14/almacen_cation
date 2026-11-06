@@ -1,3 +1,4 @@
+import {peticionAcotada} from './peticionAcotada';
 const ID = /^[1-9]\d*$/;
 export function idOperacion(valor) {
   const texto = String(valor ?? '').trim();
@@ -63,7 +64,7 @@ export function planPreparacionCompleta(lineas = []) {
   };
 }
 export async function operarPedidoMovil(cliente, { pedidoId, sucursalId, tareaId = null, accion = 'consultar', version = null, datos = {} }) {
-  const { data, error } = await cliente.rpc('operar_preparacion_pedido', { p_pedido_id: pedidoId, p_sucursal_id: sucursalId, p_tarea_id: tareaId, p_accion: accion, p_version: version, p_datos: datos });
+  const { data, error } = await peticionAcotada(cliente.rpc('operar_preparacion_pedido', { p_pedido_id: pedidoId, p_sucursal_id: sucursalId, p_tarea_id: tareaId, p_accion: accion, p_version: version, p_datos: datos }),{incierta:true});
   if (error) { const fallo=new Error(error.message || 'No se pudo guardar la operación.');fallo.code=error.code;throw fallo; }
   if (!data) throw new Error('No se recibió una respuesta del almacén.');
   return data;
@@ -89,7 +90,7 @@ export function rutaDocumentoMovil(tipo, id, escanear = false) {
   return `/operaciones/${segmento}/${id}${escanear ? '?escanear=1' : ''}`;
 }
 export async function solicitarDocumentoMovil(cliente, { tipo = 'traslado_virtual', documentoId = null, accion = 'consultar', version = null, datos = {} }) {
-  const { data, error } = await cliente.rpc('operar_documento_movil', { p_tipo: tipo.toUpperCase(), p_documento_id: documentoId, p_accion: accion, p_version: version, p_datos: datos });
+  const { data, error } = await peticionAcotada(cliente.rpc('operar_documento_movil', { p_tipo: tipo.toUpperCase(), p_documento_id: documentoId, p_accion: accion, p_version: version, p_datos: datos }),{incierta:true});
   if (error) throw new Error(error.message || 'No se pudo guardar la operación.');
   if (!data) throw new Error('No se recibió una respuesta del almacén.');
   return data;
@@ -100,17 +101,17 @@ export function adaptarDocumentoMovil(data) {
 }
 export async function operarDocumentoMovil(cliente, { tipo = 'pedido', documentoId, sucursalId, tareaId = null, accion = 'consultar', version = null, datos = {}, dosActores = false }) {
   if (accion === 'confirmar_resto' && !(tipo === 'pedido' && dosActores)) {
-    const { data, error } = await cliente.rpc('confirmar_resto_preparacion', {
+    const { data, error } = await peticionAcotada(cliente.rpc('confirmar_resto_preparacion', {
       p_tipo: tipo.toUpperCase(), p_documento_id: documentoId, p_sucursal_id: sucursalId,
       p_tarea_id: tareaId, p_version: version,
-    });
+    }),{incierta:true});
     if (error) throw new Error(error.message || 'No se pudo confirmar la preparación.');
     if (!data) throw new Error('No se recibió una respuesta del almacén.');
     return tipo === 'pedido' ? data : adaptarDocumentoMovil(data);
   }
   if (tipo === 'pedido') return operarPedidoMovil(cliente, { pedidoId: documentoId, sucursalId, tareaId, accion, version, datos });
   if (tipo === 'vtd' && ['consultar','escanear'].includes(accion)) {
-    const { data, error } = await cliente.rpc('operar_caja_almacen', { p_accion: accion === 'escanear' ? 'escanear' : 'consultar_vtd', p_operacion_id: null, p_sesion_id: null, p_datos: { venta_id: Number(documentoId) } });
+    const { data, error } = await peticionAcotada(cliente.rpc('operar_caja_almacen', { p_accion: accion === 'escanear' ? 'escanear' : 'consultar_vtd', p_operacion_id: null, p_sesion_id: null, p_datos: { venta_id: Number(documentoId) } }),{incierta:true});
     if (error && error.code !== 'PGRST202') throw new Error(error.message || 'No se pudo consultar la operación de Caja.');
     if (data?.operacion) return { cajaAlmacen: data };
   }
