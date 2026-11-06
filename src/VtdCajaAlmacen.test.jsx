@@ -14,7 +14,7 @@ const evidenciaQa = vi.hoisted(() => ({ subir: vi.fn() }));
 vi.mock('./lib/evidenciaVtd', () => ({ subirEvidenciaVtd: evidenciaQa.subir }));
 let root, node;
 const registro = (estado='SOLICITADO', escaneado='2026-10-17T14:00:00Z') => ({ operacion: { id:'op',estado:'ACTIVA' }, vtds:[{venta_id:7,numero:'VTD-QA-7',cliente:'Cliente de prueba',estado,version:2,escaneado_en:escaneado,lineas:[{linea_id:10,nombre:'Bolígrafos de prueba',presentacion:'Caja x12',cantidad_presentacion:2,cantidad_base:24}]}] });
-async function mount(data) { const changed=vi.fn();await act(async()=>root.render(<MemoryRouter><VtdCajaAlmacen registro={data} ventaId="7" onChanged={changed} /></MemoryRouter>));await act(async()=>node.querySelector('[data-inactivo]').click());return changed; }
+async function mount(data,usuarioId=null) { const changed=vi.fn();await act(async()=>root.render(<MemoryRouter><VtdCajaAlmacen registro={data} ventaId="7" onChanged={changed} usuarioId={usuarioId} /></MemoryRouter>));await act(async()=>node.querySelector('[data-inactivo]').click());return changed; }
 async function input(selector,value) { await act(async()=>{ const el=node.querySelector(selector);Object.getOwnPropertyDescriptor(el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true})); }); }
 const button = () => node.querySelector('button.om-primary');
 function capture(name) { if (env.CATION_QA_OUTPUT) writeFileSync(`${env.CATION_QA_OUTPUT}/${name}.html`,`<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:16px;font-family:Arial,sans-serif;background:#f7fafc}${readFileSync('src/operaciones-movil.css','utf8')}</style><body>${node.innerHTML}</body></html>`); }
@@ -23,25 +23,25 @@ afterEach(async()=>{await act(async()=>root.unmount());node.remove();});
 
 it('un encargado declara las cantidades y envía a Caja sin otro verificador',async()=>{
   const next=registro('EN_CAJA');qa.rpc.mockResolvedValue({data:next,error:null});const changed=await mount(registro());
-  expect(button().disabled).toBe(true);await input('input','24');expect(button().disabled).toBe(false);capture('caja-almacen-verificacion');
+  expect(button().disabled).toBe(true);await input('input','2');expect(button().disabled).toBe(false);capture('caja-almacen-verificacion');
   await act(async()=>button().click());
   expect(qa.rpc).toHaveBeenCalledWith('operar_caja_almacen',expect.objectContaining({p_accion:'enviar',p_datos:expect.objectContaining({venta_id:7,version:2,cantidades:[{linea_id:10,cantidad_base:24}]})}));
   expect(changed).toHaveBeenCalledWith(next);expect(node.textContent).not.toContain('Tomar revisión');
 });
 it('recibir un retorno exige comprobar las cantidades y conserva errores del servidor',async()=>{
   qa.rpc.mockResolvedValue({data:null,error:{message:'La entrega cambió'}});await mount(registro('RETORNO_PENDIENTE'));
-  expect(node.textContent).toContain('El rechazo no repuso el stock');await input('input','12');expect(button().disabled).toBe(true);
-  await input('input','24');capture('caja-almacen-retorno');await act(async()=>button().click());
+  expect(node.textContent).toContain('El rechazo no repuso el stock');await input('input','1');expect(button().disabled).toBe(true);
+  await input('input','2');capture('caja-almacen-retorno');await act(async()=>button().click());
   expect(qa.rpc.mock.calls[0][1].p_accion).toBe('recibir_retorno');expect(node.textContent).toContain('La entrega cambió');
 });
 it('regularizar sin escaneo requiere motivo y no inventa una lectura de QR',async()=>{
-  qa.rpc.mockResolvedValue({data:registro('EN_CAJA',null),error:null});await mount(registro('SOLICITADO',null));await input('input','24');expect(button().disabled).toBe(true);
+  qa.rpc.mockResolvedValue({data:registro('EN_CAJA',null),error:null});await mount(registro('SOLICITADO',null));await input('input','2');expect(button().disabled).toBe(true);
   await input('textarea','Material comprobado ahora, se omitió el escaneo');expect(button().disabled).toBe(false);await act(async()=>button().click());
   expect(qa.rpc.mock.calls[0][1].p_accion).toBe('enviar');expect(qa.rpc).toHaveBeenCalledTimes(1);
 });
 
 it('exige fotos y las sube antes de registrar una salida',async()=>{
-  await mount(registro());await act(async()=>node.querySelector('[data-config]').click());await input('input','24');
+  await mount(registro());await act(async()=>node.querySelector('[data-config]').click());await input('input','2');
   expect(button().disabled).toBe(true);
   await act(async()=>node.querySelector('[data-foto]').click());expect(button().disabled).toBe(false);
   evidenciaQa.subir.mockResolvedValue('lote-qa');qa.rpc.mockResolvedValue({data:registro('EN_CAJA'),error:null});
@@ -50,14 +50,14 @@ it('exige fotos y las sube antes de registrar una salida',async()=>{
   expect(qa.rpc.mock.calls[0][1].p_datos.evidencia_id).toBe('lote-qa');
 });
 it('un fallo al subir conserva las fotos y no registra stock ni salida',async()=>{
-  await mount(registro());await act(async()=>{node.querySelector('[data-config]').click();node.querySelector('[data-foto]').click();});await input('input','24');
+  await mount(registro());await act(async()=>{node.querySelector('[data-config]').click();node.querySelector('[data-foto]').click();});await input('input','2');
   evidenciaQa.subir.mockRejectedValueOnce(new Error('Foto pendiente')).mockResolvedValueOnce('lote-qa');
   await act(async()=>button().click());expect(qa.rpc).not.toHaveBeenCalled();expect(node.textContent).toContain('Foto pendiente');
   const primerId=evidenciaQa.subir.mock.calls[0][3];qa.rpc.mockResolvedValue({data:registro('EN_CAJA'),error:null});
   await act(async()=>button().click());expect(evidenciaQa.subir.mock.calls[1][3]).toBe(primerId);
 });
 it('recupera una salida confirmada cuya respuesta se perdió sin volver a subir ni enviar',async()=>{
-  const changed=await mount(registro());await act(async()=>{node.querySelector('[data-config]').click();node.querySelector('[data-foto]').click();});await input('input','24');
+  const changed=await mount(registro());await act(async()=>{node.querySelector('[data-config]').click();node.querySelector('[data-foto]').click();});await input('input','2');
   evidenciaQa.subir.mockResolvedValue('lote-qa');qa.rpc.mockResolvedValueOnce({data:null,error:{message:'Respuesta perdida'}}).mockResolvedValueOnce({data:registro('EN_CAJA'),error:null});
   await act(async()=>button().click());await act(async()=>button().click());
   expect(evidenciaQa.subir).toHaveBeenCalledTimes(1);expect(qa.rpc.mock.calls.map(c=>c[1].p_accion)).toEqual(['enviar','consultar_vtd']);
@@ -79,10 +79,30 @@ it('con faltante reportado bloquea Enviar hasta que Caja ajuste y permite actual
   const reportado=registro();reportado.vtds[0].faltante=[{linea_id:10,cantidad_presentacion_disponible:1}];
   qa.rpc.mockResolvedValue({data:registro(),error:null});const changed=await mount(reportado);
   expect(node.textContent).toContain('Faltante reportado — esperando ajuste de Caja');expect(node.textContent).toContain('Bolígrafos de prueba: 1 de 2');
-  await input('input','24');expect(button().disabled).toBe(true);expect(textoBoton('Reportar faltante')).toBeUndefined();
+  await input('input','2');expect(button().disabled).toBe(true);expect(textoBoton('Reportar faltante')).toBeUndefined();
   await act(async()=>textoBoton('Actualizar').click());
   expect(qa.rpc).toHaveBeenCalledWith('operar_caja_almacen',expect.objectContaining({p_accion:'consultar_vtd'}));expect(changed).toHaveBeenCalled();
 });
 it('tras el ajuste de Caja (sin faltante) Enviar vuelve a funcionar',async()=>{
-  await mount(registro());await input('input','24');expect(button().disabled).toBe(false);
+  await mount(registro());await input('input','2');expect(button().disabled).toBe(false);
+});
+it('confirmar cantidades completas llena todas las líneas y envía las unidades base',async()=>{
+  qa.rpc.mockResolvedValue({data:registro('EN_CAJA'),error:null});await mount(registro());
+  await act(async()=>textoBoton('Confirmar cantidades completas').click());
+  expect(node.querySelector('input').value).toBe('2');expect(button().disabled).toBe(false);
+  await act(async()=>button().click());
+  expect(qa.rpc.mock.calls[0][1].p_datos.cantidades).toEqual([{linea_id:10,cantidad_base:24}]);
+});
+it('una verificación ajena bloquea Enviar y permite tomarla con su versión',async()=>{
+  const ajena=registro();Object.assign(ajena.vtds[0],{responsable_id:'otro',responsable_nombre:'Rovin'});
+  qa.rpc.mockResolvedValue({data:registro(),error:null});const changed=await mount(ajena,'yo');
+  expect(node.textContent).toContain('Rovin tiene esta verificación');expect(textoBoton('Reportar faltante')).toBeUndefined();
+  await input('input','2');expect(button().disabled).toBe(true);
+  await act(async()=>textoBoton('Tomar esta verificación').click());
+  expect(qa.rpc).toHaveBeenCalledWith('operar_caja_almacen',{p_accion:'tomar_verificacion',p_operacion_id:null,p_sesion_id:null,p_datos:{venta_id:7,version:2}});
+  expect(changed).toHaveBeenCalled();
+});
+it('el propio encargado no ve el aviso',async()=>{
+  const propia=registro();Object.assign(propia.vtds[0],{responsable_id:'yo',responsable_nombre:'Yo'});await mount(propia,'yo');
+  expect(textoBoton('Tomar esta verificación')).toBeUndefined();await input('input','2');expect(button().disabled).toBe(false);
 });

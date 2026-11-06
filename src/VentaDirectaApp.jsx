@@ -23,6 +23,7 @@ export default function VentaDirectaApp() {
   const { sucursalActivaId } = useSucursal();
   const navigate = useNavigate();
   const [ventas, setVentas] = useState([]);
+  const [retornos, setRetornos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [codigo, setCodigo] = useState('');
@@ -32,8 +33,14 @@ export default function VentaDirectaApp() {
     if (!sucursalActivaId) return;
     setCargando(true); setError('');
     try {
-      const { data, error: fallo } = await supabase.from('venta').select(SELECT_VENTA).eq('estado','ABIERTA').eq('ubicacion.sucursal_id',sucursalActivaId).order('creado_en',{ ascending:true });
+      const [{ data, error: fallo }, caja] = await Promise.all([
+        supabase.from('venta').select(SELECT_VENTA).eq('estado','ABIERTA').eq('ubicacion.sucursal_id',sucursalActivaId).order('creado_en',{ ascending:true }),
+        supabase.rpc('operar_caja_almacen', { p_accion:'listar_almacen', p_operacion_id:null, p_sesion_id:null, p_datos:{} }),
+      ]);
       if (fallo) throw fallo;
+      if (caja.error && caja.error.code !== 'PGRST202') throw caja.error;
+      // Una VTD rechazada queda ANULADA: sin esto, su material en retorno no se ve en esta pestaña.
+      setRetornos((caja.data?.documentos || []).filter(d => d.estado === 'RETORNO_PENDIENTE' && String(d.sucursal_id) === String(sucursalActivaId)));
       setVentas((data || []).filter(v => v.numero?.startsWith('VTD-') || v.ubicacion?.codigo_zona?.toUpperCase() === 'VENTAS DIRECTAS'));
     } catch (e) { setError(e.message); }
     finally { setCargando(false); }
@@ -60,10 +67,11 @@ export default function VentaDirectaApp() {
   }, [abrir]);
   return <section className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="flex items-center gap-2 text-lg font-semibold"><PackageCheck size={20} /> Venta directa de almacén</h1><button className="om-secondary" onClick={cargar} disabled={cargando}><RefreshCw size={18} /> Actualizar</button></div>
-    <p className="text-sm text-slate-600">El ticket lo genera Caja. La primera persona prepara y la siguiente verifica. El verificador autoriza la entrega con el checklist guardado.</p>
+    <p className="text-sm text-slate-600">El ticket lo genera Caja. Un encargado escanea, comprueba las cantidades y envía el material a Caja.</p>
     <div className="flex flex-wrap gap-3"><button className="om-primary" onClick={() => { lectura.current=false;setScanner(true); }}><ScanLine size={18} /> Escanear ticket</button><Link className="om-secondary" to="/operaciones">Operaciones móvil</Link></div>
     <form className="om-input-row" onSubmit={e => { e.preventDefault();void abrir(codigo); }}><label>QR, número VTD o ID<input aria-label="QR, número VTD o ID" className="rounded-md border p-2" value={codigo} onChange={e => setCodigo(e.target.value)} autoComplete="off" /></label><button className="om-secondary" disabled={!codigo.trim()}>Abrir ticket</button></form>
     {error && <p className="om-aviso om-error" role="alert">{error}</p>}
+    {retornos.length > 0 && <section aria-label="Material en retorno" className="space-y-2"><h2 className="text-sm font-semibold">Material en retorno ({retornos.length})</h2><p className="text-sm text-slate-600">Se rechazó después de salir. El stock vuelve cuando confirmas la recepción.</p>{retornos.map(d => <Link className="om-task" key={d.venta_id} to={rutaDocumentoMovil('vtd',d.venta_id)}><div><strong>{d.numero}</strong><span>{d.motivo || 'Sin motivo'}</span>{d.enviado_en && <small>Salió el {new Date(d.enviado_en).toLocaleString('es-BO')}</small>}</div><span className="om-badge">EN RETORNO</span></Link>)}</section>}
     {cargando ? <p role="status">Cargando tickets…</p> : !ventas.length ? <p>No hay ventas directas abiertas en esta sucursal.</p> : <div className="space-y-2">{ventas.map(v => <Link className="om-task" key={v.id} to={rutaDocumentoMovil('vtd',v.id)}><div><strong>{v.numero || `#${v.id}`}</strong><span>{v.cliente?.nombre || 'Sin cliente registrado'} · {v.venta_linea?.length || 0} líneas</span><small>{new Date(v.creado_en).toLocaleString('es-BO')}</small></div><span className="om-badge">{v.venta_pago?.length ? 'PAGADO' : v.pago_posterior ? 'PAGO POSTERIOR' : v.cobro_exigible === false ? 'HISTÓRICO' : 'POR COBRAR'}</span></Link>)}</div>}
     {scanner && <EscanerCodigo onDetect={detectar} onClose={() => setScanner(false)} />}
   </section>;
