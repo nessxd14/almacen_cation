@@ -14,6 +14,7 @@ import VtdCajaAlmacen from './VtdCajaAlmacen';
 import EvidenciaOperacion from './EvidenciaOperacion';
 import { operarEvidenciaOperacion, subirEvidenciaOperacion } from './lib/evidenciaOperacion';
 import { cantidadTexto, etiquetaDocumento, idOperacion, interpretarCodigoOperacion, listarDocumentosMovil, nombresEstadoOperacion, operarDocumentoMovil, resumenOperacion, rolesAlmacen, rolesOperacionesMovil, rutaDocumentoMovil, solicitarDocumentoMovil } from './lib/operacionesMovil';
+import './operaciones-tema.css';
 import './operaciones-movil.css';
 import './preparacion-checklist.css';
 import PreparacionChecklist, { EtapasEntrega } from './PreparacionChecklist';
@@ -53,7 +54,7 @@ export default function OperacionesMovilApp({ tipoDocumento = 'pedido' }) {
       const nueva = new URLSearchParams(params); nueva.set('sucursal', String(valor)); nueva.delete('preparacion'); setParams(nueva);
     }
   }
-  return <div className={`om-app${['pedido','traslado_virtual','carrito'].includes(tipoDocumento)?' om-pedidos-ui':''}`}>
+  return <div className="om-app om-pedidos-ui">
     <header className="om-header"><a href="/?tab=pedidos" className="om-back" aria-label="Volver a Almacén"><ArrowLeft size={21} /></a><div><small>CATION · ALMACÉN</small><h1>{tipoDocumento==='pedido'&&id?'Pedidos':'Operaciones'}</h1></div><Smartphone size={23} /><button className="om-icon" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={18} /></button></header>
     <div className="om-contexto"><span>{usuario.nombre}</span>{puedeElegir ? <label><span className="sr-only">Sucursal de operaciones</span><select aria-label="Sucursal de operaciones" value={sucursalId ?? ''} onChange={e => cambiarSucursal(e.target.value)} disabled={cargando}>{sucursales.filter(s => s.tipo !== 'virtual').map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}</select></label> : <strong>{autorizada ? sucursal?.nombre || 'Sin sucursal disponible' : 'Sucursal no autorizada'}</strong>}</div>
     {!rolesOperacionesMovil.has(usuario.rol) ? <p className="om-aviso" role="alert">Tu perfil no tiene acceso a Operaciones. Un administrador puede habilitarte como almacenero u operario.</p> : id && !rolesAlmacen.has(usuario.rol) && !['carrito','traslado_virtual'].includes(tipoDocumento) ? <p className="om-aviso" role="alert">Tu perfil puede armar traslados para Tienda. Los pedidos y VTD los prepara Almacén.</p> : !autorizada ? <p className="om-aviso" role="alert">Esta preparación pertenece a otra sucursal. Tu perfil permite operar sólo en tu sucursal asignada.</p> : cargando ? <p role="status">Cargando sucursales…</p> : !sucursal || error ? <div className="om-aviso" role="alert">No se pudo obtener tu sucursal física.<button onClick={reintentarSucursales}>Reintentar</button></div> : id && !idOperacion(id) ? <p className="om-aviso" role="alert">El pedido indicado no es válido.</p> : tipoDocumento === 'carrito' ? <CarritoTrasladoVirtual key={`${usuario.id}:${id || 'nuevo'}`} carritoId={id || null} usuario={usuario} /> : <ContenidoOperacion key={`${usuario.id}:${tipoDocumento}:${sucursal.id}:${id || 'inicio'}:${params.get('preparacion') || ''}`} tipo={tipoDocumento} pedidoId={id || null} sucursal={sucursal} sucursales={sucursales} usuario={usuario} />}

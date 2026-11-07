@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {CheckCircle2,ChevronLeft,ChevronRight,Package,Warehouse} from 'lucide-react';
 import CantidadPedido from './CantidadPedido';
 import {textoCantidadEnvio} from './lib/envioPedido';
+import './operaciones-tema.css';
 import './pedido-tarjetas.css';
 
 export default function TarjetasTraslado({lineas,revision,ocupado,accion,setEditor,stock,lineaInicial,version}) {

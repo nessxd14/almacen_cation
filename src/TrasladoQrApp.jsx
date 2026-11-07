@@ -11,6 +11,7 @@ import TarjetasTraslado from './TarjetasTraslado';
 import useStockSistema from './lib/useStockSistema';
 import {faltaStock} from './lib/stockOperacion';
 import {textoCantidadEnvio} from './lib/envioPedido';
+import './operaciones-tema.css';
 import './pedido-tarjetas.css';
 import EvidenciaOperacion from './EvidenciaOperacion';
 import CodigoDocumentoQr from './CodigoDocumentoQr';

@@ -6,6 +6,7 @@ import ImagenProducto from './ImagenProducto';
 import TypeaheadProducto from './TypeaheadProducto';
 import {cantidadOperacion,cantidadTexto} from './lib/operacionesMovil';
 import {etiquetaUbicacion} from './lib/ubicacionTexto';
+import './operaciones-tema.css';
 import './pedido-tarjetas.css';
 import ResumenEnvioPedido from './ResumenEnvioPedido';
 import {cantidadEnvio,estadoAlistado,filasEnvio} from './lib/envioPedido';
