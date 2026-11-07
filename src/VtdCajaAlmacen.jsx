@@ -5,6 +5,7 @@ import EvidenciaVtd from './EvidenciaVtd';
 import CantidadEmpaque from './CantidadEmpaque';
 import { subirEvidenciaVtd } from './lib/evidenciaVtd';
 
+const claseEstado = { SOLICITADO: 'om-revisando', EN_CAJA: 'om-en_transito', ENTREGADO: 'om-despachado', RETORNO_PENDIENTE: 'om-preparado', RETORNADO: 'om-recibido', CANCELADO: 'om-anulado' };
 const nombres = { SOLICITADO: 'Pendiente de verificar', EN_CAJA: 'Material enviado a Caja', ENTREGADO: 'Entrega confirmada por Caja', RETORNO_PENDIENTE: 'Material en retorno a Almacén', RETORNADO: 'Retorno recibido', CANCELADO: 'Solicitud cancelada antes de salir' };
 
 export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId = null }) {
@@ -103,7 +104,7 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId
   }
   return <>
     <Link className="om-text-link" to="/operaciones">Volver a Operaciones</Link>
-    <section className="om-pedido"><h2>{entrega.numero}</h2><strong>{nombres[entrega.estado]}</strong><p>{entrega.cliente || 'Cliente de mostrador'}</p>
+    <section className="om-pedido"><div className="om-section-title"><h2>{entrega.numero}</h2><span className={`om-badge ${claseEstado[entrega.estado] || ''}`}>{nombres[entrega.estado]}</span></div><p>{entrega.cliente || 'Cliente de mostrador'}</p>
       <p>Un único encargado verifica y envía el material a Caja. El cajero cobra el conjunto con la VTA y confirma la entrega al cliente.</p>
       {retorno && <p className="om-aviso">El rechazo no repuso el stock. Comprueba el material que realmente regresó antes de registrar su recepción.</p>}
       {entrega.motivo && <p className="om-aviso">Motivo: {entrega.motivo}</p>}
@@ -131,7 +132,7 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId
           <div className="om-linea-actions"><button className="om-secondary" disabled={busy} onClick={() => setReportando(false)}>Cancelar</button>
             <button className="om-secondary" disabled={busy || !faltanteValido} onClick={reportarFaltante}>Enviar reporte a Caja</button></div></div>
         : <button className="om-secondary om-wide" disabled={busy} onClick={() => setReportando(true)}>Reportar faltante</button>)}
-      <button className="om-primary om-wide" disabled={busy || ajena || faltante || !completa || (!retorno && (evidenciaActiva === null || (evidenciaActiva && !fotos.length))) || (!retorno && !entrega.escaneado_en && motivo.trim().length < 5)} onClick={() => guardar(retorno ? 'recibir_retorno' : 'enviar')}>{busy ? 'Guardando fotos y salida…' : retorno ? 'Confirmar recepción del retorno' : 'Verificar y enviar a Caja'}</button>
+      <button className="om-primary om-wide om-accion-fija" disabled={busy || ajena || faltante || !completa || (!retorno && (evidenciaActiva === null || (evidenciaActiva && !fotos.length))) || (!retorno && !entrega.escaneado_en && motivo.trim().length < 5)} onClick={() => guardar(retorno ? 'recibir_retorno' : 'enviar')}>{busy ? 'Guardando fotos y salida…' : retorno ? 'Confirmar recepción del retorno' : 'Verificar y enviar a Caja'}</button>
     </section>}
     {entrega.estado === 'EN_CAJA' && <p className="om-aviso om-exito">Salida registrada una sola vez. Falta que Caja complete o resuelva el rechazo de la operación.</p>}
     {error && <p className="om-aviso om-error" role="alert">{error}</p>}

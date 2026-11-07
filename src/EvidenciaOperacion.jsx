@@ -2,28 +2,26 @@ import { useEffect, useState } from 'react';
 import {Camera, Images, Trash2} from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { operarEvidenciaOperacion } from './lib/evidenciaOperacion';
+import { consultaEspaciada } from './lib/consultaEspaciada';
 
 const estados = { PENDIENTE: 'Pendiente de envío a Telegram', ENVIANDO: 'Enviando a Telegram', ENVIADO: 'Enviado a Telegram', ERROR: 'No se pudo enviar a Telegram', INCIERTO: 'Hay que comprobar el envío en Telegram' };
 export default function EvidenciaOperacion({ tipo, documentoId, entregaId, version, revision, fotos, onFotos, onDatos, busy, compacto=false }) {
   const [datos, setDatos] = useState(null), [error, setError] = useState(''), [actualizar, setActualizar] = useState(0), [reintentando, setReintentando] = useState(false);
   useEffect(() => {
-    let vigente = true, timer;
-    async function cargar() {
+    let vigente = true;
+    const detener = consultaEspaciada(async () => {
       try {
         const r = await operarEvidenciaOperacion(supabase, { tipo, documentoId, entregaId });
-        if (!vigente) return;
+        if (!vigente) return 'listo';
         setDatos(r); setError(''); onDatos(r);
-        if (r.envios.some(e => ['PENDIENTE','ENVIANDO'].includes(e.estado))) timer = setTimeout(cargar, 15000);
+        return r.envios.some(e => ['PENDIENTE','ENVIANDO'].includes(e.estado)) ? 'seguir' : 'listo';
       } catch (e) {
-        if (!vigente) return;
-        if (e.code === 'PGRST202') { onDatos({ activo: false }); return; }
-        setError('No se pudo consultar la evidencia. Actualiza antes de confirmar.'); onDatos(null); timer = setTimeout(cargar, 30000);
+        if (!vigente) return 'listo';
+        if (e.code === 'PGRST202') { onDatos({ activo: false }); return 'listo'; }
+        setError('No se pudo consultar la evidencia. Actualiza antes de confirmar.'); onDatos(null); return 'error';
       }
-    }
-    cargar();
-    const refrescar = () => { clearTimeout(timer); cargar(); };
-    window.addEventListener('focus', refrescar);
-    return () => { vigente = false; clearTimeout(timer); window.removeEventListener('focus', refrescar); };
+    });
+    return () => { vigente = false; detener(); };
   }, [tipo, documentoId, entregaId, version, revision, actualizar, onDatos]);
   function agregar(event) {
     const nuevas = Array.from(event.target.files || []); event.target.value = '';

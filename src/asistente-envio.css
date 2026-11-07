@@ -1,6 +1,6 @@
 body:has(.om-app.om-pedidos-ui){background:var(--om-bg);color-scheme:light}
 .ae-asistente{margin:20px 0;color:var(--om-text)}
-.ae-cabecera{position:sticky;top:0;z-index:6;scroll-margin-top:16px;outline:none;background:color-mix(in srgb,var(--om-bg) 94%,transparent);backdrop-filter:blur(16px);padding:14px 0 10px;border-bottom:1px solid var(--om-accent-border);margin-bottom:18px}
+.ae-cabecera{position:sticky;top:0;z-index:6;scroll-margin-top:16px;outline:none;background:color-mix(in srgb,var(--om-bg) 94%,transparent);backdrop-filter:blur(16px);padding:14px 0 10px;border-bottom:1px solid var(--om-border);margin-bottom:18px}
 .ae-cabecera>small{font-size:11px;letter-spacing:.1em;font-weight:650;color:var(--om-text-2)}
 .ae-paso{display:inline-block;float:right;margin:0;font-size:11px;font-weight:600;color:var(--om-text-2);padding:5px 8px;background:var(--om-accent-soft);border:1px solid var(--om-accent-border);border-radius:7px}
 .ae-cabecera ol{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;padding:0;gap:8px;margin:18px 0 0}
@@ -9,7 +9,7 @@ body:has(.om-app.om-pedidos-ui){background:var(--om-bg);color-scheme:light}
 .ae-cabecera li.ae-completo{border-color:var(--om-success-border)}
 .ae-cabecera nav button{display:flex;align-items:center;gap:7px;width:100%;padding:0;border:0;background:none;color:var(--om-text-2);text-align:left;font:inherit;font-size:12px;line-height:1.4;min-height:44px;border-radius:8px}
 .ae-cabecera nav button:disabled{opacity:1;color:var(--om-text-3);cursor:default}
-.ae-cabecera nav button>span{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:1px solid var(--om-accent-border);border-radius:50%;color:var(--om-text-2);background:var(--om-surface);font-size:12px}
+.ae-cabecera nav button>span{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:1px solid var(--om-border-strong);border-radius:50%;color:var(--om-text-2);background:var(--om-surface);font-size:12px}
 .ae-activo button{color:var(--om-accent-text)!important;font-weight:650!important}
 .ae-activo button>span{background:var(--om-accent)!important;border-color:var(--om-accent)!important;color:var(--om-on-accent)!important;box-shadow:0 0 0 4px color-mix(in srgb,var(--om-accent) 14%,transparent)}
 .ae-completo button>span{color:var(--om-success-text)!important;background:var(--om-success-bg)!important;border-color:var(--om-success-border)!important}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, Images, Trash2 } from 'lucide-react';
 import { operarEvidenciaVtd, MAX_FOTOS_VTD } from './lib/evidenciaVtd';
 import { supabase } from './supabaseClient';
+import { consultaEspaciada } from './lib/consultaEspaciada';
 
 const estados = { PENDIENTE: 'Pendiente de envío a Telegram', ENVIANDO: 'Enviando a Telegram', ENVIADO: 'Enviado a Telegram', ERROR: 'No se pudo enviar a Telegram', INCIERTO: 'Hay que comprobar el envío en Telegram' };
 
@@ -10,20 +11,19 @@ export default function EvidenciaVtd({ ventaId, estadoEntrega, busy, fotos, onFo
   const [actualizacion, setActualizacion] = useState(0);
   const input = useRef(null);
   useEffect(() => {
-    let vigente = true, timer;
-    async function cargar() {
+    let vigente = true;
+    const detener = consultaEspaciada(async () => {
       try {
         const result = await operarEvidenciaVtd(supabase, 'consultar', ventaId);
-        if (vigente) {
-          setDatos(result); setError(''); onConfiguracion(result.activo);
-          if (result.envios?.some(e => ['PENDIENTE', 'ENVIANDO'].includes(e.estado))) timer = setTimeout(cargar, 15000);
-        }
-      } catch { if (vigente) { setError('No se pudo consultar la evidencia. Actualiza antes de enviar.'); onConfiguracion(null); timer = setTimeout(cargar, 30000); } }
-    }
-    cargar();
-    const refrescar = () => { clearTimeout(timer); cargar(); };
-    window.addEventListener('focus', refrescar);
-    return () => { vigente = false; clearTimeout(timer); window.removeEventListener('focus', refrescar); };
+        if (!vigente) return 'listo';
+        setDatos(result); setError(''); onConfiguracion(result.activo);
+        return result.envios?.some(e => ['PENDIENTE', 'ENVIANDO'].includes(e.estado)) ? 'seguir' : 'listo';
+      } catch {
+        if (!vigente) return 'listo';
+        setError('No se pudo consultar la evidencia. Actualiza antes de enviar.'); onConfiguracion(null); return 'error';
+      }
+    });
+    return () => { vigente = false; detener(); };
   }, [ventaId, estadoEntrega, revision, onConfiguracion, actualizacion]);
   function agregar(event) {
     const nuevas = Array.from(event.target.files || []);

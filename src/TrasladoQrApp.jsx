@@ -84,7 +84,7 @@ function ContenidoTraslado({id}) {
   <div className="om-contexto"><span>{usuario.nombre}</span><button className="om-secondary" disabled={ocupado||Boolean(editor)} onClick={()=>{void cargar();stock.reintentar();}}><RefreshCw size={16}/>Actualizar</button></div>
   {error&&<p role="alert" className="om-aviso om-error">{error}</p>}{aviso&&<p role="status" className="om-aviso om-exito">{aviso}</p>}
   {!idOperacion(id)?<p className="om-aviso">El QR no tiene una solicitud válida.</p>:!datos?(!error&&<p role="status">Cargando traslado…</p>):<main>
-   <section className="om-pedido"><h2>{s.numero||`Traslado #${id}`}</h2><strong>{t?estados[t.estado]:s.estado}</strong><p>{datos.origen} → {datos.destino}</p><p>Solicitó: {s.solicitado_por}</p>
+   <section className="om-pedido"><div className="om-section-title"><h2>{s.numero||`Traslado #${id}`}</h2><span className={`om-badge ${t?`om-${t.estado.toLowerCase()}`:'om-borrador'}`}>{t?estados[t.estado]:s.estado}</span></div><p>{datos.origen} → {datos.destino}</p><p>Solicitó: {s.solicitado_por}</p>
     {t&&<><p>Alista: <strong>{t.preparador_nombre}</strong></p><p>Recibe: <strong>{t.receptor_nombre||'Sin asignar'}</strong></p>{t.preparado_en&&<p>Alistado: {fecha(t.preparado_en)}</p>}{t.revision_en&&<p>Tomó revisión: {fecha(t.revision_en)}</p>}{t.recibido_en&&<p>Entrega y recepción: {fecha(t.recibido_en)}</p>}</>}
    </section>
    {t?.estado==='PREPARADO'&&<CodigoDocumentoQr tipo="traslado" documentoId={id} titulo="Presenta este QR a quien recibe"/>}

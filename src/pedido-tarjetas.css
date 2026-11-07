@@ -203,3 +203,4 @@ body:has(.om-pedidos-ui){background:var(--om-bg)}
 .pt-nota-devolucion{border-color:var(--om-warn-border);color:var(--om-warn-text)!important;background:var(--om-warn-bg)}
 .pt-estado-pendiente{color:var(--om-warn-text);background:var(--om-warn-bg);border-color:var(--om-warn-border)}
 @media(max-width:380px){.om-app.om-pedidos-ui{padding:16px 12px 35px}.pt-envio-fila{padding:13px;gap:10px}.pt-envio-foto{flex-basis:44px;width:44px;height:56px}.pt-envio-cabecera h2{font-size:22px}}
+.om-pedidos-ui :is(.om-preparando,.om-en_transito){background:var(--om-accent-soft);color:var(--om-accent-text)}
