@@ -2,28 +2,26 @@ import { useEffect, useState } from 'react';
 import {Camera, Images, Trash2} from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { operarEvidenciaOperacion } from './lib/evidenciaOperacion';
+import { consultaEspaciada } from './lib/consultaEspaciada';
 
 const estados = { PENDIENTE: 'Pendiente de envío a Telegram', ENVIANDO: 'Enviando a Telegram', ENVIADO: 'Enviado a Telegram', ERROR: 'No se pudo enviar a Telegram', INCIERTO: 'Hay que comprobar el envío en Telegram' };
 export default function EvidenciaOperacion({ tipo, documentoId, entregaId, version, revision, fotos, onFotos, onDatos, busy, compacto=false }) {
   const [datos, setDatos] = useState(null), [error, setError] = useState(''), [actualizar, setActualizar] = useState(0), [reintentando, setReintentando] = useState(false);
   useEffect(() => {
-    let vigente = true, timer;
-    async function cargar() {
+    let vigente = true;
+    const detener = consultaEspaciada(async () => {
       try {
         const r = await operarEvidenciaOperacion(supabase, { tipo, documentoId, entregaId });
-        if (!vigente) return;
+        if (!vigente) return 'listo';
         setDatos(r); setError(''); onDatos(r);
-        if (r.envios.some(e => ['PENDIENTE','ENVIANDO'].includes(e.estado))) timer = setTimeout(cargar, 15000);
+        return r.envios.some(e => ['PENDIENTE','ENVIANDO'].includes(e.estado)) ? 'seguir' : 'listo';
       } catch (e) {
-        if (!vigente) return;
-        if (e.code === 'PGRST202') { onDatos({ activo: false }); return; }
-        setError('No se pudo consultar la evidencia. Actualiza antes de confirmar.'); onDatos(null); timer = setTimeout(cargar, 30000);
+        if (!vigente) return 'listo';
+        if (e.code === 'PGRST202') { onDatos({ activo: false }); return 'listo'; }
+        setError('No se pudo consultar la evidencia. Actualiza antes de confirmar.'); onDatos(null); return 'error';
       }
-    }
-    cargar();
-    const refrescar = () => { clearTimeout(timer); cargar(); };
-    window.addEventListener('focus', refrescar);
-    return () => { vigente = false; clearTimeout(timer); window.removeEventListener('focus', refrescar); };
+    });
+    return () => { vigente = false; detener(); };
   }, [tipo, documentoId, entregaId, version, revision, actualizar, onDatos]);
   function agregar(event) {
     const nuevas = Array.from(event.target.files || []); event.target.value = '';
@@ -42,8 +40,8 @@ export default function EvidenciaOperacion({ tipo, documentoId, entregaId, versi
     <h3>{tipo==='traslado'?(datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos de la entrega y recepción'):tipo === 'pedido' ? datos?.contexto?.dos_actores && !datos.contexto.puede_capturar?'Evidencias de esta entrega':datos?.contexto?.etapa==='PREPARACION'?'Fotos del alistado':'Fotos del retiro del pedido' : 'Fotos del traslado'}</h3>
     {datos?.activo && datos.contexto.puede_capturar && <>
       <p>Adjunta entre 1 y 10 fotos del material. Se enviarán al tema {tipo==='traslado'?(datos.contexto.etapa==='PREPARACION'?'Traslados al terminar el alistado':'Traslados al confirmar la entrega y recepción'):tipo === 'pedido' ? datos.contexto.etapa==='PREPARACION'?'Pedidos al enviar a verificación':'Pedidos al confirmar el retiro' : 'Traslados al autorizar la salida'}.</p>
-      <div className={compacto?'om-evidencia-iconos':undefined}><label className={compacto?'om-icon-action om-foto-icon':undefined} title="Tomar foto">{compacto?<><Camera size={21}/><span className="sr-only">Tomar foto</span></>:'Tomar foto'}<input className={compacto?'sr-only':undefined} aria-label="Tomar foto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
-      <label className={compacto?'om-icon-action om-foto-icon':undefined} title="Elegir fotos">{compacto?<><Images size={21}/><span className="sr-only">Elegir fotos</span></>:'Elegir fotos'}<input className={compacto?'sr-only':undefined} aria-label="Elegir fotos" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label></div>
+      <div className={compacto?'om-evidencia-iconos':undefined}><label className={compacto?'om-icon-action om-foto-icon':undefined} title="Tomar foto">{compacto?<><Camera size={21} aria-hidden="true"/><span>Tomar foto</span></>:'Tomar foto'}<input className={compacto?'sr-only':undefined} aria-label="Tomar foto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
+      <label className={compacto?'om-icon-action om-foto-icon':undefined} title="Elegir fotos">{compacto?<><Images size={21} aria-hidden="true"/><span>Elegir fotos</span></>:'Elegir fotos'}<input className={compacto?'sr-only':undefined} aria-label="Elegir fotos" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label></div>
       <p aria-live="polite">{fotos.length} de 10 fotos seleccionadas</p>
       <div className="om-evidencia-fotos">{fotos.map((foto,i) => <Foto key={`${i}:${foto.name}`} foto={foto} indice={i} busy={busy} compacto={compacto} onQuitar={() => onFotos(fotos.filter((_,index) => index!==i))} />)}</div>
     </>}

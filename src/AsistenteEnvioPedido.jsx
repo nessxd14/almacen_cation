@@ -2,6 +2,7 @@ import {useLayoutEffect,useRef,useState} from 'react';
 import {ArrowLeft, ArrowRight, Check, CheckCircle2, Camera, ClipboardCheck, Clock3, Send} from 'lucide-react';
 import ResumenEnvioPedido from './ResumenEnvioPedido';
 import {cantidadEnvio,filasEnvio,textoCantidadEnvio} from './lib/envioPedido';
+import './operaciones-tema.css';
 import './asistente-envio.css';
 
 export default function AsistenteEnvioPedido({lineas,revision=false,revisionAnterior=false,traslado=false,numero=1,usuario,ocupado=false,editando=false,confirmacionPendiente=false,evidenciaLista=false,fotos=[],destino='',onDestino,onConfirmar,onConfirmarNoSale,renderProductos,evidencia,motivoBloqueo=''}) {

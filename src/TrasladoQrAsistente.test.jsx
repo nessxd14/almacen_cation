@@ -41,13 +41,13 @@ describe('Traslado con asistente y saldo registrado',()=>{
  it('precarga cajas, protege el borrador y exige fotos en los tres pasos',async()=>{
   await render();const input=container.querySelector('input[inputmode="decimal"]');expect(input.value).toBe('2');expect(button('Continuar a fotos').disabled).toBe(true);
   await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'1');input.dispatchEvent(new Event('input',{bubbles:true}));});
-  expect(button('Continuar a fotos').disabled).toBe(true);await click('Cancelar ajuste');expect(input.value).toBe('2');await click('Confirmar cantidad');
+  expect(button('Continuar a fotos').disabled).toBe(true);await click('Cancelar ajuste');expect(input.value).toBe('2');await click('Completo · 2 Caja');
   await click('Continuar a fotos');expect(button('Revisar alistado').disabled).toBe(true);await click('Adjuntar foto');await click('Revisar alistado');await click('Terminar alistado');
   expect(mocks.subir).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({tipo:'traslado',documentoId:'112',version:2}));expect(estado.tarea.estado).toBe('PREPARADO');
  });
  it('recibe por etapas en el destino registrado sin cambiar el contrato de stock',async()=>{
   mocks.usuario={id:'receptor',nombre:'Tienda QA'};estado.tarea={...estado.tarea,estado:'REVISANDO',receptor_id:'receptor'};estado.lineas[0]={...estado.lineas[0],confirmada:true,preparada_base:12};
-  await render();expect(container.querySelector('input[inputmode="decimal"]').value).toBe('1');await click('Confirmar cantidad');await resumen();
+  await render();expect(container.querySelector('input[inputmode="decimal"]').value).toBe('1');await click('Completo · 1 Caja');await resumen();
   expect(container.textContent).toContain('Tienda');expect(container.textContent).toContain('al recibir los productos del almacenero');await click('Confirmar recepción y traslado');
   expect(mocks.rpc).toHaveBeenCalledWith(expect.anything(),'112','recibir',2,{evidencia_id:expect.any(String)});
  });

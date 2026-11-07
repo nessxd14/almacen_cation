@@ -1,0 +1,36 @@
+/* Paleta única de Operaciones móvil (Pedidos, VTD, Traslados y Carrito).
+   Azul claro: la misma base de la primera versión de Operaciones móvil y la
+   elegida para el Seller en celular. Los colores se cambian sólo aquí; las
+   hojas de cada pantalla usan estas variables y no valores fijos. */
+:root{
+  --om-bg:#f8fafc;
+  --om-surface:#ffffff;
+  --om-surface-2:#f4f7fa;
+  --om-surface-3:#e9eff4;
+  --om-border:#dce5eb;
+  --om-border-strong:#b9cbd7;
+  --om-text:#173047;
+  --om-text-2:#4a6377;
+  --om-text-3:#5c7386;
+  --om-accent:#075985;
+  --om-accent-hover:#084b6e;
+  --om-accent-text:#0369a1;
+  --om-accent-soft:#e0f2fe;
+  --om-accent-border:#bae6fd;
+  --om-on-accent:#ffffff;
+  --om-focus:#0284c7;
+  --om-success-bg:#eafbf0;
+  --om-success-border:#bbebce;
+  --om-success-text:#216040;
+  --om-success-solid:#19814a;
+  --om-warn-bg:#fff5df;
+  --om-warn-border:#f4dcac;
+  --om-warn-text:#77520f;
+  --om-warn-solid:#b7791f;
+  --om-danger-bg:#fff0ef;
+  --om-danger-border:#fecaca;
+  --om-danger-text:#9b2626;
+  --om-danger-solid:#dc2626;
+  --om-shadow:#17304714;
+}
+body:has(.om-app){background:var(--om-bg);color-scheme:light}

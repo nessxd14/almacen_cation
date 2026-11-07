@@ -138,7 +138,8 @@ describe('preparación y revisión en el celular', () => {
     expect(nodo.textContent).toContain('Con faltante');
     qa.siguiente = estado('PREPARADO', 3); await pulsar('Terminar preparación');
     expect(ultimo().p_accion).toBe('preparado');
-    expect(buscarBoton('Tomar revisión')).toBeTruthy();
+    expect(buscarBoton('Tomar revisión')).toBeUndefined();
+    expect(nodo.textContent).toContain('Presenta el QR a otra persona');
   });
   it('una lectura repetida no reemplaza el QR y contar es obligatorio', async () => {
     qa.datos = { ...estado('REVISANDO', 4), tarea: { ...estado('REVISANDO', 4).tarea, preparador_id: 'otro-operario', revisor_id: 'operario-qa' }, lineas: [{ ...qa.datos.lineas[0], confirmada: true, preparada_base: 12 }] };
@@ -197,8 +198,8 @@ describe('preparación y revisión en el celular', () => {
     qa.datos.lineas[0].snapshot.pendiente_base = 13;
     await montar(); await pulsar('Registrar faltante');
     expect(campo('Preparado en').value).toBe('');
-    expect([...nodo.querySelectorAll('select')].find(s => s.closest('label')?.textContent.startsWith('Unidad de conteo')).value).toBe('base');
-    await escribir(campo('Preparado en'), '13');
+    await escribir(campo('Preparado en'), '1'); await escribir(campo('Sueltas'), '1');
+    expect(nodo.textContent).toContain('Total: 13');
     await enviar('Guardar preparación');
     expect(ultimo().p_datos.cantidad_base).toBe(13);
   });
@@ -239,10 +240,10 @@ describe('preparación y revisión en el celular', () => {
     expect(ultimo().p_datos).toEqual({ linea_id: 31, cantidad_base: 0, observacion: 'No se alistó a tiempo' });
     expect(nodo.querySelector('article').textContent).toContain('No alistado');
     expect(buscarBoton('Terminar preparación').disabled).toBe(true);
-    const filtro = [...nodo.querySelectorAll('.om-filters button')].find(b => b.textContent.startsWith('Completos'));
+    const filtros = [...nodo.querySelectorAll('.om-filters button')].map(b => b.textContent);
+    expect(filtros.some(t => t.startsWith('Completos'))).toBe(false);
+    const filtro = [...nodo.querySelectorAll('.om-filters button')].find(b => b.textContent.startsWith('No alistados'));
     await act(async () => filtro.click());
-    expect(nodo.querySelector('article').hidden).toBe(true);
-    await pulsar('Ver todos los productos');
     expect(nodo.querySelector('article').hidden).toBe(false);
   });
 });

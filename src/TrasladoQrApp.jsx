@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, LogOut, RefreshCw, Truck } from 'lucide-react';
+import { ArrowLeft, LogOut, RefreshCw } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './lib/useAuth';
 import { idOperacion } from './lib/operacionesMovil';
@@ -11,6 +11,7 @@ import TarjetasTraslado from './TarjetasTraslado';
 import useStockSistema from './lib/useStockSistema';
 import {faltaStock} from './lib/stockOperacion';
 import {textoCantidadEnvio} from './lib/envioPedido';
+import './operaciones-tema.css';
 import './pedido-tarjetas.css';
 import EvidenciaOperacion from './EvidenciaOperacion';
 import CodigoDocumentoQr from './CodigoDocumentoQr';
@@ -79,11 +80,11 @@ function ContenidoTraslado({id}) {
  const alistar=preparador&&t.estado==='PREPARANDO'&&!cambios,recibir=receptor&&t.estado==='REVISANDO'&&!cambios;
  const bloqueado=ocupado||Boolean(editor)||pendiente;
  return <div className="om-app om-pedidos-ui">
-  <header className="om-header"><Link className="om-back" to="/operaciones" aria-label="Volver"><ArrowLeft/></Link><div><small>CATION · ALMACÉN</small><h1>Entrega de traslado</h1></div><Truck/><button className="om-icon" onClick={signOut} aria-label="Cerrar sesión"><LogOut/></button></header>
+  <header className="om-header"><Link className="om-back" to="/operaciones" aria-label="Volver"><ArrowLeft/></Link><div><small>CATION · ALMACÉN</small><h1>Entrega de traslado</h1></div><button className="om-icon" onClick={signOut} aria-label="Cerrar sesión"><LogOut/></button></header>
   <div className="om-contexto"><span>{usuario.nombre}</span><button className="om-secondary" disabled={ocupado||Boolean(editor)} onClick={()=>{void cargar();stock.reintentar();}}><RefreshCw size={16}/>Actualizar</button></div>
   {error&&<p role="alert" className="om-aviso om-error">{error}</p>}{aviso&&<p role="status" className="om-aviso om-exito">{aviso}</p>}
   {!idOperacion(id)?<p className="om-aviso">El QR no tiene una solicitud válida.</p>:!datos?(!error&&<p role="status">Cargando traslado…</p>):<main>
-   <section className="om-pedido"><h2>{s.numero||`Traslado #${id}`}</h2><strong>{t?estados[t.estado]:s.estado}</strong><p>{datos.origen} → {datos.destino}</p><p>Solicitó: {s.solicitado_por}</p>
+   <section className="om-pedido"><div className="om-section-title"><h2>{s.numero||`Traslado #${id}`}</h2><span className={`om-badge ${t?`om-${t.estado.toLowerCase()}`:'om-borrador'}`}>{t?estados[t.estado]:s.estado}</span></div><p>{datos.origen} → {datos.destino}</p><p>Solicitó: {s.solicitado_por}</p>
     {t&&<><p>Alista: <strong>{t.preparador_nombre}</strong></p><p>Recibe: <strong>{t.receptor_nombre||'Sin asignar'}</strong></p>{t.preparado_en&&<p>Alistado: {fecha(t.preparado_en)}</p>}{t.revision_en&&<p>Tomó revisión: {fecha(t.revision_en)}</p>}{t.recibido_en&&<p>Entrega y recepción: {fecha(t.recibido_en)}</p>}</>}
    </section>
    {t?.estado==='PREPARADO'&&<CodigoDocumentoQr tipo="traslado" documentoId={id} titulo="Presenta este QR a quien recibe"/>}

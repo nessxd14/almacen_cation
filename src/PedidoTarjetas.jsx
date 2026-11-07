@@ -6,10 +6,12 @@ import ImagenProducto from './ImagenProducto';
 import TypeaheadProducto from './TypeaheadProducto';
 import {cantidadOperacion,cantidadTexto} from './lib/operacionesMovil';
 import {etiquetaUbicacion} from './lib/ubicacionTexto';
+import './operaciones-tema.css';
 import './pedido-tarjetas.css';
 import ResumenEnvioPedido from './ResumenEnvioPedido';
 import {cantidadEnvio,estadoAlistado,filasEnvio} from './lib/envioPedido';
 import CantidadOrigenPedido from './CantidadOrigenPedido';
+import CantidadEmpaque from './CantidadEmpaque';
 
 const motivos=['Solo hay una parte','No hay stock','Producto dañado','No lo encuentro','Otro'];
 const factor=l=>Number(l.snapshot.factor)||1;
@@ -113,12 +115,12 @@ export default function PedidoTarjetas({lineas,revision,ocupado,accion,setEditor
 }
 
 function FormularioTarjeta({linea,modo,revision,ocupado,guardar,onCerrar,soloReemplazo=false}) {
-  const [valor,setValor]=useState(String((revision?linea.revisada_base??linea.preparada_base:linea.preparada_base)/factor(linea)));
+  const [valor,setValor]=useState(String(revision?linea.revisada_base??linea.preparada_base:linea.preparada_base));
   const [motivo,setMotivo]=useState(linea.observacion||motivos[0]),[decision,setDecision]=useState(soloReemplazo?'reemplazo':'parcial');
   const [situacion,setSituacion]=useState(linea.pendiente_tipo||'POR_COMPLETAR'),[busqueda,setBusqueda]=useState(''),[producto,setProducto]=useState(null),[equivalencia,setEquivalencia]=useState('1');
   const [proveedor,setProveedor]=useState(''),[costo,setCosto]=useState(''),[error,setError]=useState('');
   async function enviar(e){e.preventDefault();setError('');try{
-    let q=cantidadOperacion(valor)*factor(linea);q=Math.round(q*1e6)/1e6;
+    let q=Math.round(cantidadOperacion(valor)*1e6)/1e6;
     if(q>Number(linea.snapshot.pendiente_base))throw new Error('La cantidad supera lo pendiente del pedido.');
     if(!motivo.trim())throw new Error('Indica qué ocurrió con este producto.');
     if(modo==='incidencia')return await guardar('registrar_incidencia',{cantidad_base:q,observacion:motivo});
@@ -133,8 +135,8 @@ function FormularioTarjeta({linea,modo,revision,ocupado,guardar,onCerrar,soloRee
   }catch(e){setError(e.message);}}
   return <form className="pt-formulario" onSubmit={enviar} aria-label={revision?'Ajustar salida':modo==='incidencia'?'Registrar problema':'Resolver producto'}>
     <h3>{revision?'¿Cuánto sale ahora?':modo==='incidencia'?'Registra el problema y continúa':'Decide qué hacer con este producto'}</h3>
-    {modo==='resolver'&&!soloReemplazo&&<label>Qué hacer<select value={decision} disabled={ocupado} onChange={e=>{setDecision(e.target.value);if(e.target.value==='compra')setValor(String((Number(linea.snapshot.pendiente_base)-Number(linea.preparada_base))/factor(linea)));else setValor(String(Number(linea.preparada_base)/factor(linea)));}}><option value="parcial">Enviar lo disponible y completar después</option><option value="faltante">Dejar todo como faltante</option><option value="comprado">Ya se compró y está disponible</option><option value="compra">Solicitar / gestionar compra</option><option value="reemplazo">Cambiar por otro producto</option></select></label>}
-    {decision!=='faltante'&&<label>{decision==='compra'?'Cantidad a comprar':revision?'Cantidad que sale':'Cantidad disponible'} · {linea.snapshot.presentacion||linea.snapshot.unidad_base}<input autoFocus inputMode="decimal" value={valor} disabled={ocupado} onChange={e=>setValor(e.target.value)} required/></label>}
+    {modo==='resolver'&&!soloReemplazo&&<label>Qué hacer<select value={decision} disabled={ocupado} onChange={e=>{setDecision(e.target.value);if(e.target.value==='compra')setValor(String(Number(linea.snapshot.pendiente_base)-Number(linea.preparada_base)));else setValor(String(Number(linea.preparada_base)));}}><option value="parcial">Enviar lo disponible y completar después</option><option value="faltante">Dejar todo como faltante</option><option value="comprado">Ya se compró y está disponible</option><option value="compra">Solicitar / gestionar compra</option><option value="reemplazo">Cambiar por otro producto</option></select></label>}
+    {decision!=='faltante'&&<CantidadEmpaque valor={valor} onValor={setValor} factor={factor(linea)} presentacion={linea.snapshot.presentacion} unidadBase={linea.snapshot.unidad_base} etiqueta={`${decision==='compra'?'Cantidad a comprar':revision?'Cantidad que sale':'Cantidad disponible'} ·`} objetivo={revision?null:Number(linea.snapshot.pendiente_base)} disabled={ocupado} autoFocus/>}
     <label>Motivo / observación<input value={motivo} maxLength={1000} disabled={ocupado} onChange={e=>setMotivo(e.target.value)} required/></label>
     {modo==='incidencia'&&<div className="om-reason-options">{(linea.snapshot.es_personalizado?['Hay que comprar','Gestionar compra','Cambiar por otro producto',...motivos]:motivos).map(m=><button type="button" key={m} disabled={ocupado} aria-pressed={motivo===m} onClick={()=>setMotivo(m)}>{m}</button>)}</div>}
     {modo==='resolver'&&['parcial','faltante'].includes(decision)&&<label>El resto queda<select value={situacion} disabled={ocupado} onChange={e=>setSituacion(e.target.value)}><option value="POR_COMPLETAR">Pendiente con el mismo QR</option><option value="TIENDA">Por traer de Tienda</option><option value="COMPRA_RAPIDA">Pendiente de compra rápida</option><option value="COMPRA_GESTIONADA">Pendiente de compra gestionada</option></select></label>}

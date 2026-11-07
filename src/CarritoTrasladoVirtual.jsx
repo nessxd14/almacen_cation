@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ScanLine, Trash2, Plus, Send, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, ScanLine, Trash2, Plus, Send, ShoppingCart } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import EscanerCodigo from './EscanerCodigo';
 import { adaptarDocumentoMovil, cantidadOperacion, cantidadTexto, interpretarCodigoOperacion, rutaDocumentoMovil, solicitarDocumentoMovil } from './lib/operacionesMovil';
@@ -107,7 +107,7 @@ export default function CarritoTrasladoVirtual({ carritoId, usuario }) {
   const nombre = id => sucursales.find(s => String(s.id) === String(id))?.nombre || `Sucursal ${id}`;
   if (cargando) return <p role="status">Cargando tu carrito…</p>;
   return <section className="om-carrito">
-    <Link className="om-text-link" to="/operaciones">← Operaciones</Link>
+    <Link className="om-text-link" to="/operaciones"><ArrowLeft size={17} /> Operaciones</Link>
     <h2><ShoppingCart size={22} /> Traslado virtual para Tienda</h2>
     <p className="om-muted">Alista los productos, declara sus cantidades y presenta el QR al almacenero. El carrito conserva tu avance.</p>
     {error && <p role="alert" className="om-aviso om-error">{error}</p>}
@@ -118,7 +118,7 @@ export default function CarritoTrasladoVirtual({ carritoId, usuario }) {
       <label>Tienda destino<select value={destino} onChange={e => setDestino(e.target.value)} required disabled={ocupado || (['vendedor','cajero'].includes(usuario.rol) && contexto?.sucursal_asignada_id != null)}><option value="">Seleccionar Tienda</option>{sucursales.filter(s => String(s.id) !== String(origen)).map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}</select></label>
       <button className="om-primary" disabled={ocupado || !origen || !destino || origen === destino}>Comenzar carrito</button>
     </form> : <>
-      <div className="om-aviso">{nombre(carrito.tarea.sucursal_origen_id)} → {nombre(carrito.tarea.sucursal_destino_id)} · TV-{carrito.tarea.id}</div>
+      <div className="om-info">{nombre(carrito.tarea.sucursal_origen_id)} → {nombre(carrito.tarea.sucursal_destino_id)} · TV-{carrito.tarea.id}</div>
       {carrito.tarea.observacion && <p className="om-aviso"><strong>Observación del alistado:</strong> {carrito.tarea.observacion}</p>}
       <button className="om-secondary" disabled={ocupado || Boolean(producto)} onClick={async () => { try { const d = adaptarDocumentoMovil(await solicitarDocumentoMovil(supabase, { documentoId: carrito.tarea.id })); datosRef.current = d; setCarrito(d); setError(''); } catch (e) { setError(e.message); } }}>Actualizar carrito</button>
       {cerrado ? <><p>Este carrito ya está enviado. Consulta su QR, verificación y salida.</p><Link className="om-primary om-wide" to={rutaDocumentoMovil('traslado_virtual', carrito.tarea.id)}>Ver solicitud</Link></> : <>
@@ -128,7 +128,7 @@ export default function CarritoTrasladoVirtual({ carritoId, usuario }) {
         {producto && <ArticuloCarrito key={`${producto.producto.id}:${lineaEditando?.id || 'nuevo'}:${ubicacionContexto}`} datos={producto} ubicacionContexto={ubicacionContexto} linea={lineaEditando} ocupado={ocupado} onCancel={() => { setProducto(null); setLineaEditando(null); }} onGuardar={payload => guardar(lineaEditando ? 'editar' : 'agregar', { ...payload, ...(lineaEditando ? { linea_id: lineaEditando.id } : {}) })} />}
         <div className="om-lineas">{carrito.lineas.filter(l => l.vigente).map(l => <article key={l.id} className="om-linea"><h3>{l.snapshot.nombre}</h3><p>{cantidadTexto(l.declarada_base / Number(l.snapshot.factor))} {l.snapshot.presentacion} · {cantidadTexto(l.declarada_base)} {l.snapshot.unidad_base}</p><p className="om-muted">Origen: {l.snapshot.ubicacion}</p><div className="om-linea-actions"><button className="om-secondary" disabled={ocupado || Boolean(producto)} onClick={() => consultarProducto({ productoId: l.producto_id, presentacionId: l.presentacion_id, editando: l }).catch(e => setError(e.message))}>Editar cantidad</button><button className="om-secondary" aria-label={`Quitar ${l.snapshot.nombre}`} disabled={ocupado || Boolean(producto)} onClick={() => guardar('quitar', { linea_id: l.id })}><Trash2 size={17} /> Quitar</button></div></article>)}</div>
         {!carrito.lineas.length && <p className="om-vacio">Tu carrito todavía está vacío.</p>}
-        <button className="om-primary om-wide om-enviar" disabled={ocupado || Boolean(producto) || !carrito.lineas.length} onClick={() => guardar('enviar')}><Send size={19} /> Terminar alistado y enviar a verificar</button>
+        <button className="om-primary om-wide om-accion-fija om-enviar" disabled={ocupado || Boolean(producto) || !carrito.lineas.length} onClick={() => guardar('enviar')}><Send size={19} /> Terminar alistado y enviar a verificar</button>
         <p className="om-stock-info">Enviar guarda la declaración. El stock se mueve cuando el almacenero verifica y autoriza la salida.</p>
       </>}
     </>}

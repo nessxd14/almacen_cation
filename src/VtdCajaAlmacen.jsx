@@ -2,8 +2,10 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import EvidenciaVtd from './EvidenciaVtd';
+import CantidadEmpaque from './CantidadEmpaque';
 import { subirEvidenciaVtd } from './lib/evidenciaVtd';
 
+const claseEstado = { SOLICITADO: 'om-revisando', EN_CAJA: 'om-en_transito', ENTREGADO: 'om-despachado', RETORNO_PENDIENTE: 'om-preparado', RETORNADO: 'om-recibido', CANCELADO: 'om-anulado' };
 const nombres = { SOLICITADO: 'Pendiente de verificar', EN_CAJA: 'Material enviado a Caja', ENTREGADO: 'Entrega confirmada por Caja', RETORNO_PENDIENTE: 'Material en retorno a Almacén', RETORNADO: 'Retorno recibido', CANCELADO: 'Solicitud cancelada antes de salir' };
 
 export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId = null }) {
@@ -29,8 +31,8 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId
   const faltanteValido = lineas.length > 0 && lineas.every(l => { const n = Number(disponible(l)); return disponible(l) !== '' && Number.isFinite(n) && n >= 0 && n <= Number(l.cantidad_presentacion); })
     && lineas.some(l => Number(disponible(l)) < Number(l.cantidad_presentacion)) && motivoFaltante.trim().length >= 5;
   // Se verifica en la presentación del documento; el servidor sigue comparando unidades base.
-  const completa = lineas.length > 0 && lineas.every(l => cantidades[l.linea_id] !== undefined && cantidades[l.linea_id] !== '' && Number(cantidades[l.linea_id]) === Number(l.cantidad_presentacion));
-  const confirmarTodo = () => setCantidades(Object.fromEntries(lineas.map(l => [l.linea_id, String(l.cantidad_presentacion)])));
+  const completa = lineas.length > 0 && lineas.every(l => cantidades[l.linea_id] !== undefined && cantidades[l.linea_id] !== '' && Math.abs(Number(cantidades[l.linea_id]) - Number(l.cantidad_base)) < 1e-9);
+  const confirmarTodo = () => { setCantidades(Object.fromEntries(lineas.map(l => [l.linea_id, String(l.cantidad_base)]))); };
   // El primero que escanea queda como encargado; en un relevo, otro puede tomar la verificación.
   const ajena = entrega.estado === 'SOLICITADO' && Boolean(entrega.responsable_id) && Boolean(usuarioId) && entrega.responsable_id !== usuarioId;
   async function guardar(accion) {
@@ -102,14 +104,14 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId
   }
   return <>
     <Link className="om-text-link" to="/operaciones">Volver a Operaciones</Link>
-    <section className="om-pedido"><h2>{entrega.numero}</h2><strong>{nombres[entrega.estado]}</strong><p>{entrega.cliente || 'Cliente de mostrador'}</p>
+    <section className="om-pedido"><div className="om-section-title"><h2>{entrega.numero}</h2><span className={`om-badge ${claseEstado[entrega.estado] || ''}`}>{nombres[entrega.estado]}</span></div><p>{entrega.cliente || 'Cliente de mostrador'}</p>
       <p>Un único encargado verifica y envía el material a Caja. El cajero cobra el conjunto con la VTA y confirma la entrega al cliente.</p>
       {retorno && <p className="om-aviso">El rechazo no repuso el stock. Comprueba el material que realmente regresó antes de registrar su recepción.</p>}
       {entrega.motivo && <p className="om-aviso">Motivo: {entrega.motivo}</p>}
       {entrega.escaneado_en && <p className="om-muted">Documento escaneado: {new Date(entrega.escaneado_en).toLocaleString('es-BO')}</p>}
     </section>
     <div className="om-lineas">{lineas.map(l => <article className="om-linea" key={l.linea_id}><h3>{l.nombre}</h3><p>{l.cantidad_presentacion} {l.presentacion} · {l.cantidad_base} unidades base</p>
-      {editable && <label>{l.presentacion} {retorno ? 'recibidos' : 'verificados'}<input aria-label={`Cantidad ${retorno ? 'recibida' : 'verificada'} de ${l.nombre}`} type="number" min="0" step="any" value={cantidades[l.linea_id] ?? ''} disabled={busy} onChange={e => setCantidades(prev => ({ ...prev, [l.linea_id]: e.target.value }))} /></label>}
+      {editable && <CantidadEmpaque key={l.linea_id} valor={cantidades[l.linea_id] ?? ''} onValor={v => setCantidades(prev => ({ ...prev, [l.linea_id]: v }))} factor={Number(l.cantidad_presentacion) > 0 ? Number(l.cantidad_base) / Number(l.cantidad_presentacion) : 1} presentacion={l.presentacion} unidadBase={l.unidad_base || 'unidades'} etiqueta={retorno ? 'Recibido ·' : 'Verificado ·'} ariaLabel={`Cantidad ${retorno ? 'recibida' : 'verificada'} de ${l.nombre}`} objetivo={Number(l.cantidad_base)} disabled={busy} />}
     </article>)}</div>
     <EvidenciaVtd ventaId={ventaId} estadoEntrega={entrega.estado} busy={busy} fotos={fotos} onFotos={next => { setFotos(next); lote.current = null; }} onConfiguracion={setEvidenciaActiva} revision={revisionEvidencia} />
     {editable && <section className="om-pedido">
@@ -130,7 +132,7 @@ export default function VtdCajaAlmacen({ registro, ventaId, onChanged, usuarioId
           <div className="om-linea-actions"><button className="om-secondary" disabled={busy} onClick={() => setReportando(false)}>Cancelar</button>
             <button className="om-secondary" disabled={busy || !faltanteValido} onClick={reportarFaltante}>Enviar reporte a Caja</button></div></div>
         : <button className="om-secondary om-wide" disabled={busy} onClick={() => setReportando(true)}>Reportar faltante</button>)}
-      <button className="om-primary om-wide" disabled={busy || ajena || faltante || !completa || (!retorno && (evidenciaActiva === null || (evidenciaActiva && !fotos.length))) || (!retorno && !entrega.escaneado_en && motivo.trim().length < 5)} onClick={() => guardar(retorno ? 'recibir_retorno' : 'enviar')}>{busy ? 'Guardando fotos y salida…' : retorno ? 'Confirmar recepción del retorno' : 'Verificar y enviar a Caja'}</button>
+      <button className="om-primary om-wide om-accion-fija" disabled={busy || ajena || faltante || !completa || (!retorno && (evidenciaActiva === null || (evidenciaActiva && !fotos.length))) || (!retorno && !entrega.escaneado_en && motivo.trim().length < 5)} onClick={() => guardar(retorno ? 'recibir_retorno' : 'enviar')}>{busy ? 'Guardando fotos y salida…' : retorno ? 'Confirmar recepción del retorno' : 'Verificar y enviar a Caja'}</button>
     </section>}
     {entrega.estado === 'EN_CAJA' && <p className="om-aviso om-exito">Salida registrada una sola vez. Falta que Caja complete o resuelva el rechazo de la operación.</p>}
     {error && <p className="om-aviso om-error" role="alert">{error}</p>}

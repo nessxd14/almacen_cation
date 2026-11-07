@@ -5,6 +5,7 @@ import { cantidadOperacion, cantidadTexto } from './lib/operacionesMovil';
 import { coincideLineaPreparacion, estadoPreparacion, resumenChecklist, revisionCompleta } from './lib/preparacionUI';
 import { etiquetaUbicacion } from './lib/ubicacionTexto';
 import CantidadPedido from './CantidadPedido';
+import CantidadEmpaque from './CantidadEmpaque';
 import AbastecimientoLinea from './AbastecimientoLinea';
 
 const unidad = s => s.presentacion || s.unidad_base;
@@ -29,9 +30,9 @@ export default function PreparacionChecklist({ lineas, tipo, tarea, puedePrepara
   const hechas = revision ? r.revisado : r.total - r.pendiente;
   const total = revision ? r.revisado + r.por_revisar : r.total;
   return <section className={`om-checklist${compacta?' om-checklist-compacta':''}`} aria-label="Checklist de productos">
-    <div className="om-checklist-heading"><div><small className="om-eyebrow">{revision ? 'CONTROL DE ENTREGA' : 'MESA DE PREPARACIÓN'}</small><h2>{revision ? 'Verifica lo alistado' : 'Alista producto por producto'}</h2><p>{revision ? 'Comprueba el producto y cuenta la cantidad que tienes delante.' : 'Marca lo completo y registra lo que falta o no se alistó.'}</p></div><span className="om-count">{r.total} ítems</span></div>
+    <div className="om-checklist-heading"><div><small className="om-eyebrow">{revision ? 'CONTROL DE ENTREGA' : 'MESA DE PREPARACIÓN'}</small><h2>{revision ? 'Verifica lo alistado' : 'Alista producto por producto'}</h2><p>{revision ? 'Comprueba el producto y cuenta la cantidad que tienes delante.' : 'Marca lo completo y registra lo que falta o no se alistó.'}</p></div><span className="om-count">{r.total} {r.total === 1 ? 'producto' : 'productos'}</span></div>
     {tarea && <div className="om-checklist-progress"><div><strong>{hechas} de {total}</strong><span>{revision ? 'líneas verificadas' : 'líneas registradas'}</span><span className="om-progress-remaining">{revision ? r.por_revisar : r.pendiente} pendientes</span></div><progress aria-label={revision ? 'Avance de verificación' : 'Avance de alistado'} max={total || 1} value={hechas} /></div>}
-    <div className="om-checklist-tools"><label className="om-search"><Search size={18} /><span className="sr-only">Buscar producto en la preparación</span><input value={busqueda} disabled={Boolean(editor)} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar producto o SKU…" />{busqueda && <button type="button" aria-label="Limpiar búsqueda de productos" disabled={Boolean(editor)} onClick={() => setBusqueda('')}><X size={17} /></button>}</label><div className="om-filters" aria-label="Filtrar productos">{filtros.map(([id, nombre, n]) => <button key={id} aria-pressed={filtro === id} disabled={Boolean(editor)} onClick={() => setFiltro(id)}>{nombre}<span>{n}</span></button>)}</div></div>
+    <div className="om-checklist-tools"><label className="om-search"><Search size={18} /><span className="sr-only">Buscar producto en la preparación</span><input value={busqueda} disabled={Boolean(editor)} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar producto o SKU…" />{busqueda && <button type="button" aria-label="Limpiar búsqueda de productos" disabled={Boolean(editor)} onClick={() => setBusqueda('')}><X size={17} /></button>}</label><div className="om-filters" aria-label="Filtrar productos">{filtros.filter(([id, , n]) => id === 'todas' || n > 0 || filtro === id).map(([id, nombre, n]) => <button key={id} aria-pressed={filtro === id} disabled={Boolean(editor)} onClick={() => setFiltro(id)}>{nombre}<span>{n}</span></button>)}</div></div>
     <p className="om-results" role="status">{visibles.length} de {r.total} productos{r.faltante + r.no_alistado > 0 && <span><AlertTriangle size={13} /> {r.faltante + r.no_alistado} con cantidades pendientes</span>}</p>
     {!visibles.length && <div className="om-empty-filter"><Package size={28} /><strong>{lineas.length ? 'No hay productos en esta vista' : 'No hay líneas pendientes en esta sucursal'}</strong>{lineas.length > 0 && <button className="om-secondary" onClick={() => { setBusqueda(''); setFiltro('todas'); }}>Ver todos los productos</button>}</div>}
     <div className="om-lineas">{lineas.map((l, index) => {
@@ -72,19 +73,15 @@ function EditorLinea({ linea, editor, ocupado, onCancel, onGuardar, dosActores =
   const ninguno = editor.intencion === 'ninguno';
   const parcial = editor.intencion === 'parcial';
   const cantidadInicial = ninguno ? 0 : dosActores && !preparacion ? Number(linea.revisada_base ?? linea.preparada_base) : Number(linea.confirmada ? linea.preparada_base : s.preparable ? s.pendiente_base : 0);
-  const iniciarEnBase = Math.abs(Math.round(cantidadInicial / factor(s) * 1e6) / 1e6 * factor(s) - cantidadInicial) > Number.EPSILON * Math.max(1, cantidadInicial) * 8;
-  const [enBase, setEnBase] = useState(iniciarEnBase);
-  const [valor, setValor] = useState(dosActores ? String(cantidadInicial / (iniciarEnBase ? 1 : factor(s))) : preparacion ? parcial ? '' : String(cantidadInicial / (iniciarEnBase ? 1 : factor(s))) : '');
+  const [valor, setValor] = useState(dosActores ? String(cantidadInicial) : preparacion ? parcial ? '' : String(cantidadInicial) : '');
   const [observacion, setObservacion] = useState(!preparacion && dosActores ? linea.observacion_revision || '' : linea.observacion || '');
   const [codigo, setCodigo] = useState(editor.codigo || '');
   const [error, setError] = useState('');
-  const ingresado = Number(String(valor).replace(',', '.')) * (enBase ? 1 : factor(s));
+  const ingresado = Number(valor);
   async function guardar(e) {
     e.preventDefault(); setError('');
     try {
-      const n = cantidadOperacion(valor) * (enBase ? 1 : factor(s));
-      const base = Math.round(n * 1e6) / 1e6;
-      if (Math.abs(base - n) > Number.EPSILON * Math.max(1, n) * 8) throw new Error('La conversión debe dar una cantidad con hasta 6 decimales en unidades base.');
+      const base = Math.round(cantidadOperacion(valor) * 1e6) / 1e6;
       if (preparacion && base > Number(s.pendiente_base)) throw new Error('La cantidad supera lo pendiente del pedido.');
       if (preparacion && base < Number(s.pendiente_base) && !observacion.trim()) throw new Error('Indica el motivo de la cantidad que queda pendiente.');
       if (!preparacion && !dosActores && base !== Number(linea.preparada_base)) throw new Error('La cantidad contada no coincide con la preparada. Reabre la preparación para corregirla.');
@@ -97,8 +94,7 @@ function EditorLinea({ linea, editor, ocupado, onCancel, onGuardar, dosActores =
   return <form className="om-editor" onSubmit={guardar}>
     <strong>{preparacion ? ninguno ? 'Registrar producto no alistado' : parcial ? 'Registrar faltante de esta entrega' : 'Cantidad preparada para esta entrega' : 'Comprueba el producto, la presentación y cuenta lo preparado'}</strong>
     {!preparacion && editor.metodo === 'escaneo' && <label>Código leído<input value={codigo} onChange={e => setCodigo(e.target.value)} autoComplete="off" maxLength={2048} disabled={ocupado} /></label>}
-    {factor(s) !== 1 && !ninguno && <label>Unidad de conteo<select value={enBase ? 'base' : 'presentacion'} disabled={ocupado} onChange={e => { const base = e.target.value === 'base'; setEnBase(base); setValor(valor === '' ? '' : String(Math.round(ingresado / (base ? 1 : factor(s)) * 1e6) / 1e6)); }}><option value="presentacion">{unidad(s)} · {cantidadTexto(factor(s))} {s.unidad_base}</option><option value="base">{s.unidad_base} (unidad base)</option></select></label>}
-    {ninguno ? <p className="om-editor-missing">Se guardarán <strong>0 {s.unidad_base} alistadas</strong>. {cantidad(s.pendiente_base, s)} quedan pendientes.</p> : <label>{preparacion ? 'Preparado' : 'Cantidad contada'} en {enBase ? s.unidad_base : unidad(s)}<input autoFocus inputMode="decimal" value={valor} onChange={e => setValor(e.target.value)} required autoComplete="off" disabled={ocupado} /></label>}
+    {ninguno ? <p className="om-editor-missing">Se guardarán <strong>0 {s.unidad_base} alistadas</strong>. {cantidad(s.pendiente_base, s)} quedan pendientes.</p> : <CantidadEmpaque valor={valor} onValor={setValor} factor={factor(s)} presentacion={unidad(s)} unidadBase={s.unidad_base} etiqueta={preparacion ? 'Preparado en' : 'Cantidad contada en'} objetivo={preparacion ? Number(s.pendiente_base) : Number(linea.preparada_base)} disabled={ocupado} autoFocus />}
     {preparacion && valor !== '' && Number.isFinite(ingresado) && ingresado >= 0 && ingresado <= Number(s.pendiente_base) && !ninguno && <p className="om-editor-missing">Quedarán pendientes: <strong>{cantidad(Math.max(0, Number(s.pendiente_base) - ingresado), s)}</strong></p>}
     {preparacion && <><label>Observación o motivo del faltante<textarea autoFocus={ninguno} maxLength={1000} value={observacion} onChange={e => setObservacion(e.target.value)} disabled={ocupado} placeholder="Explica qué quedó pendiente…" /></label><div className="om-reason-options" aria-label="Motivos frecuentes">{['Stock insuficiente', 'No se encontró', 'Pendiente de compra', 'No se alistó a tiempo'].map(m => <button type="button" disabled={ocupado} key={m} aria-pressed={observacion === m} onClick={() => setObservacion(m)}>{m}</button>)}</div></>}
     {!preparacion && <p className="om-muted">{s.es_personalizado ? 'Comprueba que el material corresponde a la descripción del pedido y cuenta lo que vas a retirar.' : 'Escanear identifica el producto. Confirma también su empaque y la cantidad que tienes delante.'}</p>}
