@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Camera, Images, Trash2 } from 'lucide-react';
 import { operarEvidenciaVtd, MAX_FOTOS_VTD } from './lib/evidenciaVtd';
 import { supabase } from './supabaseClient';
 
@@ -37,12 +38,14 @@ export default function EvidenciaVtd({ ventaId, estadoEntrega, busy, fotos, onFo
     catch (e) { setError(e.message); }
     finally { setReintentando(false); }
   }
-  return <section className="om-pedido om-evidencia">
+  return <section className="om-pedido om-evidencia om-evidencia-compacta">
     <h3>Fotos de la salida</h3>
     {datos?.activo && estadoEntrega === 'SOLICITADO' && <>
       <p>Adjunta al menos una foto del material que envías a Caja. Se enviará al tema VTD de Telegram al registrar la salida.</p>
-      <label>Tomar foto<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
-      <label>Elegir fotos<input ref={input} type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label>
+      <div className="om-evidencia-iconos">
+        <label className="om-icon-action om-foto-icon" title="Tomar foto"><Camera size={21} aria-hidden="true" /><span>Tomar foto</span><input className="sr-only" aria-label="Tomar foto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy} onChange={agregar} /></label>
+        <label className="om-icon-action om-foto-icon" title="Elegir fotos"><Images size={21} aria-hidden="true" /><span>Elegir fotos</span><input className="sr-only" aria-label="Elegir fotos" ref={input} type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={agregar} /></label>
+      </div>
       <p aria-live="polite">{fotos.length} de {MAX_FOTOS_VTD} fotos seleccionadas</p>
       <div className="om-evidencia-fotos">{fotos.map((foto, i) => <Foto key={`${i}:${foto.name}`} foto={foto} indice={i} busy={busy} onQuitar={() => onFotos(fotos.filter((_, index) => index !== i))} />)}</div>
     </>}
@@ -61,5 +64,5 @@ export default function EvidenciaVtd({ ventaId, estadoEntrega, busy, fotos, onFo
 function Foto({ foto, indice, busy, onQuitar }) {
   const [url, setUrl] = useState('');
   useEffect(() => { const next = URL.createObjectURL(foto); setUrl(next); return () => URL.revokeObjectURL(next); }, [foto]); // eslint-disable-line react-hooks/set-state-in-effect
-  return <figure><img src={url} alt={`Evidencia ${indice + 1}`} /><button type="button" disabled={busy} onClick={onQuitar}>Quitar foto {indice + 1}</button></figure>;
+  return <figure><img src={url} alt={`Evidencia ${indice + 1}`} /><button type="button" className="om-secondary om-icon-action" aria-label={`Quitar foto ${indice + 1}`} title={`Quitar foto ${indice + 1}`} disabled={busy} onClick={onQuitar}><Trash2 size={18} aria-hidden="true" /></button></figure>;
 }

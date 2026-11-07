@@ -97,7 +97,7 @@ it('precarga lo alistado, permite diferencias, verifica el resto y retira con el
   await mount();expect(input('Cantidad a retirar de Producto 1').value).toBe('1');
   await change(input('Cantidad a retirar de Producto 1'),'0,5');
   const motivo=[...node.querySelectorAll('label')].find(l=>l.textContent.startsWith('Motivo de la diferencia')).querySelector('input');await change(motivo,'Se encontraron seis');await click('Guardar ajuste');
-  await click('Todo lo demás coincide');expect(input('Cantidad a retirar de Producto 1').value).toBe('0.5');expect(qa.doc.lineas[0].revisada_base).toBe(6);
+  await click('Todo lo demás coincide');expect(input('Cantidad a retirar de Producto 1').value).toBe('0');expect(input('Sueltas de Cantidad a retirar de Producto 1').value).toBe('6');expect(qa.doc.lineas[0].revisada_base).toBe(6);
   expect(node.textContent).not.toContain('tercera persona');expect(boton('Confirmar revisión y retirar').disabled).toBe(true);
   await change(node.querySelector('input[maxlength="300"]'),'Obra QA');await fotos();capture('verificador');await click('Confirmar revisión y retirar');
   expect(calls('confirmar_retiro')[0][1].p_datos).toMatchObject({destino:'Obra QA',plan:qa.doc.plan_salida,evidencia_id:expect.any(String)});
@@ -113,7 +113,7 @@ it('alista un pedido de personalizados y exige fotos antes de enviarlo a otra pe
   qa.doc.lineas=[{pedido_linea_id:1,vigente:true,confirmada:false,preparada_base:0,revisada_base:null,observacion:'',snapshot:{producto_id:null,es_personalizado:true,nombre:'Escoba especial',factor:1,unidad_base:'unidades',pendiente_base:6,preparable:true}}];
   await mount();expect(input('Cantidad alistada de Escoba especial').value).toBe('6');
   expect(node.textContent).toContain('No requiere código de barras');expect(node.textContent).not.toContain('Ver ficha');
-  await click('Confirmar cantidad');expect(calls('guardar_preparacion')[0][1].p_datos).toMatchObject({linea_id:1,cantidad_base:6});
+  await click('Completo · 6 unidades');expect(calls('guardar_preparacion')[0][1].p_datos).toMatchObject({linea_id:1,cantidad_base:6});
   expect(boton('Enviar a verificación').disabled).toBe(true);await fotos();await click('Enviar a verificación');
   expect(calls('preparado')[0][1].p_datos.evidencia_id).toBeTruthy();expect(node.textContent).toContain('Presenta el QR a otra persona');
 });

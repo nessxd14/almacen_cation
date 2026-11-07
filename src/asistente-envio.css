@@ -1,7 +1,7 @@
 body:has(.om-app.om-pedidos-ui){background:var(--om-bg);color-scheme:light}
 .ae-asistente{margin:20px 0;color:var(--om-text)}
 .ae-cabecera{position:sticky;top:0;z-index:6;scroll-margin-top:16px;outline:none;background:color-mix(in srgb,var(--om-bg) 94%,transparent);backdrop-filter:blur(16px);padding:14px 0 10px;border-bottom:1px solid var(--om-accent-border);margin-bottom:18px}
-.ae-cabecera>small{font-size:10px;letter-spacing:.1em;font-weight:650;color:var(--om-text-2)}
+.ae-cabecera>small{font-size:11px;letter-spacing:.1em;font-weight:650;color:var(--om-text-2)}
 .ae-paso{display:inline-block;float:right;margin:0;font-size:11px;font-weight:600;color:var(--om-text-2);padding:5px 8px;background:var(--om-accent-soft);border:1px solid var(--om-accent-border);border-radius:7px}
 .ae-cabecera ol{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;padding:0;gap:8px;margin:18px 0 0}
 .ae-cabecera li{position:relative;border-bottom:2px solid var(--om-border);padding-bottom:10px}
@@ -28,7 +28,7 @@ body:has(.om-app.om-pedidos-ui){background:var(--om-bg);color-scheme:light}
 .ae-asistente .pt-personalizado>svg{width:60px;height:60px}
 .ae-asistente .pt-sin-foto{top:55%}
 .ae-asistente .pt-contenido{margin:0;padding:0 18px 18px;background:none}
-.ae-asistente .pt-contenido>small{font-size:10px;color:var(--om-text-3)}
+.ae-asistente .pt-contenido>small{font-size:11px;color:var(--om-text-3)}
 .ae-asistente .pt-contenido h3{font-size:23px;line-height:1.25;margin-bottom:12px;text-wrap:pretty}
 .ae-asistente .pt-contenido p{font-size:12px;line-height:1.65}
 .ae-asistente .pt-cantidad{font-size:20px;border:0;background:var(--om-surface-2);padding:9px 12px}
@@ -88,8 +88,8 @@ body:has(.om-app.om-pedidos-ui){background:var(--om-bg);color-scheme:light}
 .ae-confirmacion>.ae-volver{width:100%}
 .ae-productos-listos{display:flex;align-items:center;gap:10px;padding:18px;border:1px solid var(--om-success-border);background:var(--om-success-bg);border-radius:17px;color:var(--om-success-text);font-size:14px;line-height:1.5}
 .ae-productos-listos svg{flex-shrink:0}
-.at-producto{display:flex;align-items:center;gap:18px;padding:24px 18px}.at-producto>svg{flex-shrink:0;color:var(--om-text-2)}.at-producto small{color:var(--om-text-3);font-size:10px}.at-producto h3{font-size:23px;line-height:1.3;margin:6px 0 12px}.at-producto strong{color:var(--om-success-text);font-size:20px}.ae-asistente .om-cantidad-pedido{padding:16px;background:var(--om-surface);border:1px solid var(--om-border);border-radius:14px;margin-top:14px}.ae-asistente .om-cantidad-pedido-campos{gap:10px}.ae-asistente .om-cantidad-pedido .om-muted{color:var(--om-text-2)}.ae-destino>strong{display:block;margin:8px 0}
-.om-app.om-pedidos-ui :is(.om-cantidad-pedido,.om-articulo) :is(input,select,textarea){background:var(--om-accent-soft);color:var(--om-accent-text);border-color:var(--om-accent-border);min-height:48px;font-size:16px}.om-app.om-pedidos-ui :is(.om-cantidad-pedido,.om-articulo) label{color:var(--om-text-2)}
+.at-producto{display:flex;align-items:center;gap:18px;padding:24px 18px}.at-producto>svg{flex-shrink:0;color:var(--om-text-2)}.at-producto small{color:var(--om-text-3);font-size:11px}.at-producto h3{font-size:23px;line-height:1.3;margin:6px 0 12px}.at-producto strong{color:var(--om-success-text);font-size:20px}.ae-asistente .om-cantidad-pedido{padding:16px;background:var(--om-surface);border:1px solid var(--om-border);border-radius:14px;margin-top:14px}.ae-asistente .om-cantidad-pedido-campos{gap:10px}.ae-asistente .om-cantidad-pedido .om-muted{color:var(--om-text-2)}.ae-destino>strong{display:block;margin:8px 0}
+.om-app.om-pedidos-ui :is(.om-cantidad-pedido,.om-articulo) :is(input,select,textarea){background:var(--om-surface);color:var(--om-text);border-color:var(--om-border-strong);min-height:48px;font-size:16px}.om-app.om-pedidos-ui :is(.om-cantidad-pedido,.om-articulo) label{color:var(--om-text-2)}
 .ae-asistente .pt-envio-fila:is(button):hover:not(:disabled){background:var(--om-surface-2)}
 .ae-asistente .pt-envio-fila:is(button):active{background:var(--om-accent-soft)}
 .ae-asistente .pt-envio-editar{flex-shrink:0;color:var(--om-text-2)}
@@ -97,4 +97,4 @@ body:has(.om-app.om-pedidos-ui){background:var(--om-bg);color-scheme:light}
 .om-app .ae-asistente :is(button,input,summary,label):focus-visible{outline:3px solid var(--om-focus);outline-offset:3px}
 .ae-asistente button{transition:background-color .15s,border-color .15s}
 @media(prefers-reduced-motion:reduce){.ae-asistente *{transition:none!important}}
-@media(max-width:380px){.ae-cabecera nav button{font-size:11px;gap:5px}.ae-cabecera nav button>span{flex-basis:25px;width:25px;height:25px}.ae-titulo{font-size:23px}.ae-asistente .pt-contenido h3{font-size:22px}.ae-paso{font-size:10px;padding:4px 6px}.ae-asistente .pt-cantidades-origen .om-input-row{flex-wrap:wrap}.ae-asistente .pt-cantidades-origen .om-input-row>button{flex:1 1 100%}}
+@media(max-width:380px){.ae-cabecera nav button{font-size:11px;gap:5px}.ae-cabecera nav button>span{flex-basis:25px;width:25px;height:25px}.ae-titulo{font-size:23px}.ae-asistente .pt-contenido h3{font-size:22px}.ae-paso{font-size:11px;padding:4px 6px}.ae-asistente .pt-cantidades-origen .om-input-row{flex-wrap:wrap}.ae-asistente .pt-cantidades-origen .om-input-row>button{flex:1 1 100%}}

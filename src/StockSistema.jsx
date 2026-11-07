@@ -1,6 +1,7 @@
 import {AlertTriangle,RefreshCw,Warehouse} from 'lucide-react';
 import {cantidadTexto} from './lib/operacionesMovil';
 import {cantidadAlmacen} from './lib/stockOperacion';
+import './operaciones-tema.css';
 import './stock-sistema.css';
 
 export default function StockSistema({stock,linea,lineas=[],cantidad=0,traslado=false,revision=false}) {

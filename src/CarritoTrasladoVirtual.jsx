@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ScanLine, Trash2, Plus, Send, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, ScanLine, Trash2, Plus, Send, ShoppingCart } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import EscanerCodigo from './EscanerCodigo';
 import { adaptarDocumentoMovil, cantidadOperacion, cantidadTexto, interpretarCodigoOperacion, rutaDocumentoMovil, solicitarDocumentoMovil } from './lib/operacionesMovil';
@@ -107,7 +107,7 @@ export default function CarritoTrasladoVirtual({ carritoId, usuario }) {
   const nombre = id => sucursales.find(s => String(s.id) === String(id))?.nombre || `Sucursal ${id}`;
   if (cargando) return <p role="status">Cargando tu carrito…</p>;
   return <section className="om-carrito">
-    <Link className="om-text-link" to="/operaciones">← Operaciones</Link>
+    <Link className="om-text-link" to="/operaciones"><ArrowLeft size={17} /> Operaciones</Link>
     <h2><ShoppingCart size={22} /> Traslado virtual para Tienda</h2>
     <p className="om-muted">Alista los productos, declara sus cantidades y presenta el QR al almacenero. El carrito conserva tu avance.</p>
     {error && <p role="alert" className="om-aviso om-error">{error}</p>}
@@ -118,7 +118,7 @@ export default function CarritoTrasladoVirtual({ carritoId, usuario }) {
       <label>Tienda destino<select value={destino} onChange={e => setDestino(e.target.value)} required disabled={ocupado || (['vendedor','cajero'].includes(usuario.rol) && contexto?.sucursal_asignada_id != null)}><option value="">Seleccionar Tienda</option>{sucursales.filter(s => String(s.id) !== String(origen)).map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}</select></label>
       <button className="om-primary" disabled={ocupado || !origen || !destino || origen === destino}>Comenzar carrito</button>
     </form> : <>
-      <div className="om-aviso">{nombre(carrito.tarea.sucursal_origen_id)} → {nombre(carrito.tarea.sucursal_destino_id)} · TV-{carrito.tarea.id}</div>
+      <div className="om-info">{nombre(carrito.tarea.sucursal_origen_id)} → {nombre(carrito.tarea.sucursal_destino_id)} · TV-{carrito.tarea.id}</div>
       {carrito.tarea.observacion && <p className="om-aviso"><strong>Observación del alistado:</strong> {carrito.tarea.observacion}</p>}
       <button className="om-secondary" disabled={ocupado || Boolean(producto)} onClick={async () => { try { const d = adaptarDocumentoMovil(await solicitarDocumentoMovil(supabase, { documentoId: carrito.tarea.id })); datosRef.current = d; setCarrito(d); setError(''); } catch (e) { setError(e.message); } }}>Actualizar carrito</button>
       {cerrado ? <><p>Este carrito ya está enviado. Consulta su QR, verificación y salida.</p><Link className="om-primary om-wide" to={rutaDocumentoMovil('traslado_virtual', carrito.tarea.id)}>Ver solicitud</Link></> : <>
