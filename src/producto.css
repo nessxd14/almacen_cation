@@ -8,6 +8,9 @@
 .product-primary-button { color: #fff; background: linear-gradient(110deg,#245c9a,#3984d3); box-shadow: 0 5px 14px #2869ae24; }
 .product-secondary-button { border: 1px solid #ceddea; color: #436583; background: #fff; }
 .product-primary-button:disabled { opacity: .6; }
+.product-danger-button { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 8px; min-height: 42px; padding: 9px 15px; border-radius: 11px; font-size: 13px; font-weight: 650; border: 1px solid #f3c7c7; color: #b42318; background: #fff; }
+.product-danger-button:not(:disabled):hover { background: #fef3f2; }
+.product-danger-button:disabled { opacity: .6; }
 .product-dialog-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 24px; scrollbar-width: thin; scrollbar-color: #b3cce4 transparent; }
 .product-editor-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .product-editor-heading > div { min-width: 0; }

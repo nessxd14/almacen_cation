@@ -104,7 +104,7 @@ function DesgloseSucursalLinea({ stockPorSucursal, className }) {
 
 // ─── Panel de detalle ────────────────────────────────────────────────────────
 
-function DetalleProducto({ producto, onClose, onActualizado }) {
+function DetalleProducto({ producto, onClose, onActualizado, onEliminado }) {
   const { sucursales, nombreSucursal, sucursalActivaId } = useSucursal();
   const [detalle, setDetalle] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -383,6 +383,7 @@ function DetalleProducto({ producto, onClose, onActualizado }) {
           producto={producto}
           onClose={() => { setEditando(false); setRevision(v => v + 1); }}
           onGuardado={onActualizado}
+          onEliminado={() => { setEditando(false); onEliminado?.(); }}
         />
       )}
     </CatalogDialog>
@@ -1175,11 +1176,23 @@ export default function CatalogoApp() {
           producto={detalleCompleto}
           onClose={() => setDetalleCompleto(null)}
           onActualizado={(cambios) => { if (cambios) setDetalleCompleto(p => ({ ...p, ...cambios })); cargar(busqueda, filtroValorId, pagina); }}
+          onEliminado={() => {
+            setDetalleCompleto(null);
+            setVentaFlash({ msg: "Producto eliminado del catálogo", type: "ok" });
+            setTimeout(() => setVentaFlash(null), 4000);
+            cargar(busqueda, filtroValorId, pagina);
+          }}
         />
       )}
 
       {editandoProducto && <EditarProducto producto={editandoProducto} onClose={() => setEditandoProducto(null)}
-        onGuardado={cambios => { if (cambios) setEditandoProducto(p => ({ ...p, ...cambios })); cargar(busqueda, filtroValorId, pagina); }} />}
+        onGuardado={cambios => { if (cambios) setEditandoProducto(p => ({ ...p, ...cambios })); cargar(busqueda, filtroValorId, pagina); }}
+        onEliminado={() => {
+          setEditandoProducto(null);
+          setVentaFlash({ msg: "Producto eliminado del catálogo", type: "ok" });
+          setTimeout(() => setVentaFlash(null), 4000);
+          cargar(busqueda, filtroValorId, pagina);
+        }} />}
 
       {creando && (
         <NuevoProducto onClose={() => setCreando(false)}

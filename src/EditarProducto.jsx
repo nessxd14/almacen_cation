@@ -37,7 +37,7 @@ function Toast({ msg, tipo = "ok", onClose }) {
 
 // ─── Editor de producto ──────────────────────────────────────────────────────
 
-export default function EditarProducto({ producto, onClose, onGuardado }) {
+export default function EditarProducto({ producto, onClose, onGuardado, onEliminado }) {
   const usuarioActual = useUsuarioActual();
   const esAdmin = usuarioActual?.rol === "admin";
   // Precios por presentación: admin y gerente (= app_es_admin() en la base).
@@ -61,6 +61,7 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
   const [identificadores, setIdentificadores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
   const [seccion, setSeccion] = useState("general");
 
   // Presentaciones no-base: cuáles ya tienen movimientos en el Kardex (no se
@@ -247,6 +248,34 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
     }
     show("Cambios guardados");
     onGuardado?.(payload);
+  }
+
+  // ── Eliminar producto (baja lógica: activo = false vía producto_eliminar).
+  // El historial se conserva; la base bloquea si está en un pedido abierto,
+  // un traslado en curso o una compra activa. Solo admin/gerente.
+  async function eliminarProducto() {
+    setEliminando(true);
+    const { data: filas, error: errStock } = await supabase.from("stock_actual")
+      .select("cantidad_base, ubicacion:ubicacion_id(excluye_disponible)")
+      .eq("producto_id", producto.id);
+    if (errStock) { setEliminando(false); show("No se pudo revisar el stock: " + errStock.message, "err"); return; }
+    const stock = (filas || [])
+      .filter(f => !f.ubicacion?.excluye_disponible)
+      .reduce((s, f) => s + Number(f.cantidad_base || 0), 0);
+    const avisoStock = stock !== 0
+      ? `\n\nOjo: el sistema todavía le registra ${formatearCantidad(stock)} ${baseNombre} en stock. Ese saldo queda guardado pero deja de verse en el catálogo.`
+      : "";
+    const ok = window.confirm(
+      `¿Eliminar "${producto.nombre}" del catálogo?${avisoStock}\n\nSu historial (kardex, ventas, pedidos) se conserva.`
+    );
+    if (!ok) { setEliminando(false); return; }
+    const { error } = await supabase.rpc("producto_eliminar", { p_producto_id: producto.id });
+    setEliminando(false);
+    if (error) {
+      show(error.message.includes("administrador") ? "Solo un administrador o gerente puede eliminar productos" : error.message, "err");
+      return;
+    }
+    onEliminado?.(producto.id);
   }
 
   // ── Guardar ficha técnica (independiente — no pasa por el trigger de
@@ -971,6 +1000,12 @@ export default function EditarProducto({ producto, onClose, onGuardado }) {
         {toast && <Toast msg={toast.msg} tipo={toast.tipo} onClose={() => setToast(null)} />}
         <footer className="product-editor-footer">
           <p>{seccion === "general" ? "Guarda los datos básicos y los precios de esta sección." : "Los cambios se guardan con la acción de cada sección."}</p>
+          {puedePrecios && seccion === "general" && (
+            <button type="button" onClick={eliminarProducto} disabled={eliminando || guardando} className="product-danger-button"
+              title="Quita el producto del catálogo (conserva su historial)">
+              {eliminando ? <Loader size={16} className="animate-spin" /> : <Trash2 size={16} />}{eliminando ? "Eliminando…" : "Eliminar"}
+            </button>
+          )}
           <button type="button" className="product-secondary-button" onClick={onClose}>Cerrar</button>
           {seccion === "general" && <button type="button" onClick={guardarDatos} disabled={guardando} className="product-primary-button">
             {guardando ? <Loader size={16} className="animate-spin" /> : <Save size={16} />}{guardando ? "Guardando…" : "Guardar cambios"}
