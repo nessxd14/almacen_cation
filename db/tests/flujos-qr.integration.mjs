@@ -52,6 +52,14 @@ try {
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261013143239_fix_cierre_revision_cobro_vtd_pedidos.sql', import.meta.url), 'utf8'));
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261015141517_confirmar_resto_preparacion.sql', import.meta.url), 'utf8'));
   await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261020141453_fix_flujo_traslados.sql', import.meta.url), 'utf8'));
+  // Permisos previos del proyecto y firma de la función de mantenimiento.
+  await db.exec(`create policy auth_all on public.stock_actual for all to authenticated using (true) with check (true);
+    create function public.recalcular_stock_actual() returns void language plpgsql as $$begin null; end$$;
+    grant execute on function public.recalcular_stock_actual() to authenticated, service_role;`);
+  const ensayoStock = await fs.readFile(new URL('../../supabase/ensayos/20261109213544_proteger_escritura_directa_stock_ENSAYO.sql', import.meta.url), 'utf8');
+  await assert.rejects(() => db.exec(ensayoStock), /ENSAYO OK/);
+  await db.exec('rollback');
+  await db.exec(await fs.readFile(new URL('../../supabase/migrations/20261109213544_proteger_escritura_directa_stock.sql', import.meta.url), 'utf8'));
   console.log('OK: migración compilada en PostgreSQL aislado');
   await db.exec(`insert into sucursal(id,nombre,tipo,activo) values(1,'Almacén QA','fisica',true),(2,'Tienda QA','fisica',true),(3,'Otra QA','fisica',true);
     insert into perfil(id,nombre,email,rol,sucursal_id) values
@@ -77,6 +85,21 @@ try {
   const call = async (tipo, id, accion='consultar', data={}, version=null) => (await db.query('select operar_documento_movil($1,$2,$3,$4,$5::jsonb) result', [tipo,id,accion,version,JSON.stringify(data)])).rows[0].result;
   const step = (tipo,id,d,accion,data={}) => call(tipo,id,accion,data,d.tarea.version);
   const stock = async ubicacion => Number((await db.query('select cantidad_base from stock_actual where producto_id=1 and ubicacion_id=$1',[ubicacion])).rows[0]?.cantidad_base || 0);
+  // El navegador puede leer stock, pero incluso un almacenero debe moverlo vía Kardex.
+  await login(1);
+  await db.exec('set role authenticated');
+  assert.equal(await stock(1),100);
+  const permisoDenegado = error => error.code === '42501';
+  await assert.rejects(() => db.exec('update public.stock_actual set cantidad_base=99 where ubicacion_id=1'), permisoDenegado);
+  await assert.rejects(() => db.exec('insert into public.stock_actual(producto_id,ubicacion_id,cantidad_base) values(1,3,1)'), permisoDenegado);
+  await assert.rejects(() => db.exec('delete from public.stock_actual where ubicacion_id=1'), permisoDenegado);
+  await assert.rejects(() => db.exec('select public.recalcular_stock_actual()'), permisoDenegado);
+  await db.exec('begin');
+  await db.query("select public.registrar_entrada(1,1,2,'QA stock protegido','QA')");
+  assert.equal(await stock(1),102,'El trigger refleja el movimiento del RPC con el rol autenticado');
+  await db.exec('rollback;reset role');
+  assert.equal(await stock(1),100);
+  console.log('OK: escritura directa de stock denegada; lectura y actualización por Kardex conservadas');
   const count = async table => (await db.query(`select count(*)::int n from ${table}`)).rows[0].n;
   await login(1);
   const previaVtd = await call('VTD',1);assert.equal(previaVtd.lineas.length,1);assert.equal(previaVtd.tarea,null);assert.equal(previaVtd.documento.pago,'POR COBRAR');
