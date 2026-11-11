@@ -47,6 +47,11 @@ export default function PedidoTarjetas({lineas,revision,ocupado,accion,setEditor
   const pendientes=lineas.filter(l=>!procesada(l));
   const incidencias=lineas.filter(l=>l.incidencia_pendiente);
   const actual=seleccion==='resumen'?null:lineas.find(l=>l.pedido_linea_id===seleccion)||pendientes[0];
+  const productoId=Number(actual?.reemplazo?.producto_id??actual?.snapshot.producto_id);
+  const stockConsultado=stock?.estado==='listo'?stock.mapa.get(productoId):null;
+  const stockAlmacen=stockConsultado??actual?.stock_almacen_base;
+  const cantidadPedida=Number(actual?.snapshot.pendiente_base)*Number(actual?.reemplazo?.factor??1);
+  const nivelStock=stockAlmacen<=0?'sin-stock':stockAlmacen<cantidadPedida?'parcial':'suficiente';
   const origen=actual?(simple?origenSimple(actual):origenBase(actual,sucursales)):null;
   const IconoOrigen=origen?.Icono;
   const indice=actual?lineas.indexOf(actual):-1;
@@ -93,10 +98,15 @@ export default function PedidoTarjetas({lineas,revision,ocupado,accion,setEditor
         {arrastre>45&&<span className="pt-sello">{revision?'SALE':'ALISTADO'}</span>}{arrastre< -45&&<span className="pt-sello pt-sello-problema">REVISAR</span>}
         <div className="pt-contenido"><small>{String(indice+1).padStart(2,'0')} / {lineas.length} · {actual.snapshot.sku||'Sin código'}</small><h3>{actual.reemplazo?.nombre||actual.snapshot.nombre}</h3>
           {actual.reemplazo&&<p className="pt-nota">Reemplaza a {actual.snapshot.nombre} · Vendedor revisará el cambio.</p>}
-          <strong className="pt-cantidad">{actual.reemplazo?`${cantidadTexto((revision?cantidadEnvio(actual,true):Number(actual.snapshot.pendiente_base))*Number(actual.reemplazo.factor))} ${actual.reemplazo.unidad_base}`:texto(revision?cantidadEnvio(actual,true):actual.snapshot.pendiente_base,actual)}</strong>
+          <div className="pt-cantidades">
+            <strong className="pt-cantidad">{actual.reemplazo?`${cantidadTexto((revision?cantidadEnvio(actual,true):Number(actual.snapshot.pendiente_base))*Number(actual.reemplazo.factor))} ${actual.reemplazo.unidad_base}`:texto(revision?cantidadEnvio(actual,true):actual.snapshot.pendiente_base,actual)}</strong>
+            {stockAlmacen!=null&&<span className={`pt-stock pt-stock-${nivelStock}`}>
+              Stock en Almacén <strong>{actual.reemplazo?`${cantidadTexto(stockAlmacen)} ${actual.reemplazo.unidad_base}`:texto(stockAlmacen,actual)}</strong>
+            </span>}
+          </div>
           {actual.reemplazo?<p>Cubre {texto(revision?cantidadEnvio(actual,true):actual.snapshot.pendiente_base,actual)} de {actual.snapshot.nombre}.</p>:factor(actual)!==1&&<p>1 {actual.snapshot.presentacion} = {cantidadTexto(factor(actual))} {actual.snapshot.unidad_base}</p>}
           {revision&&<p>Alistado: {texto(actual.preparada_base,actual)} · Pendiente del pedido: {texto(actual.snapshot.pendiente_base,actual)}</p>}
-          {simple&&!formulario&&<StockSistema stock={stock} linea={actual} lineas={lineasStock} cantidad={actual.confirmada?cantidadAlmacen(actual):Number(actual.propuesta_almacen_base)||0}/>}
+          {simple&&!formulario&&<StockSistema stock={stock} linea={actual} lineas={lineasStock} cantidad={actual.confirmada?cantidadAlmacen(actual):Number(actual.propuesta_almacen_base)||0} mostrarRegistrado={stockAlmacen==null}/>}
           {simple&&!revision&&<p className="pt-nota">Propuesta de Almacén: {cantidadTexto(actual.propuesta_almacen_base)} {actual.reemplazo?.unidad_base||actual.snapshot.unidad_base} · Por comprar: {cantidadTexto(actual.propuesta_compra_base)}. Confirma lo encontrado físicamente.</p>}
           {simple&&actual.observacion_revision&&<p className="pt-nota pt-nota-devolucion">Devuelto para corregir: {actual.observacion_revision}</p>}
           {actual.reemplazo&&<p>Equivalencia: {cantidadTexto(actual.reemplazo.factor)} {actual.reemplazo.unidad_base} del reemplazo por {actual.snapshot.unidad_base} solicitada.</p>}

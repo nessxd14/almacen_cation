@@ -67,6 +67,12 @@ body:has(.pt-pedido-dark){background:var(--om-bg)}
 .pt-contenido>small{display:block;font-size:11px;letter-spacing:.08em;color:var(--om-text-2);margin-bottom:7px}
 .pt-contenido h3{font-size:26px;font-weight:650;line-height:1.12;letter-spacing:-.035em;margin:0 0 10px;color:var(--om-text);text-wrap:balance}
 .pt-cantidad{display:inline-block;padding:6px 10px;background:var(--om-surface-2);border:1px solid var(--om-border);border-radius:11px;color:var(--pt-acento);font-size:20px;font-weight:650;line-height:1.1;letter-spacing:-.02em}
+.pt-cantidades{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.pt-stock{display:inline-flex;flex-wrap:wrap;gap:2px 5px;max-width:100%;padding:6px 9px;border:1px solid;border-radius:999px;font-size:12px;line-height:1.35}
+.pt-stock-suficiente{background:var(--om-success-bg);border-color:var(--om-success-border);color:var(--om-success-text)}
+.pt-stock-parcial{background:var(--om-warn-bg);border-color:var(--om-warn-border);color:var(--om-warn-text)}
+.pt-stock-sin-stock{background:var(--om-danger-bg);border-color:var(--om-danger-border);color:var(--om-danger-text)}
+.pt-contenido .ss-stock dl>div:only-child{grid-column:1/-1}
 .pt-contenido p{font-size:11px;line-height:1.5;color:var(--om-text-2);margin:8px 0 0}
 .pt-ubicacion{display:flex;align-items:flex-start;gap:6px}
 .pt-ubicacion svg{flex-shrink:0;margin-top:1px;color:var(--pt-acento);width:13px;height:13px}
