@@ -31,6 +31,28 @@ it('muestra foto, ubicación, presentación y permite volver a corregir una tarj
   await click('Alistado completo');expect(accion).toHaveBeenCalledWith('guardar_preparacion',{linea_id:1,cantidad_base:24});expect(node.textContent).toContain('Ítem personalizado');captura('personalizado');
   await click('Anterior');expect(node.querySelector('h3').textContent).toBe('Resma de papel carta');
 });
+it.each([[0,'sin-stock','0 Caja'],[12,'parcial','1 Caja'],[36,'suficiente','3 Caja']])(
+  'distingue el stock %s de la cantidad solicitada en la tarjeta',async(stock,nivel,etiqueta)=>{
+    const lineas=inicial();
+    lineas[0].stock_almacen_base=stock;
+    await act(async()=>root.render(<PedidoTarjetas lineas={lineas} setEditor={()=>{}}/>));
+    expect(node.querySelector('.pt-cantidad').textContent).toBe('2 Caja');
+    expect(node.querySelector(`.pt-stock-${nivel} strong`).textContent).toBe(etiqueta);
+    await click('Siguiente');
+    expect(node.querySelector('.pt-stock')).toBeNull();
+  },
+);
+it('prioriza el stock actualizado y conserva el saldo y el botón de actualización',async()=>{
+  const lineas=inicial();
+  lineas[0].stock_almacen_base=36;
+  const reintentar=vi.fn();
+  const stock={estado:'listo',mapa:new Map([[1,0]]),reintentar};
+  await act(async()=>root.render(<PedidoTarjetas simple lineas={lineas} stock={stock} setEditor={()=>{}}/>));
+  expect(node.querySelector('.pt-stock-sin-stock strong').textContent).toBe('0 Caja');
+  expect([...node.querySelectorAll('.ss-stock dt')].map(dt=>dt.textContent)).toEqual(['Saldo tras este envío']);
+  await act(async()=>node.querySelector('.ss-titulo button').click());
+  expect(reintentar).toHaveBeenCalledOnce();
+});
 it('guarda el problema y continúa; lo pendiente se resuelve al terminar',async()=>{
   await act(async()=>root.render(<Harness/>));await click('Hay un problema');await cambiar(campo('Cantidad disponible'),'1');await enviar();
   expect(accion.mock.calls[0]).toEqual(['registrar_incidencia',{linea_id:1,cantidad_base:12,observacion:'Solo hay una parte'}]);expect(node.textContent).toContain('Ítem personalizado');
