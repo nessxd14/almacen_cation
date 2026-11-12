@@ -155,7 +155,7 @@ export default function App() {
       <Route path="/operaciones/traslados-virtuales/:id" element={<OperacionesMovilApp tipoDocumento="traslado_virtual" />} />
       <Route path="/operaciones/carrito" element={<OperacionesMovilApp tipoDocumento="carrito" />} />
       <Route path="/operaciones/carrito/:id" element={<OperacionesMovilApp tipoDocumento="carrito" />} />
-      <Route path="/tablero" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> : <TableroAlmacenApp />} />
+      <Route path="/tablero" element={usuario.rol === 'vendedor' || usuario.rol === 'reponedor' ? <Navigate to="/operaciones" replace /> : <TableroAlmacenApp />} />
       <Route path="*" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> :
         <AppShell
           tab={tab} setTab={setTab} conteoPrefill={conteoPrefill} setConteoPrefill={setConteoPrefill} irAConteo={irAConteo}
