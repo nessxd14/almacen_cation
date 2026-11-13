@@ -162,6 +162,9 @@ function ChipsDesglosePedido({ lineas }) {
 }
 
 
+// Refresco del saldo disponible en el detalle de pedido (solo pestaña visible).
+const INTERVALO_SALDO_MS = 60_000;
+
 const ESTILOS_SALDO = {
   verde: { cls: "bg-emerald-100 text-emerald-700", icon: "✓" },
   ambar: { cls: "bg-amber-100 text-amber-700",     icon: "!" },
@@ -1822,7 +1825,7 @@ export function DetallePedido({ pedidoId, onBack }) {
 
   // Saldo disponible (informativo, no bloquea "Despachar" ni el pick
   // automático): una sola llamada batch acá, no un polling por línea —
-  // recalcula cada 18s para que dos operarios despachando pedidos
+  // recalcula cada 60s para que dos operarios despachando pedidos
   // distintos en simultáneo no vean ambos verde sobre el mismo stock.
   const productoIdsActivos = useMemo(() => {
     return lineas
@@ -1841,23 +1844,29 @@ export function DetallePedido({ pedidoId, onBack }) {
       if (!error) setSaldoPorProducto(mapa);
     }
 
-    refrescar(); // fetch inmediato, no esperar el primer intervalo
+    // Solo con la pestaña visible; en segundo plano no se consulta.
+    const visible = () => document.visibilityState === "visible";
+    let intervalId = null;
+    function iniciar() {
+      refrescar(); // fetch inmediato, no esperar el primer intervalo
+      intervalId = setInterval(refrescar, INTERVALO_SALDO_MS);
+    }
+    function detener() {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
 
-    let intervalId = setInterval(refrescar, 18000);
+    if (visible()) iniciar();
 
     function onVisibility() {
-      if (document.hidden) {
-        clearInterval(intervalId);
-      } else {
-        refrescar();
-        intervalId = setInterval(refrescar, 18000);
-      }
+      detener();
+      if (visible()) iniciar();
     }
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       activo = false;
-      clearInterval(intervalId);
+      detener();
       document.removeEventListener("visibilitychange", onVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
