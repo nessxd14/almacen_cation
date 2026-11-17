@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { cantidadOperacion, idOperacion, interpretarCodigoOperacion, operarDocumentoMovil, operarPedidoMovil, planPreparacionCompleta, resumenOperacion } from './operacionesMovil';
+import { cantidadOperacion, idOperacion, interpretarCodigoOperacion, operarDocumentoMovil, operarPedidoMovil, planPreparacionCompleta, resumenOperacion, rolesAlmacen, rolesOperacionesMovil } from './operacionesMovil';
 
 describe('QR compartidos de operaciones', () => {
   it('distingue el ticket VTD, sus barras antiguas y el QR de traslado', () => {
@@ -63,4 +63,11 @@ it('envía la versión y deja que el servidor determine el responsable', async (
   expect(cliente.rpc).toHaveBeenCalledWith('operar_preparacion_pedido', { p_pedido_id: '248', p_sucursal_id: 1, p_tarea_id: 10, p_accion: 'verificado', p_version: 2, p_datos: {} });
   cliente.rpc.mockResolvedValue({ data: null, error: { message: 'El pedido cambió.' } });
   await expect(operarPedidoMovil(cliente, {})).rejects.toThrow('El pedido cambió.');
+});
+
+describe("roles de operaciones móviles", () => {
+  it("el reponedor entra a operaciones móviles pero no es rol de almacén", () => {
+    expect(rolesOperacionesMovil.has("reponedor")).toBe(true);
+    expect(rolesAlmacen.has("reponedor")).toBe(false);
+  });
 });

@@ -6,6 +6,7 @@ import { supabase } from './supabaseClient';
 import { useAuth } from './lib/useAuth';
 import { useSucursal } from './lib/useSucursal';
 import EscanerCodigo from './EscanerCodigo';
+import ReponedorRetirar from './ReponedorRetirar';
 import CarritoTrasladoVirtual from './CarritoTrasladoVirtual';
 import RecepcionTrasladoVirtual from './RecepcionTrasladoVirtual';
 import CodigoDocumentoQr from './CodigoDocumentoQr';
@@ -44,6 +45,7 @@ export default function OperacionesMovilApp({ tipoDocumento = 'pedido' }) {
   const [params, setParams] = useSearchParams();
   const { usuario, signOut } = useAuth();
   const { sucursalActivaId, sucursales, puedeElegir, setSucursalActiva, cargando, error, reintentarSucursales } = useSucursal();
+  if (usuario.rol === 'reponedor' && !id && tipoDocumento === 'pedido') return <ReponedorRetirar />;
   const sucursalSolicitada = idOperacion(params.get('sucursal'));
   const sucursalId = sucursalSolicitada || sucursalActivaId;
   const sucursal = sucursales.find(s => String(s.id) === String(sucursalId) && s.tipo !== 'virtual');
