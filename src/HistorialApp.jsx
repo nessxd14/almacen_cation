@@ -124,12 +124,12 @@ function DetalleMovimiento({ mov, autores, nombreSucursal, historico, onClose })
   </CatalogDialog>;
 }
 
-// Filas por página al navegar el Kardex de UN producto vía RPC (ver abajo).
+// Filas por página en ambos modos; el global pide una extra para saber si sigue.
 const PAGE_SIZE = 50;
 
 // Detecta "Venta #<id>" o las salidas y retornos de Caja–Almacén en la referencia y marca esVentaDirecta contra
 // venta.numero (prefijo VTD-) — compartido entre el modo panel (RPC) y el
-// modo global (select directo), es puramente el chip visual, no toca nada más.
+// modo global (RPC), es puramente el chip visual, no toca nada más.
 async function marcarVentaDirecta(lista) {
   const idsVenta = lista
     .map(m => m.referencia?.match(/^(?:Venta|Envío Caja VTD|Retorno Caja VTD) #(\d+)/)?.[1])
@@ -158,6 +158,7 @@ export function HistorialMovimientos({ productoId = null }) {
   const [cargando, setCargando] = useState(true);
   const [cargandoMas, setCargandoMas] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [cursorGlobal, setCursorGlobal] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
@@ -259,89 +260,44 @@ export function HistorialMovimientos({ productoId = null }) {
     if (reset) setCargando(false); else setCargandoMas(false);
   }, [productoId]);
 
-  // ── Modo global (tab, todas las sucursal activa + búsqueda entre
-  // productos): la RPC nueva es por UN producto — no sirve para navegar el
-  // historial de varios a la vez, así que esta pantalla sigue con el select
-  // directo a kardex_transacciones que ya tenía (acotado a 500 filas), sin
-  // cambios de este brief. "Saldo total del almacén" acá sigue siendo el
-  // valor vigente de stock_actual (no histórico) por la misma razón.
-  const cargarGlobal = useCallback(async () => {
+  // ── Modo global: selección, saldo histórico por ubicación y stock actual
+  // salen de la misma lectura. El cursor evita saltos por nuevas filas al
+  // cargar más; la búsqueda se aplica antes de limitar la página en Postgres.
+  const cargarGlobal = useCallback(async (cursor = null, reset = true) => {
     if (!sucursalActivaId) return;
+    intentoPaginaRef.current = { cursor, reset };
     const request = ++requestRef.current;
     setErrorCarga(null);
-    setCargando(true);
-    let query = supabase
-      .from("kardex_transacciones")
-      .select(`
-        id, producto_id, cantidad, tipo_movimiento, referencia, motivo,
-        fecha_efectiva, creado_por, creado_en, traslado_grupo_id,
-        producto:producto_id(nombre, sku_interno, marca, imagen_url, unidad_base),
-        ubicacion:ubicacion_id!inner(codigo_zona, estante, nivel, compartimiento, sucursal_id)
-      `)
-      .eq("ubicacion.sucursal_id", sucursalActivaId)
-      .order("creado_en", { ascending: false })
-      .limit(500);
-
-    if (filtroTipo) query = query.eq("tipo_movimiento", filtroTipo);
-
-    const { data, error } = await query;
+    if (reset) { setCargando(true); setCargandoMas(false); }
+    else setCargandoMas(true);
+    const { data, error } = await supabase.rpc("obtener_historial_global", {
+      p_sucursal_id: sucursalActivaId,
+      p_tipo: filtroTipo || null,
+      p_busqueda: busqueda.trim() || null,
+      p_limit: PAGE_SIZE + 1,
+      p_antes_creado_en: cursor?.creado_en ?? null,
+      p_antes_id: cursor?.id ?? null,
+    });
     if (request !== requestRef.current) return;
-    if (error) { setErrorCarga("No se pudo cargar el historial. Intenta nuevamente."); setCargando(false); return; }
-    let lista = data || [];
-
-    if (busqueda.trim()) {
-      const q = busqueda.trim().toLowerCase();
-      lista = lista.filter(m =>
-        m.producto?.nombre?.toLowerCase().includes(q) ||
-        m.producto?.sku_interno?.toLowerCase().includes(q) ||
-        m.producto?.marca?.toLowerCase().includes(q) ||
-        m.referencia?.toLowerCase().includes(q)
-      );
+    if (error) {
+      setErrorCarga("No se pudo cargar el historial. Intenta nuevamente.");
+      if (reset) setCargando(false); else setCargandoMas(false);
+      return;
     }
-
-    // Saldo acumulado por producto+ubicación: ya calculado en v_kardex_movimientos,
-    // se pinta tal cual (sin recalcular en el front).
-    if (lista.length > 0) {
-      const ids = lista.map(m => m.id);
-      const { data: saldos } = await supabase
-        .from("v_kardex_movimientos")
-        .select("id, saldo_base")
-        .in("id", ids);
-      const mapaSaldo = new Map((saldos || []).map(s => [s.id, s.saldo_base]));
-      for (const m of lista) m.saldo_base = mapaSaldo.get(m.id) ?? null;
-    }
-
-    // Saldo total del almacén: suma stock_actual.cantidad_base del producto
-    // en TODAS las ubicaciones de la misma sucursal del movimiento, salvo
-    // las marcadas excluye_disponible = true (VENTAS DIRECTAS y similares —
-    // mismo criterio que saldo_disponible_pedido/saldo_vendible). Nunca
-    // mezcla sucursales: se agrupa por producto_id + sucursal_id.
-    const productoIds = [...new Set(lista.map(m => m.producto_id))];
-    const sucursalIds = [...new Set(lista.map(m => m.ubicacion?.sucursal_id).filter(v => v != null))];
-    if (productoIds.length > 0 && sucursalIds.length > 0) {
-      const { data: stockRows, error: stockError } = await supabase
-        .from("stock_actual")
-        .select("producto_id, cantidad_base, ubicacion:ubicacion_id!inner(sucursal_id, excluye_disponible)")
-        .in("producto_id", productoIds)
-        .in("ubicacion.sucursal_id", sucursalIds)
-        .eq("ubicacion.excluye_disponible", false);
-      const mapaSaldoAlmacen = new Map(); // "productoId:sucursalId" -> suma
-      for (const row of stockRows || []) {
-        const key = `${row.producto_id}:${row.ubicacion.sucursal_id}`;
-        mapaSaldoAlmacen.set(key, (mapaSaldoAlmacen.get(key) || 0) + Number(row.cantidad_base || 0));
-      }
-      for (const m of lista) {
-        const key = `${m.producto_id}:${m.ubicacion?.sucursal_id}`;
-        m.saldoTotalAlmacen = stockError ? null : mapaSaldoAlmacen.get(key) ?? 0;
-      }
-    }
+    const filas = data || [];
+    const lista = filas.slice(0, PAGE_SIZE).map(m => ({
+      ...m, saldoTotalAlmacen: m.stock_disponible_actual,
+    }));
 
     const [, mapaAutores] = await Promise.all([marcarVentaDirecta(lista), resolverAutores(lista.map(m => m.creado_por))]);
     if (request !== requestRef.current) return;
 
-    setAutores(mapaAutores);
-    setMovs(lista);
-    setCargando(false);
+    setAutores(prev => reset ? mapaAutores : new Map([...prev, ...mapaAutores]));
+    setMovs(prev => reset ? lista : [...prev, ...lista]);
+    const ultima = lista.at(-1);
+    setCursorGlobal(ultima ? { creado_en: ultima.creado_en, id: ultima.id } : cursor);
+    setHasMore(filas.length > PAGE_SIZE);
+    if (reset) setCargando(false); else setCargandoMas(false);
   }, [filtroTipo, busqueda, sucursalActivaId]);
 
   useEffect(() => {
@@ -399,7 +355,9 @@ export function HistorialMovimientos({ productoId = null }) {
       )}
 
       {errorCarga && <div className="ui-feedback ui-feedback-error" role="alert"><AlertTriangle size={18} /><span>{errorCarga}</span>
-        <button type="button" onClick={() => productoId ? cargarPaginaProducto(intentoPaginaRef.current.off, intentoPaginaRef.current.reset) : cargarGlobal()}><RefreshCw size={14} /> Reintentar</button>
+        <button type="button" onClick={() => productoId
+          ? cargarPaginaProducto(intentoPaginaRef.current.off, intentoPaginaRef.current.reset)
+          : cargarGlobal(intentoPaginaRef.current.cursor, intentoPaginaRef.current.reset)}><RefreshCw size={14} /> Reintentar</button>
       </div>}
 
       {/* Filtro de tipo en modo panel (compacto) */}
@@ -438,27 +396,19 @@ export function HistorialMovimientos({ productoId = null }) {
         )}
       </div>
 
-      {productoId ? (
-        !cargando && movs.length > 0 && (
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-            <span>{movsVisibles.length} movimiento{movsVisibles.length === 1 ? "" : "s"} cargado{movsVisibles.length === 1 ? "" : "s"}</span>
-            {hasMore && (
-              <button
-                onClick={() => cargarPaginaProducto(offset, false)}
-                disabled={cargandoMas}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {cargandoMas ? "Cargando…" : "Cargar más"}
-              </button>
-            )}
-          </div>
-        )
-      ) : (
-        !cargando && movs.length > 0 && (
-          <p className="mt-3 text-right text-xs text-slate-400">
-            {movs.length} movimientos{movs.length === 500 ? " (máximo mostrado)" : ""}
-          </p>
-        )
+      {!cargando && movs.length > 0 && (
+        <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+          <span>{movsVisibles.length} movimiento{movsVisibles.length === 1 ? "" : "s"} cargado{movsVisibles.length === 1 ? "" : "s"}</span>
+          {hasMore && (
+            <button
+              onClick={() => productoId ? cargarPaginaProducto(offset, false) : cargarGlobal(cursorGlobal, false)}
+              disabled={cargandoMas}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {cargandoMas ? "Cargando…" : "Cargar más"}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
