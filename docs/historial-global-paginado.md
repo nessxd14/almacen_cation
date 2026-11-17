@@ -1,8 +1,8 @@
 # Historial global paginado — preparación del 16 de noviembre de 2026
 
-Estado: preparado localmente en `codex/optimizar-historial-global`, sobre `origin/main` (`c7c336a`). No aplicado ni desplegado en Supabase.
+Estado: migración aplicada por Ness y verificada en otra sesión el 16 de noviembre de 2026. El frontend se publica mediante el [PR #132](https://github.com/nessxd14/almacen_cation/pull/132), en `codex/optimizar-historial-global`, sobre `origin/main` (`c7c336a`).
 
-**Bloquea merge/despliegue:** la migración `20261117004040_historial_global_paginado.sql` debe pasar el ensayo, recibir revisión de Ness, aplicarse con su autorización y verificarse en otra sesión antes de publicar el frontend que la llama.
+**Dependencia de base satisfecha antes del merge:** `20261117004040_historial_global_paginado.sql` aplicada y verificada. La función instalada tiene la única firma esperada y su cuerpo coincide con el archivo preparado (MD5 normalizado de `prosrc`: `66c4b1d071f56f3b0a5f2e1f7a8840a8`). El agente sólo hizo lecturas de verificación en la base.
 
 ## Problema y alcance
 
@@ -39,7 +39,15 @@ Los tiempos varían entre ejecuciones. Son datos sintéticos de PGlite, no una m
 
 La consulta con `service_role` filtrada por tipo/fecha del diagnóstico y otros consumidores de la vista no cambian automáticamente: esta preparación conecta únicamente el historial global de Almacén. El catálogo del dashboard de Supabase y `dash_salud()` quedan fuera del cambio.
 
-## Ensayo y aplicación
+## Verificación en Supabase
+
+Tras la confirmación de Ness se verificó en una sesión nueva: función `STABLE SECURITY INVOKER`, `search_path` vacío y permisos de ejecución `anon = false`, `PUBLIC = false`, `authenticated = true`, `service_role = true`.
+
+Una prueba de sólo lectura, con el rol efectivo `authenticated` y un perfil activo, obtuvo cinco filas en cada una de dos páginas consecutivas: cero ids repetidos, cero diferencias del saldo histórico contra la vista y cero movimientos de otra sucursal. No se usó ninguna clave de servicio. No se presenta esta prueba funcional como una medición de I/O físico.
+
+## Procedimiento de ensayo y aplicación
+
+El procedimiento siguiente se conserva como referencia; la migración ya está aplicada y la verificación anterior registra el resultado en destino.
 
 1. Abrir `supabase/ensayos/20261117004040_historial_global_paginado_ENSAYO.sql` en el SQL Editor y ejecutar el archivo completo. Crea la función dentro de `BEGIN`, compara ids y saldos con la referencia y mide ambos planes con `EXPLAIN (ANALYZE, BUFFERS)` sobre 50 filas.
 2. El resultado esperado es un error deliberado `ENSAYO OK: {...}` con sucursal, diferencias y métricas. La excepción aborta toda la transacción. Si el editor deja abierta la transacción abortada, ejecutar `ROLLBACK;`. No interpretar ese error esperado como un fallo ni ejecutar `COMMIT`.
