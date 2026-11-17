@@ -1,11 +1,11 @@
 import {useLayoutEffect,useRef,useState} from 'react';
 import {ArrowLeft, ArrowRight, Check, CheckCircle2, Camera, ClipboardCheck, Clock3, Send} from 'lucide-react';
 import ResumenEnvioPedido from './ResumenEnvioPedido';
-import {cantidadEnvio,filasEnvio,textoCantidadEnvio} from './lib/envioPedido';
+import {cantidadEnvio,etiquetaConfirmarRetiro,filasEnvio,textoCantidadEnvio} from './lib/envioPedido';
 import './operaciones-tema.css';
 import './asistente-envio.css';
 
-export default function AsistenteEnvioPedido({lineas,revision=false,revisionAnterior=false,traslado=false,numero=1,usuario,ocupado=false,editando=false,confirmacionPendiente=false,evidenciaLista=false,fotos=[],destino='',onDestino,onConfirmar,onConfirmarNoSale,renderProductos,evidencia,motivoBloqueo=''}) {
+export default function AsistenteEnvioPedido({lineas,revision=false,revisionAnterior=false,traslado=false,numero=1,usuario,ocupado=false,editando=false,confirmacionPendiente=false,evidenciaLista=false,fotos=[],destino='',onDestino,onConfirmar,onConfirmarNoSale,renderProductos,evidencia,motivoBloqueo='',retiro=false}) {
   const [paso,setPaso]=useState(1),[edicion,setEdicion]=useState({id:null,numero:0}),[error,setError]=useState('');
   const enviando=useRef(false),cabecera=useRef(null),inicio=useRef(null),pasoAnterior=useRef(1);
   const vigentes=lineas.filter(l=>l.vigente);
@@ -64,9 +64,10 @@ export default function AsistenteEnvioPedido({lineas,revision=false,revisionAnte
       <section className="ae-confirmacion"><div><ClipboardCheck size={20}/><span>{revision?(traslado?'Comprueba y recibe':'Verifica y retira'):'Alista'}<strong>{usuario}</strong></span></div>{revision&&<div><Send size={20}/><span>Destino<strong>{destino.trim()}</strong></span></div>}<div><Camera size={20}/><span>Evidencia<strong>{fotos.length} {fotos.length===1?'foto adjunta':'fotos adjuntas'}</strong></span></div><div className="ae-miniaturas">{fotos.map((foto,i)=><Miniatura key={`${i}:${foto.name}`} foto={foto} numero={i+1}/>)}</div><button className="ae-volver" disabled={bloqueado} onClick={()=>cambiar(2)}>Revisar fotos{revision?' y destino':''}</button></section>
       <p className="ae-ayuda">{traslado?(revision?'Confirma al recibir los productos del almacenero. Se descontarán del origen y se acreditarán al destino una sola vez.':'Alistar no mueve inventario. El stock se moverá al confirmar la entrega y recepción.'):revision?'Al confirmar se registra la salida una sola vez. Lo pendiente permanece en el pedido.':'Al enviar se avisa al verificador. El inventario todavía no se descuenta.'}</p>
       {motivoBloqueo&&<p className="om-aviso" role="alert">{motivoBloqueo}</p>}
+      {retiro&&traslado&&revision&&<p className="ae-ayuda">Al confirmar, el stock pasa de Almacén a Tienda a tu nombre.</p>}
       {!evidenciaLista&&<p className="om-aviso" role="status">Esperando la comprobación de las fotos. Conserva esta pantalla.</p>}
       {error&&<p className="om-aviso om-error" role="alert">{error}</p>}
-      <footer className="ae-acciones"><button className="om-primary om-wide" disabled={ocupado||editando||!productosListos||!fotosListas||!destinoListo||!evidenciaLista||Boolean(motivoBloqueo)} onClick={confirmar}>{ocupado?'Confirmando…':confirmacionPendiente?'Reintentar confirmación':revision?(traslado?'Confirmar recepción y traslado':'Verificar y registrar salida'):(traslado?'Terminar alistado':'Enviar a verificación')} {!ocupado&&<CheckCircle2 size={18}/>}</button><button className="ae-volver" disabled={bloqueado} onClick={()=>cambiar(1)}>Volver a {revision?'revisar productos':'productos'}</button></footer>
+      <footer className="ae-acciones"><button className="om-primary om-wide" disabled={ocupado||editando||!productosListos||!fotosListas||!destinoListo||!evidenciaLista||Boolean(motivoBloqueo)} onClick={confirmar}>{ocupado?'Confirmando…':confirmacionPendiente?'Reintentar confirmación':revision?(traslado?(retiro?etiquetaConfirmarRetiro(vigentes):'Confirmar recepción y traslado'):'Verificar y registrar salida'):(traslado?'Terminar alistado':'Enviar a verificación')} {!ocupado&&<CheckCircle2 size={18}/>}</button><button className="ae-volver" disabled={bloqueado} onClick={()=>cambiar(1)}>Volver a {revision?'revisar productos':'productos'}</button></footer>
     </div>
   </section>;
 }

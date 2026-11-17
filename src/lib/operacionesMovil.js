@@ -81,7 +81,7 @@ export async function listarOperacionesMovil(cliente, sucursalId) {
 }
 
 export const rolesAlmacen = new Set(['admin', 'gerente', 'almacenero', 'operario']);
-export const rolesOperacionesMovil = new Set([...rolesAlmacen, 'vendedor', 'cajero']);
+export const rolesOperacionesMovil = new Set([...rolesAlmacen, 'vendedor', 'cajero', 'reponedor']);
 export const etiquetaDocumento = tipo => ({ pedido: 'Pedido', vtd: 'VTD', traslado_virtual: 'Traslado virtual' }[tipo] || 'Documento');
 export function rutaDocumentoMovil(tipo, id, escanear = false) {
   if (!idOperacion(id)) throw new Error('El documento no tiene un ID válido.');

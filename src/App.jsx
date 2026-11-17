@@ -143,20 +143,25 @@ export default function App() {
   // Alcance mínimo del brief S3 parte A: una sola ruta real (/pedidos/:id),
   // fuera del shell de pestañas de abajo (que sigue siendo estado local, sin
   // URL — no se migró el resto de la app, no lo pidió el brief).
+  // El reponedor sólo usa su inicio (/operaciones) y /operaciones/traslados/:id;
+  // cualquier otra ruta, incluidas las demás de /operaciones, vuelve al inicio.
+  const reponedor = usuario.rol === 'reponedor';
+  const aInicio = <Navigate to="/operaciones" replace />;
+  const noReponedor = (el) => reponedor ? aInicio : el;
   return (
     <Routes>
-      <Route path="/productos/:id/ficha" element={usuario.rol === 'vendedor' ? <EtiquetaParaCarrito tipo="producto" /> : <FichaProductoPage />} />
-      <Route path="/ubicaciones/:id/ficha" element={usuario.rol === 'vendedor' ? <EtiquetaParaCarrito tipo="ubicacion" /> : <FichaUbicacionPage />} />
-      <Route path="/pedidos/:id" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> : <PedidoDetallePage />} />
+      <Route path="/productos/:id/ficha" element={reponedor ? aInicio : usuario.rol === 'vendedor' ? <EtiquetaParaCarrito tipo="producto" /> : <FichaProductoPage />} />
+      <Route path="/ubicaciones/:id/ficha" element={reponedor ? aInicio : usuario.rol === 'vendedor' ? <EtiquetaParaCarrito tipo="ubicacion" /> : <FichaUbicacionPage />} />
+      <Route path="/pedidos/:id" element={usuario.rol === 'vendedor' || reponedor ? aInicio : <PedidoDetallePage />} />
       <Route path="/operaciones" element={<OperacionesMovilApp />} />
-      <Route path="/operaciones/pedidos/:id" element={<OperacionesMovilApp />} />
+      <Route path="/operaciones/pedidos/:id" element={noReponedor(<OperacionesMovilApp />)} />
       <Route path="/operaciones/traslados/:id" element={<TrasladoQrApp />} />
-      <Route path="/operaciones/vtd/:id" element={<OperacionesMovilApp tipoDocumento="vtd" />} />
-      <Route path="/operaciones/traslados-virtuales/:id" element={<OperacionesMovilApp tipoDocumento="traslado_virtual" />} />
-      <Route path="/operaciones/carrito" element={<OperacionesMovilApp tipoDocumento="carrito" />} />
-      <Route path="/operaciones/carrito/:id" element={<OperacionesMovilApp tipoDocumento="carrito" />} />
-      <Route path="/tablero" element={usuario.rol === 'vendedor' || usuario.rol === 'reponedor' ? <Navigate to="/operaciones" replace /> : <TableroAlmacenApp />} />
-      <Route path="*" element={usuario.rol === 'vendedor' ? <Navigate to="/operaciones" replace /> :
+      <Route path="/operaciones/vtd/:id" element={noReponedor(<OperacionesMovilApp tipoDocumento="vtd" />)} />
+      <Route path="/operaciones/traslados-virtuales/:id" element={noReponedor(<OperacionesMovilApp tipoDocumento="traslado_virtual" />)} />
+      <Route path="/operaciones/carrito" element={noReponedor(<OperacionesMovilApp tipoDocumento="carrito" />)} />
+      <Route path="/operaciones/carrito/:id" element={noReponedor(<OperacionesMovilApp tipoDocumento="carrito" />)} />
+      <Route path="/tablero" element={usuario.rol === 'vendedor' || reponedor ? aInicio : <TableroAlmacenApp />} />
+      <Route path="*" element={usuario.rol === 'vendedor' || reponedor ? aInicio :
         <AppShell
           tab={tab} setTab={setTab} conteoPrefill={conteoPrefill} setConteoPrefill={setConteoPrefill} irAConteo={irAConteo}
           usuario={usuario} signOut={signOut}

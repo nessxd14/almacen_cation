@@ -30,3 +30,10 @@ export function estadoAlistado(linea) {
   if (cantidad < Number(linea.snapshot.pendiente_base)) return 'Parcial';
   return linea.origenes_declarados?.some(o => o.tipo !== 'ALMACEN' && Number(o.cantidad_base) > 0) ? 'Solucionado' : 'Completado';
 }
+
+// Reponedor: el último botón del traslado dice «Retirar con faltante» cuando
+// alguna cantidad contada es menor que la alistada.
+export function etiquetaConfirmarRetiro(lineas = []) {
+  const falta = lineas.some(l => l.vigente !== false && l.revisada_base != null && Number(l.revisada_base) < Number(l.preparada_base));
+  return falta ? 'Retirar con faltante' : 'Confirmar retiro';
+}

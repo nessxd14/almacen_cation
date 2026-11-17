@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {cantidadEnvio, filasEnvio, textoCantidadEnvio} from './envioPedido';
+import {cantidadEnvio, etiquetaConfirmarRetiro, filasEnvio, textoCantidadEnvio} from './envioPedido';
 
 const linea = (preparada, revisada = null, origenes = null) => ({vigente:true, confirmada:true, preparada_base:preparada, revisada_base:revisada, origenes_declarados:origenes, snapshot:{pendiente_base:100, factor:1, unidad_base:'unidades'}});
 describe('cantidades físicas y pendientes de cada envío', () => {
@@ -25,5 +25,19 @@ describe('cantidades físicas y pendientes de cada envío', () => {
   it('descarta líneas anuladas y no confunde incidencia con preparación terminada', () => {
     expect(filasEnvio([{...linea(100),vigente:false}])).toEqual([]);
     expect(filasEnvio([{...linea(100),incidencia_pendiente:true}])[0].preparada).toBe(false);
+  });
+});
+
+describe('etiquetaConfirmarRetiro', () => {
+  const linea = (preparada, revisada, extra = {}) => ({ vigente: true, preparada_base: preparada, revisada_base: revisada, ...extra });
+  it('retiro completo', () => {
+    expect(etiquetaConfirmarRetiro([linea(12, 12), linea(5, 5)])).toBe('Confirmar retiro');
+  });
+  it('con faltante cuando alguna cantidad contada es menor', () => {
+    expect(etiquetaConfirmarRetiro([linea(12, 12), linea(5, 3)])).toBe('Retirar con faltante');
+    expect(etiquetaConfirmarRetiro([linea(5, 0)])).toBe('Retirar con faltante');
+  });
+  it('ignora líneas no vigentes', () => {
+    expect(etiquetaConfirmarRetiro([linea(5, 0, { vigente: false })])).toBe('Confirmar retiro');
   });
 });
