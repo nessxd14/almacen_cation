@@ -25,6 +25,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import { urlFirmadaCaptura } from "./fotoCaptura";
+import { generarMiniatura } from "./lib/imagenProducto";
 import TypeaheadProducto from "./TypeaheadProducto";
 import { useUsuarioActual } from "./lib/useAuth";
 import {
@@ -205,6 +206,16 @@ export default function RevisionCapturas() {
       if (!res.ok) {
         const texto = await res.text();
         throw new Error(texto || `HTTP ${res.status}`);
+      }
+
+      // Miniatura accesoria: si falla solo se loguea (el Seller usa imagen_url).
+      try {
+        const { data: prod, error: errProd } = await supabase
+          .from("producto").select("imagen_url").eq("id", sesion.producto_id).single();
+        if (errProd) throw errProd;
+        if (prod?.imagen_url) await generarMiniatura(sesion.producto_id, prod.imagen_url);
+      } catch (errMini) {
+        console.error("promoverImagenPrincipal: no se pudo generar la miniatura:", errMini);
       }
 
       showFlash("Imagen principal actualizada");
