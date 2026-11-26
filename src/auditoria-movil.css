@@ -1,0 +1,29 @@
+.auditoria-movil .auditoria-volver { display: grid; width: 44px; height: 44px; place-items: center; }
+.auditoria-movil .auditoria-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 16px; }
+.auditoria-movil .auditoria-resumen { display: grid; gap: 12px; margin: 0 0 18px; }
+.auditoria-movil .auditoria-resumen .om-section-title { margin: 0; flex-wrap: wrap; gap: 4px; }
+.auditoria-resumen time { color: var(--om-text-2); font-size: 12px; }
+.auditoria-par { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.auditoria-resumen dl > div { padding: 9px 10px; color: var(--om-text-2); background: var(--om-surface-2); border-radius: 10px; }
+.auditoria-resumen dl > div:nth-child(1) { color: var(--om-warn-text); background: var(--om-warn-bg); }
+.auditoria-resumen dl > div:nth-child(2) { color: var(--om-accent-text); background: var(--om-accent-soft); }
+.auditoria-resumen dt { font-size: 12px; font-weight: 650; }
+.auditoria-resumen dd { margin: 2px 0 0; font-size: 22px; font-weight: 750; line-height: 1; }
+.auditoria-avance > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; color: var(--om-text-2); font-size: 13px; }
+.auditoria-avance progress { display: block; width: 100%; height: 7px; margin-top: 6px; accent-color: var(--om-accent); }
+.auditoria-lista { list-style: none; margin: 0; padding: 0; }
+.auditoria-movil .auditoria-tarea { display: grid; width: 100%; grid-template-columns: 42px minmax(0, 1fr) auto; text-align: left; }
+.auditoria-movil .auditoria-tarea:hover { background: var(--om-surface-2); }
+.auditoria-identidad { display: grid; gap: 3px; }
+.auditoria-movil .auditoria-tarea .auditoria-identidad { color: var(--om-text); font-size: 14px; }
+.auditoria-foto { display: grid; width: 42px; height: 42px; place-items: center; object-fit: cover; border-radius: 8px; background: var(--om-surface-2); color: var(--om-text-3); }
+.auditoria-movil .auditoria-busqueda { display: grid; gap: 10px; margin: 12px 0; }
+.auditoria-movil .auditoria-busqueda :is(input,select) { font-size: 16px; }
+.auditoria-movil .auditoria-ficha { margin-top: 14px; }
+.auditoria-cabecera-producto { display: flex; align-items: center; gap: 10px; }
+.auditoria-cabecera-producto .auditoria-foto { width: 64px; height: 64px; flex: none; }
+.auditoria-cabecera-producto .om-muted { margin: 4px 0 0; }
+.auditoria-captura { display: grid; gap: 10px; margin-top: 12px; }
+.auditoria-captura p { margin: 0; }
+.auditoria-movil .auditoria-comparacion { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 12px 0; }
+.auditoria-movil .auditoria-error { flex-wrap: wrap; }

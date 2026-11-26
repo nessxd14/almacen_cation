@@ -15,6 +15,7 @@ import PromocionHuerfanos from "./PromocionHuerfanos";
 import RevisionCapturas   from "./RevisionCapturas";
 import OperacionesApp     from "./OperacionesApp";
 import OperacionesMovilApp from "./OperacionesMovilApp";
+import AuditoriaMovilApp from "./AuditoriaMovilApp";
 import TrasladoQrApp from "./TrasladoQrApp";
 import CatalogoApp        from "./CatalogoApp";
 import InventarioApp      from "./InventarioApp";
@@ -154,6 +155,7 @@ export default function App() {
       <Route path="/ubicaciones/:id/ficha" element={reponedor ? aInicio : usuario.rol === 'vendedor' ? <EtiquetaParaCarrito tipo="ubicacion" /> : <FichaUbicacionPage />} />
       <Route path="/pedidos/:id" element={usuario.rol === 'vendedor' || reponedor ? aInicio : <PedidoDetallePage />} />
       <Route path="/operaciones" element={<OperacionesMovilApp />} />
+      <Route path="/operaciones/auditoria" element={noReponedor(<AuditoriaMovilApp />)} />
       <Route path="/operaciones/pedidos/:id" element={noReponedor(<OperacionesMovilApp />)} />
       <Route path="/operaciones/traslados/:id" element={<TrasladoQrApp />} />
       <Route path="/operaciones/vtd/:id" element={noReponedor(<OperacionesMovilApp tipoDocumento="vtd" />)} />
