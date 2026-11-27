@@ -8,6 +8,8 @@ const uid = n => '00000000-0000-0000-0000-' + String(n).padStart(12, '0');
 const rpc = async (accion, datos = {}, sucursal = 1) =>
   (await db.query('select public.operar_auditoria_almacen($1,$2,$3::jsonb) as resultado',
     [accion, sucursal, JSON.stringify(datos)])).rows[0].resultado;
+const spotlight = (sucursal = 1, datos = {}) =>
+  rpc('listar', { ...datos, filtro: 'abiertos', incluir_movimiento: true }, sucursal);
 const root = async fn => {
   await db.exec('reset role');
   try { return await fn(); }
@@ -63,6 +65,7 @@ try {
     values (1,1,4,1,'Otra fecha','unidad','PB','Unidad',1,'MOVIMIENTO',0,1,${semilla} - interval '4 hours',1);
   `);
   await cargarMigracion('20261126231607_auditoria_diaria_almacen.sql');
+  await cargarMigracion('20261127133553_detalle_reconteo_spotlight.sql');
   await db.exec(`
     insert into auditoria_almacen.jornada(sucursal_id,fecha)
     values (1,(${semilla} at time zone 'America/La_Paz')::date - 1);
@@ -73,11 +76,15 @@ try {
 
   await db.exec('set role anon');
   await assert.rejects(() => rpc('listar'), /permission denied/);
+  await assert.rejects(() => spotlight(), /permission denied/);
   await login(4);
   await assert.rejects(() => rpc('listar'), /no tiene acceso/);
+  await assert.rejects(() => spotlight(), /no tiene acceso/);
   await login(1);
   await assert.rejects(() => rpc('listar', {}, 2), /Sucursal no disponible/);
+  await assert.rejects(() => spotlight(2), /Sucursal no disponible/);
   await assert.rejects(() => db.exec('select * from auditoria_almacen.captura'), /permission denied/);
+  await assert.rejects(() => db.exec('select * from auditoria_almacen.movimiento_dia'), /permission denied/);
 
   const jornada = await rpc('listar');
   assert.equal(jornada.resumen.total, 4);
@@ -109,8 +116,17 @@ try {
   const reabierto = (await rpc('detalle', { item_id: tajador.id })).items[0];
   assert.equal(reabierto.estado, 'RECONTEO');
   assert.equal(reabierto.cantidad, 100);
+  assert.equal(reabierto.ultimo_movimiento, undefined);
   assert.equal((await rpc('detalle', { item_id: otraUbicacion.id })).items[0].estado, 'VERIFICADO');
+  const enSpotlight = (await spotlight()).items.find(i => i.id === tajador.id);
+  assert.equal(enSpotlight.ultimo_movimiento.tipo, 'ENTRADA');
+  assert.equal(enSpotlight.ultimo_movimiento.cantidad, 10);
+  assert(Date.parse(enSpotlight.ultimo_movimiento.registrado_en) >= Date.parse(reabierto.contado_en));
+  assert((await spotlight()).items.filter(i => i.id !== tajador.id).every(i => i.ultimo_movimiento === undefined));
   await movimiento(1, 1, -10, 'SALIDA');
+  const ultimaSalida = (await spotlight()).items.find(i => i.id === tajador.id).ultimo_movimiento;
+  assert.equal(ultimaSalida.tipo, 'SALIDA');
+  assert.equal(ultimaSalida.cantidad, -10);
   await assert.rejects(() => guardar(reabierto, 90, 16), /cambió mientras/);
   const vigente = (await rpc('detalle', { item_id: tajador.id })).items[0];
   const diferencia = await guardar(vigente, 88, 16);
@@ -118,6 +134,7 @@ try {
   assert.equal(diferencia.items[0].estado, 'DIFERENCIA');
   const revision = (await rpc('listar', { filtro: 'diferencias' })).items;
   assert.deepEqual(revision.map(i => i.id), [tajador.id]);
+  assert.equal((await spotlight()).items.find(i => i.id === tajador.id).ultimo_movimiento, undefined);
   assert.equal((await root(() => db.query('select cantidad_base from stock_actual where producto_id=1 and ubicacion_id=1'))).rows[0].cantidad_base, '90.0000');
 
   await root(() => db.exec(`
@@ -132,6 +149,10 @@ try {
   assert.equal(ids.length, jornada.resumen.total + 53);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(segunda.siguiente, null);
+  const primeraSpotlight = await spotlight();
+  const segundaSpotlight = await spotlight(1, { cursor: primeraSpotlight.siguiente });
+  assert.deepEqual([...primeraSpotlight.items, ...segundaSpotlight.items].map(i => i.id)
+    .sort((a, b) => a - b), ids.filter(id => id !== cero.id && id !== otraUbicacion.id).sort((a, b) => a - b));
   console.log('Auditoría: medianoche, arrastre, lista paginada, captura ciega, cero, idempotencia, sucursal y reconteo OK.');
 } finally {
   await db.close();

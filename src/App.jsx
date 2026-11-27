@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ClipboardList, Scale, ArrowUpFromLine, Boxes, Settings, BookOpen, Warehouse,
@@ -37,6 +37,8 @@ import { useAuth } from "./lib/useAuth";
 import { useSucursal } from "./lib/useSucursal";
 import { AppNavContext } from "./lib/appNavContext";
 import "./ux.css";
+
+const AuditoriaSpotlight = lazy(() => import("./AuditoriaSpotlight"));
 
 const TABS = [
   { id: "inventario", label: "Estado",        icon: Warehouse,       Comp: InventarioApp },
@@ -163,6 +165,9 @@ export default function App() {
       <Route path="/operaciones/carrito" element={noReponedor(<OperacionesMovilApp tipoDocumento="carrito" />)} />
       <Route path="/operaciones/carrito/:id" element={noReponedor(<OperacionesMovilApp tipoDocumento="carrito" />)} />
       <Route path="/tablero" element={usuario.rol === 'vendedor' || reponedor ? aInicio : <TableroAlmacenApp />} />
+      <Route path="/tablero/auditoria" element={noReponedor(
+        <Suspense fallback={<p role="status">Cargando Spotlight…</p>}><AuditoriaSpotlight /></Suspense>
+      )} />
       <Route path="*" element={usuario.rol === 'vendedor' || reponedor ? aInicio :
         <AppShell
           tab={tab} setTab={setTab} conteoPrefill={conteoPrefill} setConteoPrefill={setConteoPrefill} irAConteo={irAConteo}
