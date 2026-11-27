@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ClipboardCheck, House, ScanLine, RefreshCw } from 'lucide-react';
-import { supabase } from './supabaseClient';
+import { ArrowLeft, ClipboardCheck, House, Monitor, ScanLine, RefreshCw } from 'lucide-react';
 import { useAuth } from './lib/useAuth';
 import { useSucursal } from './lib/useSucursal';
 import { cantidadTexto, idOperacion, interpretarCodigoOperacion, rolesAlmacen } from './lib/operacionesMovil';
-import { peticionAcotada } from './lib/peticionAcotada';
+import { operarAuditoria as operar } from './lib/auditoriaAlmacen';
 import CantidadEmpaque from './CantidadEmpaque';
 import ImagenProducto from './ImagenProducto';
 import EscanerCodigo from './EscanerCodigo';
@@ -26,19 +25,6 @@ const formatoFecha = new Intl.DateTimeFormat('es-BO', {
 const formatoHora = new Intl.DateTimeFormat('es-BO', {
   hour: '2-digit', minute: '2-digit', timeZone: 'America/La_Paz',
 });
-
-async function operar(accion, sucursal, datos) {
-  const { data, error } = await peticionAcotada(supabase.rpc('operar_auditoria_almacen', {
-    p_accion: accion, p_sucursal_id: sucursal, p_datos: datos,
-  }), { incierta: accion === 'contar' });
-  if (error) {
-    const fallo = new Error(error.message || 'No se pudo consultar Auditoría diaria.');
-    fallo.code = error.code;
-    throw fallo;
-  }
-  if (!data) throw new Error('No se recibió la jornada de auditoría.');
-  return data;
-}
 
 export default function AuditoriaMovilApp() {
   const { usuario } = useAuth();
@@ -208,6 +194,7 @@ function Auditoria({ sucursal, usuario, opciones, cambiarSucursal }) {
         </dl>
         <Avance resumen={data.resumen} />
         <button type="button" className="om-primary om-wide" onClick={() => navegar('lista')}><ClipboardCheck size={19} /> Ir al conteo</button>
+        <Link to="/tablero/auditoria" className="om-secondary om-wide"><Monitor size={19} /> Abrir Spotlight</Link>
       </section>
       <div className="om-section-title"><h2>Pendientes atrasados</h2>
         <button type="button" className="om-icon" onClick={recargar} aria-label="Actualizar auditoría"><RefreshCw size={18} /></button>
